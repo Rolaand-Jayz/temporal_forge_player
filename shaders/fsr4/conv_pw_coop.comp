@@ -1,0 +1,230 @@
+#version 450 core
+#extension GL_KHR_cooperative_matrix : require
+#extension GL_KHR_memory_scope_semantics : require
+#extension GL_EXT_shader_explicit_arithmetic_types_int8 : require
+#extension GL_EXT_shader_explicit_arithmetic_types_float16 : require
+#extension GL_EXT_shader_16bit_storage : require
+
+layout(local_size_x = 32, local_size_y = 1, local_size_z = 1) in;
+
+layout(set = 0, binding = 0) uniform ConvCB {
+    ivec4 slot0;
+    ivec4 slot1;
+    ivec4 slot2;
+};
+layout(set = 0, binding = 1, std430) readonly buffer WeightBlob { uint8_t weightU8[]; };
+layout(set = 0, binding = 2, std430) readonly buffer ScratchBuf { float16_t scratchData[]; };
+layout(set = 0, binding = 3, std430) writeonly buffer AccumBuf { float16_t accumData[]; };
+
+shared int8_t tileA[256];
+shared int8_t tileB[256];
+shared int tileI32[256];
+shared float tileC[256];
+shared float scaleA[16];
+shared float scaleB[16];
+
+float decodeFp8(uint b) {
+    const uint sign = b >> 7u;
+    const uint exponent = (b >> 3u) & 0xFu;
+    const uint mantissa = b & 0x7u;
+    if (exponent == 0u)
+        return (sign != 0u ? -1.0 : 1.0) * float(mantissa) * exp2(-10.0);
+    if (b == 0x80u) return 0.0;
+    const float value = (1.0 + float(mantissa) / 8.0) * exp2(float(exponent) - 8.0);
+    return sign != 0u ? -value : value;
+}
+
+float loadBias(uint byteOffset, bool fp16Bias) {
+    if (fp16Bias) {
+        const uint bits = uint(weightU8[byteOffset]) |
+                          (uint(weightU8[byteOffset + 1u]) << 8u);
+        return float(unpackHalf2x16(bits).x);
+    }
+    const uint bits = uint(weightU8[byteOffset]) |
+                      (uint(weightU8[byteOffset + 1u]) << 8u) |
+                      (uint(weightU8[byteOffset + 2u]) << 16u) |
+                      (uint(weightU8[byteOffset + 3u]) << 24u);
+    return uintBitsToFloat(bits);
+}
+
+float loadPackedFloat(uint byteOffset) {
+    const uint bits = uint(weightU8[byteOffset]) |
+                      (uint(weightU8[byteOffset + 1u]) << 8u) |
+                      (uint(weightU8[byteOffset + 2u]) << 16u) |
+                      (uint(weightU8[byteOffset + 3u]) << 24u);
+    return uintBitsToFloat(bits);
+}
+
+float quantizeFp8(float x) {
+    return x;
+    if (isnan(x) || isinf(x) || x == 0.0) return 0.0;
+    const uint sign = x < 0.0 ? 0x80000000u : 0u;
+    const float ax = abs(x);
+    const uint bits = floatBitsToUint(ax);
+    const uint exponent = (bits >> 23u) & 0xffu;
+    if (bits < 0x39800000u) return 0.0; // below the E4M3 subnormal floor
+    if (bits < 0x3c800000u) {
+        const float subnormal = clamp(round(ax * 1024.0), 0.0, 7.0) * 0.0009765625;
+        return sign != 0u ? -subnormal : subnormal;
+    }
+    if (exponent >= 135u) return sign != 0u ? -240.0 : 240.0;
+    uint mantissa = (bits & 0x007fffffu) + 0x00080000u;
+    uint outputExponent = exponent;
+    if (mantissa >= 0x00800000u) {
+        mantissa = 0u;
+        outputExponent++;
+    }
+    if (outputExponent >= 135u) return sign != 0u ? -240.0 : 240.0;
+    return uintBitsToFloat(sign | (outputExponent << 23u) |
+                           (mantissa & 0x00700000u));
+}
+
+uint encodeFp8(float x) {
+    if (isnan(x) || isinf(x)) return 0u;
+    const uint sign = x < 0.0 ? 0x80u : 0u;
+    const float ax = abs(x);
+    if (ax < exp2(-10.0)) return 0u;
+    float exponent = floor(log2(ax));
+    int exponentBits = int(exponent) + 8;
+    if (exponentBits <= 0)
+        return sign | uint(clamp(round(ax * exp2(10.0)), 0.0, 7.0));
+    if (exponentBits >= 16) return sign | 0x7fu;
+    float mantissa = round((ax / exp2(exponent) - 1.0) * 8.0);
+    if (mantissa >= 8.0) { mantissa = 0.0; exponentBits++; }
+    if (exponentBits >= 16) return sign | 0x7fu;
+    return sign | (uint(exponentBits) << 3u) | uint(mantissa);
+}
+
+void main() {
+    const uint lane = gl_LocalInvocationID.x;
+    const uint dispatchW = uint(slot1.x);
+    const uint dispatchH = uint(slot1.y);
+    const uint pixels = dispatchW * dispatchH;
+    const uint cin = uint(slot0.w) & 0xffffu;
+    const uint coutBias = uint(slot1.w);
+    const uint cout = coutBias & 0xffffu;
+    const uint biasBase = coutBias >> 16u;
+    const uint weightCin = uint((slot1.z >> 8) & 0xff);
+    const uint weightCout = uint((slot1.z >> 16) & 0xff);
+    const uint kernel = uint(slot1.z) & 0xffu;
+    const uint kernelElements = kernel * kernel * weightCin;
+    const uint pixelBase = gl_WorkGroupID.x * 16u;
+    const uint outputBase = gl_WorkGroupID.y * 16u;
+    const uint featBase = uint(slot0.x);
+    const uint accumBase = uint(slot0.y);
+    const uint weightBase = uint(slot0.z);
+    const uint packedWeightBase = 131072u;
+    const uint packedScaleBase = 262144u;
+    const bool hasRelu = (uint(slot0.w) & 0x08000000u) != 0u;
+    const bool fp16Bias = (uint(slot0.w) & 0x04000000u) != 0u;
+    const bool downscale = (uint(slot0.w) & 0x80000000u) != 0u;
+    const uint inputW = downscale ? dispatchW * 2u : dispatchW;
+    const uint inputH = downscale ? dispatchH * 2u : dispatchH;
+
+    for (uint i = lane; i < 256u; i += 32u) tileC[i] = 0.0;
+    barrier();
+    for (uint kBase = 0u; kBase < kernelElements; kBase += 16u) {
+        // Per-row activation and per-column weight scales preserve much more
+        // of the FP8 dynamic range than one scale for the entire 16x16 tile.
+        // They also avoid shared atomics. Lane r owns activation row r and
+        // weight column r.
+        if (lane < 16u) {
+            float amax = 0.0;
+            const uint pixel = pixelBase + lane;
+            const uint oc = outputBase + lane;
+            for (uint k = 0u; k < 16u; ++k) {
+                const uint flatIndex = kBase + k;
+                if (pixel < pixels && flatIndex < kernelElements) {
+                    const uint ic = flatIndex % weightCin;
+                    const uint spatial = flatIndex / weightCin;
+                    const int kx = int(spatial % kernel);
+                    const int ky = int(spatial / kernel);
+                    const int px = int(pixel % dispatchW);
+                    const int py = int(pixel / dispatchW);
+                    const int sx = downscale ? px * 2 + kx
+                                             : px + kx - int(kernel / 2u);
+                    const int sy = downscale ? py * 2 + ky
+                                             : py + ky - int(kernel / 2u);
+                    if (sx >= 0 && sy >= 0 && sx < int(inputW) && sy < int(inputH))
+                        amax = max(amax, abs(float(scratchData[featBase +
+                            (uint(sy) * inputW + uint(sx)) * cin + ic])));
+                }
+            }
+            scaleA[lane] = max(amax / 127.0, 1.0e-8);
+            const uint chunk = kBase / 16u;
+            scaleB[lane] = oc < weightCout
+                ? loadPackedFloat(packedScaleBase +
+                    (weightBase + oc * 16u + chunk) * 4u)
+                : 1.0e-8;
+        }
+        barrier();
+        for (uint i = lane; i < 256u; i += 32u) {
+            const uint row = i / 16u;
+            const uint k = i & 15u;
+            const uint pixel = pixelBase + row;
+            const uint flatIndex = kBase + k;
+            const uint ic = flatIndex % weightCin;
+            const uint spatial = flatIndex / weightCin;
+            const int kx = int(spatial % kernel);
+            const int ky = int(spatial / kernel);
+            const int px = int(pixel % dispatchW);
+            const int py = int(pixel / dispatchW);
+            const int sx = downscale ? px * 2 + kx
+                                     : px + kx - int(kernel / 2u);
+            const int sy = downscale ? py * 2 + ky
+                                     : py + ky - int(kernel / 2u);
+            const float av = (pixel < pixels && flatIndex < kernelElements &&
+                              sx >= 0 && sy >= 0 &&
+                              sx < int(inputW) && sy < int(inputH))
+                ? float(scratchData[featBase + (uint(sy) * inputW + uint(sx)) * cin + ic])
+                : 0.0;
+            const uint oc = outputBase + k;
+            const uint weightFlat = kBase + row;
+            const uint weightIc = weightFlat % weightCin;
+            const uint weightSpatial = weightFlat / weightCin;
+            const uint weightKx = weightSpatial % kernel;
+            const uint weightKy = weightSpatial / kernel;
+            const uint packedIndex = weightBase +
+                weightKx * weightCin * weightCout +
+                weightKy * kernel * weightCin * weightCout +
+                weightIc + oc * weightCin;
+            tileA[i] = int8_t(clamp(round(av / scaleA[row]), -127.0, 127.0));
+            tileB[i] = (oc < weightCout && weightFlat < kernelElements)
+                ? int8_t(weightU8[packedWeightBase + packedIndex]) : int8_t(0);
+        }
+        barrier();
+        coopmat<int8_t, gl_ScopeSubgroup, 16, 16, gl_MatrixUseA> a;
+        coopmat<int8_t, gl_ScopeSubgroup, 16, 16, gl_MatrixUseB> b;
+        coopmat<int, gl_ScopeSubgroup, 16, 16, gl_MatrixUseAccumulator> acc = coopmat<int, gl_ScopeSubgroup, 16, 16, gl_MatrixUseAccumulator>(0);
+        coopMatLoad(a, tileA, 0u, 16u, gl_CooperativeMatrixLayoutRowMajor);
+        coopMatLoad(b, tileB, 0u, 16u, gl_CooperativeMatrixLayoutRowMajor);
+        acc = coopMatMulAdd(a, b, acc);
+        coopMatStore(acc, tileI32, 0u, 16u, gl_CooperativeMatrixLayoutRowMajor);
+        barrier();
+        for (uint i = lane; i < 256u; i += 32u) {
+            const uint row = i / 16u;
+            const uint col = i & 15u;
+            tileC[i] += float(tileI32[i]) * scaleA[row] * scaleB[col];
+        }
+        barrier();
+    }
+
+    for (uint i = lane; i < 256u; i += 32u) {
+        const uint row = i / 16u;
+        const uint col = i & 15u;
+        const uint pixel = pixelBase + row;
+        const uint oc = outputBase + col;
+        if (pixel >= pixels || oc >= cout) continue;
+        float value = tileC[i];
+        if (oc < weightCout && biasBase != 0u)
+            value += loadBias(biasBase + oc * (fp16Bias ? 2u : 4u), fp16Bias);
+        else if (oc >= weightCout && oc < cin)
+            value = float(scratchData[featBase + pixel * cin + oc]);
+        if (hasRelu) value = max(value, 0.0);
+        // The recovered model uses an FP8 CopySat boundary between learned
+        // operators. The Vulkan carrier is FP16 for storage efficiency, but
+        // omitting this saturation lets late decoder activations overflow
+        // binary16 and turn the final tensor into infinities/NaNs.
+        accumData[accumBase + pixel * cout + oc] = float16_t(quantizeFp8(value));
+    }
+}

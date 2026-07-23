@@ -1,0 +1,150 @@
+// conv_pw_dot4.comp — FSR 4.1 pointwise (1x1) convolution.
+//
+// Pointwise channel mixing for the recovered fp8_no_scale model.
+#version 450 core
+#extension GL_EXT_shader_explicit_arithmetic_types_float16 : require
+#extension GL_EXT_shader_16bit_storage : require
+#extension GL_EXT_shader_explicit_arithmetic_types_int8 : require
+#extension GL_EXT_shader_explicit_arithmetic_types_int8 : enable
+#extension GL_EXT_shader_explicit_arithmetic_types_float16 : enable
+
+layout(local_size_x = 32, local_size_y = 1, local_size_z = 1) in;
+
+layout(set = 0, binding = 0) uniform ConvCB {
+    ivec4 slot0; // (featBase_words, accumBase_words, weightBase_bytes, cin|flag)
+    ivec4 slot1; // (dispatchW, dispatchH, kernelSize, cout|biasPacked)
+    ivec4 slot2; // (fp8 scale bits, _, _, _)
+};
+layout(set = 0, binding = 1, std430) readonly buffer WeightBlob { uint8_t weightU8[]; };
+layout(set = 0, binding = 2, std430) readonly buffer ScratchBuf { float16_t scratchData[]; };
+layout(set = 0, binding = 3, std430) writeonly buffer AccumBuf { float16_t accumData[]; };
+
+float loadBias(uint byteOffset, bool fp16Bias) {
+    if (fp16Bias) {
+        const uint bits = uint(weightU8[byteOffset + 0u]) |
+                          (uint(weightU8[byteOffset + 1u]) << 8u);
+        return float(unpackHalf2x16(bits).x);
+    }
+    // Tensor1f biases use their 32-bit representation.
+    const uint bits = uint(weightU8[byteOffset + 0u]) |
+                      (uint(weightU8[byteOffset + 1u]) << 8u) |
+                      (uint(weightU8[byteOffset + 2u]) << 16u) |
+                      (uint(weightU8[byteOffset + 3u]) << 24u);
+    return uintBitsToFloat(bits);
+}
+
+float decodeFp8(uint b) {
+    const uint sign = b >> 7u;
+    const uint exponent = (b >> 3u) & 0xFu;
+    const uint mantissa = b & 0x7u;
+    if (exponent == 0u)
+        return (sign != 0u ? -1.0 : 1.0) * float(mantissa) * exp2(-10.0);
+    if (b == 0x80u)
+        return 0.0;
+    const float value = (1.0 + float(mantissa) / 8.0) * exp2(float(exponent) - 8.0);
+    return sign != 0u ? -value : value;
+}
+
+float quantizeFp8(float x) {
+    return x;
+    if (isnan(x) || isinf(x)) return 0.0;
+    const float sign = x < 0.0 ? -1.0 : 1.0;
+    const float ax = abs(x);
+    if (ax < exp2(-10.0)) return 0.0;
+    float exponent = floor(log2(ax));
+    int exponentBits = int(exponent) + 8;
+    if (exponentBits <= 0)
+        return sign * clamp(round(ax * exp2(10.0)), 0.0, 7.0) * exp2(-10.0);
+    if (exponentBits >= 16) return sign * 240.0;
+    float mantissa = round((ax / exp2(exponent) - 1.0) * 8.0);
+    if (mantissa >= 8.0) {
+        mantissa = 0.0;
+        exponentBits += 1;
+    }
+    if (exponentBits >= 16) return sign * 240.0;
+    return sign * (1.0 + mantissa / 8.0) * exp2(float(exponentBits) - 8.0);
+}
+
+float loadPackedFloat(uint byteOffset) {
+    const uint bits = uint(weightU8[byteOffset]) |
+                      (uint(weightU8[byteOffset + 1u]) << 8u) |
+                      (uint(weightU8[byteOffset + 2u]) << 16u) |
+                      (uint(weightU8[byteOffset + 3u]) << 24u);
+    return uintBitsToFloat(bits);
+}
+
+uint encodeFp8(float x) {
+    if (isnan(x) || isinf(x)) return 0u;
+    const uint sign = x < 0.0 ? 0x80u : 0u;
+    const float ax = abs(x);
+    if (ax < exp2(-10.0)) return 0u;
+    float exponent = floor(log2(ax));
+    int exponentBits = int(exponent) + 8;
+    if (exponentBits <= 0) return sign | uint(clamp(round(ax * exp2(10.0)), 0.0, 7.0));
+    if (exponentBits >= 16) return sign | 0x7fu;
+    float mantissa = round((ax / exp2(exponent) - 1.0) * 8.0);
+    if (mantissa >= 8.0) { mantissa = 0.0; exponentBits++; }
+    if (exponentBits >= 16) return sign | 0x7fu;
+    return sign | (uint(exponentBits) << 3u) | uint(mantissa);
+}
+
+void main() {
+    const uint dispatchW = uint(slot1.x);
+    const uint dispatchH = uint(slot1.y);
+    if (dispatchW == 0u) return;
+    const int channelsIn  = int(uint(slot0.w) & 0xFFFFu);
+    const bool hasRelu = (uint(slot0.w) & 0x08000000u) != 0u;
+    const bool fp16Bias = (uint(slot0.w) & 0x04000000u) != 0u;
+    const int weightChannelsIn = ((slot1.z >> 8) & 0xFF) != 0 ? ((slot1.z >> 8) & 0xFF) : channelsIn;
+    const int weightChannelsOut = ((slot1.z >> 16) & 0xFF) != 0 ? ((slot1.z >> 16) & 0xFF) : int(uint(slot1.w) & 0xFFFFu);
+    const uint coutBias = uint(slot1.w);
+    const int channelsOut = int(coutBias & 0xFFFFu);
+    const int biasBaseBytes = int(coutBias >> 16);
+    const uint featBase   = uint(slot0.x);
+    const uint accumBase  = uint(slot0.y);
+    const uint weightBase = uint(slot0.z);
+    const float fp8Scale = (slot2.x != 0) ? uintBitsToFloat(uint(slot2.x)) : 1.0;
+    const uint packedWeightBase = 131072u;
+    const uint packedScaleBase = 262144u;
+
+    // One invocation owns one output channel. The former implementation
+    // accumulated every output channel in a 128-float local array per pixel,
+    // which forces register spills on RDNA3 and destroys wave occupancy.
+    const uint gid = gl_GlobalInvocationID.x;
+    const uint totalWork = dispatchW * dispatchH * uint(channelsOut);
+    if (gid >= totalWork) return;
+    const uint pixel = gid / uint(channelsOut);
+    const uint oc = gid % uint(channelsOut);
+    const uint px = pixel % dispatchW;
+    const uint py = pixel / dispatchW;
+    uint pixelFeatBase = featBase + (py * dispatchW + px) * uint(channelsIn);
+
+    float value = 0.0;
+    if (int(oc) < weightChannelsOut) {
+        for (int ic = 0; ic < weightChannelsIn; ++ic) {
+            const float feat = float(scratchData[pixelFeatBase + uint(ic)]);
+            // Recovered HWNC tensor metadata uses WHCN byte strides: input
+            // channels are contiguous and output channels advance by the
+            // input-channel tile. This is not ordinary
+            // row-major [input][output] storage.
+            const uint weightIndex = weightBase + uint(ic) + oc * uint(weightChannelsIn);
+            const uint chunk = uint(ic) / 16u;
+            const float packedScale = loadPackedFloat(packedScaleBase +
+                (weightBase + oc * 16u + chunk) * 4u);
+            const float w = float(int(int8_t(weightU8[packedWeightBase + weightIndex]))) *
+                            packedScale * fp8Scale;
+            value += feat * w;
+        }
+    } else if (int(oc) < channelsIn) {
+        value = float(scratchData[pixelFeatBase + oc]);
+    }
+
+    // Add bias + write. No activation (pointwise passes 3, 6), but the RE
+    // quantizes the tensor at this boundary before the next dispatch.
+    uint outPixelBase = accumBase + (py * dispatchW + px) * uint(channelsOut);
+    if (biasBaseBytes > 0 && int(oc) < weightChannelsOut) {
+        value += loadBias(uint(biasBaseBytes) + oc * (fp16Bias ? 2u : 4u), fp16Bias);
+    }
+    if (hasRelu) value = max(value, 0.0);
+    accumData[outPixelBase + oc] = float16_t(quantizeFp8(value));
+}

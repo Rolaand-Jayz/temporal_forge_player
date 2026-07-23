@@ -1,0 +1,251 @@
+// prepass_pq_eotf.comp — video-adapted FSR4 RE prepass.
+//
+// Function: transforms the current decoded SDR frame and cheap decoded motion
+// into the seven recovered network features. Video does not provide the game
+// depth/exposure inputs, so those bindings remain descriptor-compatible but
+// are not used to invent scene information.
+//
+// Dispatch: thread groups (16,16,1). Each thread processes one target-grid
+// position. The source frame is sampled into that grid with the recovered
+// Gaussian 2x2 input resolve.
+//
+// Bindings (recovered resource map):
+//   binding 0  (uniform)  per-pass constants (CBV space 0:1)
+//   binding 1  (image2D)  input color   (SRV space 4:3)  rgb10_a2
+//   binding 2  (image2D)  motion vectors(SRV space 3:2)  rg32f
+//   binding 3  (image2D)  depth          (SRV space 2:1)  r32f
+//   binding 4  (buffer)   weight blob    (SRV space 0:18) FP16 encoder1 conv weight
+//   binding 5  (buffer, ssbo) prepass output (UAV 2:3)   FP16 half4 features
+//
+// The output tensor is kept in the FP32 scratch representation used by the
+// Vulkan conv chain; tensor quantization is applied at each operator boundary.
+#version 450 core
+#extension GL_EXT_shader_explicit_arithmetic_types_float16 : require
+#extension GL_EXT_shader_16bit_storage : require
+#extension GL_EXT_shader_explicit_arithmetic_types_float16 : enable
+#extension GL_EXT_shader_16bit_storage : enable
+#extension GL_GOOGLE_include_directive : enable
+
+layout(local_size_x = 32, local_size_y = 8, local_size_z = 1) in;
+
+// --- per-pass constants (CBV slot 0 + slot 1 per the RE) ---
+layout(set = 0, binding = 0) uniform PrepassCB {
+    uvec4 slot0; // (dispatchW, dispatchH, flags, _)
+    vec4  slot1; // (scaleX, scaleY, offsetX, offsetY) coordinate transform
+};
+
+// Source-resolution color is preconverted to FSR model space by the uploader.
+layout(set = 0, binding = 1, rgb10_a2) readonly uniform image2D u_color;
+layout(set = 0, binding = 2, rg16f)   readonly uniform image2D u_motion;
+layout(set = 0, binding = 3, r32f)    readonly uniform image2D u_depth;
+layout(set = 0, binding = 7, rgb10_a2) readonly uniform image2D u_history;
+layout(set = 0, binding = 8, rgba16f) readonly uniform image2D u_recurrent;
+
+// encoder1 DownscaleStridedConv2x2 weight [2,2,8,16] HNWC, FP16, 1024 bytes.
+layout(set = 0, binding = 4) readonly buffer WeightBlob { uint weightWords[]; };
+
+// Prepass output: FP16 carrier for the recovered feature tensor.
+// Each pixel writes 7 recovered channels; the conv loader's eighth
+// channel remains the explicit tensor-padding lane in the scratch layout.
+layout(set = 0, binding = 5) writeonly buffer PrepassOut {
+    float16_t outFeatures[];
+};
+
+// PQ constants are retained for HDR inputs; normal video selects the SDR EOTF.
+const float PQ_M1 = 0.1593017578125;          // 0x3F89F9B580000000 double->float
+const float PQ_M2_INV = 0.012683313515656;    // 1/m2
+const float PQ_C1 = 0.8359375;
+const float PQ_C2 = 18.8515625;
+const float PQ_C3 = 18.6875;
+const float PQ_M1_INV = 6.277394636015326;    // 1/m1
+const float PQ_OUT_SCALE = 0.08137547969818115; // final scaling
+
+// PQ perceptual quantizer EOTF (ST 2084), RE IMPLEMENTATION_GUIDE §5.2.
+float pqEotf(float N) {
+    N = clamp(N, 0.0, 1.0);
+    float Np = exp2(log2(N) * PQ_M2_INV);     // N^(1/m2) via log2+exp2
+    float num = max(Np - PQ_C1, 0.0);
+    float den = PQ_C2 - PQ_C3 * Np;
+    float L = exp2(log2(num / den) * PQ_M1_INV); // (num/den)^(1/m1)
+    return max(L * PQ_OUT_SCALE, 0.0);
+}
+
+// SDR EOTF for Rec.709 gamma content (BT.1886-ish). Real SDR video (yuv420p)
+// is gamma-encoded Rec.709, NOT PQ. Applying PQ to SDR luma would compress it
+// into a tiny linear range and mis-feed the network. This branch linearizes
+// SDR content with a 2.4 gamma curve (display-side), matching how the network
+// expects linear-light input. Selected by slot0.z bit 0 (EOTF_MODE_SDR).
+// Output scaled to roughly match the PQ path's range (~0.08 max) so the
+// downstream conv chain sees comparable magnitudes regardless of EOTF.
+const float SDR_GAMMA = 2.4;
+const float SDR_OUT_SCALE = 1.0; // full linear range; PQ scale was too small for SDR
+float rec709Eotf(float N) {
+    N = clamp(N, 0.0, 1.0);
+    return max(pow(N, SDR_GAMMA) * SDR_OUT_SCALE, 0.0);
+}
+
+// Select EOTF based on slot0.z (flags). bit 0 = SDR mode.
+float linearize(float N) {
+    if ((slot0.z & 1u) != 0u) return rec709Eotf(N);
+    return pqEotf(N);
+}
+
+float filterWeightGaussian(float distance, float scale) {
+    const float exponentFactor = -0.5 / (0.47 * 0.47);
+    const float x = scale * distance;
+    return exp(x * x * exponentFactor);
+}
+
+vec4 sampleCurrentModel(vec2 sourcePos) {
+    const ivec2 sourceSize = imageSize(u_color);
+    const vec2 inputPos = clamp(sourcePos, vec2(0.0), vec2(sourceSize - ivec2(1)));
+    const ivec2 base = ivec2(floor(inputPos));
+    const ivec2 tl = clamp(base, ivec2(0), sourceSize - ivec2(1));
+    const ivec2 tr = clamp(base + ivec2(1, 0), ivec2(0), sourceSize - ivec2(1));
+    const ivec2 bl = clamp(base + ivec2(0, 1), ivec2(0), sourceSize - ivec2(1));
+    const ivec2 br = clamp(base + ivec2(1, 1), ivec2(0), sourceSize - ivec2(1));
+    const float x1 = filterWeightGaussian(abs(float(tl.x) - inputPos.x), slot1.x);
+    const float x2 = filterWeightGaussian(abs(float(tr.x) - inputPos.x), slot1.x);
+    const float y1 = filterWeightGaussian(abs(float(tl.y) - inputPos.y), slot1.y);
+    const float y2 = filterWeightGaussian(abs(float(bl.y) - inputPos.y), slot1.y);
+    const float wTL = x1 * y1;
+    const float wTR = x2 * y1;
+    const float wBL = x1 * y2;
+    const float wBR = x2 * y2;
+    const float weightSum = max(wTL + wTR + wBL + wBR, 1e-6);
+    const vec3 result =
+        imageLoad(u_color, tl).rgb * wTL +
+        imageLoad(u_color, tr).rgb * wTR +
+        imageLoad(u_color, bl).rgb * wBL +
+        imageLoad(u_color, br).rgb * wBR;
+    const float centerWeight = max(max(max(wTL, wTR), wBL), wBR);
+    return vec4(result / weightSum, centerWeight);
+}
+
+vec4 sampleRecurrentLinear(vec2 outputPos) {
+    const ivec2 size = imageSize(u_recurrent);
+    const vec2 p = clamp(outputPos, vec2(0.0), vec2(size - ivec2(1)));
+    const ivec2 a = ivec2(floor(p));
+    const vec2 f = fract(p);
+    if (all(equal(f, vec2(0.0)))) return imageLoad(u_recurrent, a);
+    const ivec2 b = clamp(a + ivec2(1), ivec2(0), size - ivec2(1));
+    const vec4 top = mix(imageLoad(u_recurrent, a),
+                         imageLoad(u_recurrent, ivec2(b.x, a.y)), f.x);
+    const vec4 bottom = mix(imageLoad(u_recurrent, ivec2(a.x, b.y)),
+                            imageLoad(u_recurrent, b), f.x);
+    return mix(top, bottom, f.y);
+}
+
+float filterWeightCubic(float x) {
+    const float B = 0.0;
+    const float C = 0.5;
+    const float x2 = x * x;
+    const float x3 = x2 * x;
+    if (x < 1.0)
+        return ((12.0 - 9.0 * B - 6.0 * C) * x3 +
+                (-18.0 + 12.0 * B + 6.0 * C) * x2 +
+                (6.0 - 2.0 * B)) / 6.0;
+    if (x <= 2.0)
+        return ((-B - 6.0 * C) * x3 +
+                (6.0 * B + 30.0 * C) * x2 +
+                (-12.0 * B - 48.0 * C) * x +
+                (8.0 * B + 24.0 * C)) / 6.0;
+    return 0.0;
+}
+
+vec4 sampleHistoryCatmullRom(vec2 outputPos) {
+    const ivec2 size = imageSize(u_history);
+    const vec2 p = clamp(outputPos, vec2(0.0), vec2(size - ivec2(1)));
+    const ivec2 base = ivec2(floor(p));
+    const vec2 f = fract(p);
+    if (all(equal(f, vec2(0.0)))) return imageLoad(u_history, base);
+    vec4 result = vec4(0.0);
+    float totalWeight = 0.0;
+    for (int dy = -1; dy <= 2; ++dy) {
+        for (int dx = -1; dx <= 2; ++dx) {
+            const ivec2 q = base + ivec2(dx, dy);
+            const float weight = filterWeightCubic(abs(float(dx) - f.x)) *
+                                 filterWeightCubic(abs(float(dy) - f.y));
+            if (q.x >= 0 && q.y >= 0 && q.x < size.x && q.y < size.y) {
+                result += imageLoad(u_history, q) * weight;
+                totalWeight += weight;
+            }
+        }
+    }
+    return result / max(totalWeight, 1e-6);
+}
+
+void main() {
+    const uint dispatchW = slot0.x;
+    const uint dispatchH = slot0.y;
+    if (dispatchW == 0u) return;
+
+    const uint px = gl_GlobalInvocationID.x;
+    const uint py = gl_GlobalInvocationID.y;
+    if (px >= dispatchW || py >= dispatchH) return;
+
+    const vec2 invScale = 1.0 / max(slot1.xy, vec2(1e-6));
+    const vec2 inputPos = (-vec2(0.5) + invScale * 0.5 + vec2(px, py) * invScale) + slot1.zw;
+    const vec4 current = sampleCurrentModel(inputPos);
+
+    // History is model-space FP16 at target resolution. Motion is supplied in
+    // source pixels and converted to target pixels here. It is always causal:
+    // this pass only reads the completed previous ping-pong image.
+    vec3 historyModel = ((slot0.z & 2u) != 0u) ? current.rgb : vec3(0.0);
+    vec4 recurrent = vec4(0.0);
+    if ((slot0.z & 2u) == 0u) {
+        // FSR4 scales the current-frame contribution by the Gaussian resolve's
+        // center weight. This preserves the training-time confidence signal;
+        // a fixed 0.1 shifts every temporal feature supplied to the network.
+        const float temporalSampleWeight = current.a * 0.1;
+        if ((slot0.z & 12u) == 12u) {
+            historyModel = temporalSampleWeight * current.rgb;
+        } else {
+            const ivec2 sourceSize = imageSize(u_color);
+            const ivec2 sourceCoord = clamp(ivec2(round(inputPos)), ivec2(0),
+                                            sourceSize - ivec2(1));
+            const ivec2 motionCoord = clamp(sourceCoord, ivec2(0),
+                                             imageSize(u_motion) - ivec2(1));
+            const vec2 motion = imageLoad(u_motion, motionCoord).xy * slot1.xy;
+            // Codec motion points from the current destination block to its
+            // source position in the reference frame.
+            const vec2 historyPos = vec2(px, py) + motion;
+            const ivec2 historySize = imageSize(u_history);
+            const bool onscreen = historyPos.x >= 0.0 && historyPos.y >= 0.0 &&
+                                  historyPos.x <= float(historySize.x - 1) &&
+                                  historyPos.y <= float(historySize.y - 1);
+            if (onscreen) {
+                if ((slot0.z & 8u) == 0u)
+                    historyModel = sampleHistoryCatmullRom(historyPos).rgb;
+                if ((slot0.z & 4u) == 0u)
+                    recurrent = sampleRecurrentLinear(historyPos);
+            }
+            historyModel = max(temporalSampleWeight * current.rgb +
+                                   (1.0 - temporalSampleWeight) * historyModel,
+                               vec3(0.0));
+        }
+    }
+    const float inputY = dot(current.rgb, vec3(0.2126, 0.7152, 0.0722));
+    const float historyY = dot(historyModel, vec3(0.2126, 0.7152, 0.0722));
+    const vec2 inputChroma = vec2((current.b - inputY) / 1.8556,
+                                  (current.r - inputY) / 1.5748);
+    const vec2 historyChroma = vec2((historyModel.b - historyY) / 1.8556,
+                                    (historyModel.r - historyY) / 1.5748);
+    const float chromaDistance = sqrt(dot(inputChroma - historyChroma,
+                                          inputChroma - historyChroma) + 1e-6);
+    // Recovered encoder contract: normalized current/history luma, chroma
+    // distance, then four recurrent channels. The RE normalizes recurrent
+    // state from [0,1] to [-1,1]; reset state is therefore -1, not zero.
+    // The recovered tensor has seven logical channels but eight stored lanes
+    // per NHWC element. Every convolution indexes it with the physical
+    // 8-lane stride, so the padding lane must be written deterministically.
+    const uint outBase = (py * dispatchW + px) * 8u;
+    outFeatures[outBase + 0u] = float16_t(2.0 * inputY - 1.0);
+    outFeatures[outBase + 1u] = float16_t(2.0 * historyY - 1.0);
+    outFeatures[outBase + 2u] = float16_t(chromaDistance);
+    outFeatures[outBase + 3u] = float16_t(2.0 * recurrent.x - 1.0);
+    outFeatures[outBase + 4u] = float16_t(2.0 * recurrent.y - 1.0);
+    outFeatures[outBase + 5u] = float16_t(2.0 * recurrent.z - 1.0);
+    outFeatures[outBase + 6u] = float16_t(2.0 * recurrent.w - 1.0);
+    outFeatures[outBase + 7u] = float16_t(0.0);
+}

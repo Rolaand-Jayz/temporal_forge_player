@@ -1,0 +1,148 @@
+#version 450 core
+#extension GL_KHR_cooperative_matrix : require
+#extension GL_KHR_memory_scope_semantics : require
+#extension GL_EXT_shader_explicit_arithmetic_types_int8 : require
+#extension GL_EXT_shader_explicit_arithmetic_types_float16 : require
+#extension GL_EXT_shader_16bit_storage : require
+
+// Cooperative 2x2 transpose-convolution path for channel-reducing decoder
+// stages. A 16-pixel output tile has two horizontal phases; each phase is
+// represented as a masked 16x16 activation matrix and multiplied by its
+// phase-specific weight matrix.
+layout(local_size_x = 32, local_size_y = 1, local_size_z = 1) in;
+
+layout(set = 0, binding = 0) uniform ConvCB {
+    ivec4 slot0;
+    ivec4 slot1;
+    ivec4 slot2;
+};
+layout(set = 0, binding = 1, std430) readonly buffer WeightBlob { uint8_t weightU8[]; };
+layout(set = 0, binding = 2, std430) readonly buffer ScratchBuf { float16_t scratchData[]; };
+layout(set = 0, binding = 3, std430) writeonly buffer AccumBuf { float16_t accumData[]; };
+layout(set = 0, binding = 4, std430) buffer EdgeTensorBuf { float16_t edgeData[]; };
+layout(set = 0, binding = 5, std430) readonly buffer Fp16Weights { float16_t weightData[]; };
+
+shared float16_t tileA[256];
+shared float tileC[256];
+
+const uint fp16WeightBase = 393216u;
+
+float loadBias(uint byteOffset, bool fp16Bias) {
+    const uint bits = uint(weightU8[byteOffset]) |
+                      (uint(weightU8[byteOffset + 1u]) << 8u);
+    return fp16Bias ? float(unpackHalf2x16(bits).x) :
+        uintBitsToFloat(bits | (uint(weightU8[byteOffset + 2u]) << 16u) |
+                        (uint(weightU8[byteOffset + 3u]) << 24u));
+}
+
+float quantizeFp8(float x) {
+    return x;
+    if (isnan(x) || isinf(x) || x == 0.0) return 0.0;
+    const uint sign = x < 0.0 ? 0x80000000u : 0u;
+    const float ax = abs(x);
+    const uint bits = floatBitsToUint(ax);
+    const uint exponent = (bits >> 23u) & 0xffu;
+    if (bits < 0x39800000u) return 0.0;
+    if (bits < 0x3c800000u) {
+        const float subnormal = clamp(round(ax * 1024.0), 0.0, 7.0) * 0.0009765625;
+        return sign != 0u ? -subnormal : subnormal;
+    }
+    if (exponent >= 135u) return sign != 0u ? -240.0 : 240.0;
+    uint mantissa = (bits & 0x007fffffu) + 0x00080000u;
+    uint outputExponent = exponent;
+    if (mantissa >= 0x00800000u) {
+        mantissa = 0u;
+        outputExponent++;
+    }
+    if (outputExponent >= 135u) return sign != 0u ? -240.0 : 240.0;
+    return uintBitsToFloat(sign | (outputExponent << 23u) |
+                           (mantissa & 0x00700000u));
+}
+
+void main() {
+    const uint pixelBase = gl_WorkGroupID.x * 16u;
+    const uint outputBase = gl_WorkGroupID.y * 16u;
+    const uint dispatchW = uint(slot1.x);
+    const uint dispatchH = uint(slot1.y);
+    const uint pixels = dispatchW * dispatchH;
+    const uint cin = uint(slot0.w) & 0xffffu;
+    const uint coutBias = uint(slot1.w);
+    const uint cout = coutBias & 0xffffu;
+    const uint biasBase = coutBias >> 16u;
+    const uint weightCin = (uint(slot1.z) >> 8u) & 0xffu;
+    const uint weightCout = (uint(slot1.z) >> 16u) & 0xffu;
+    const uint featBase = uint(slot0.x);
+    const uint accumBase = uint(slot0.y);
+    const uint weightBase = uint(slot0.z);
+    const bool outputFp16 = (uint(slot0.w) & 0x20000000u) != 0u;
+    const bool hasRelu = (uint(slot0.w) & 0x08000000u) != 0u;
+    const bool fp16Bias = (uint(slot0.w) & 0x04000000u) != 0u;
+    const uint lane = gl_LocalInvocationID.x;
+
+    if (cin == 0u || cout == 0u || weightCin == 0u || weightCout == 0u ||
+        dispatchW == 0u || dispatchH == 0u) return;
+
+    const uint inputW = max(1u, dispatchW / 2u);
+    const uint inputH = max(1u, dispatchH / 2u);
+    const uint tileX = pixelBase % dispatchW;
+    const uint tileY = pixelBase / dispatchW;
+    const uint phaseY = tileY & 1u;
+    const uint phaseStride = weightCin * weightCout;
+
+    coopmat<float, gl_ScopeSubgroup, 16, 16, gl_MatrixUseAccumulator> acc =
+        coopmat<float, gl_ScopeSubgroup, 16, 16, gl_MatrixUseAccumulator>(0.0);
+
+    for (uint phaseX = 0u; phaseX < 2u; ++phaseX) {
+        for (uint kBase = 0u; kBase < weightCin; kBase += 16u) {
+            for (uint i = lane; i < 256u; i += 32u) {
+                const uint row = i / 16u;
+                const uint col = i & 15u;
+                const uint pixel = pixelBase + row;
+                const uint px = pixel % dispatchW;
+                const uint py = pixel / dispatchW;
+                const bool selected = (px & 1u) == phaseX && (py & 1u) == phaseY;
+                if (!selected || pixel >= pixels) {
+                    tileA[i] = float16_t(0.0);
+                    continue;
+                }
+                const uint sx = px / 2u;
+                const uint sy = py / 2u;
+                tileA[i] = (sx < inputW && sy < inputH && kBase + col < weightCin)
+                    ? scratchData[featBase + (sy * inputW + sx) * cin + kBase + col]
+                    : float16_t(0.0);
+            }
+            barrier();
+
+            const uint phase = phaseX + phaseY * 2u;
+            const uint weightIndex = fp16WeightBase + weightBase +
+                phase * phaseStride + outputBase * weightCin + kBase;
+            coopmat<float16_t, gl_ScopeSubgroup, 16, 16, gl_MatrixUseA> a;
+            coopmat<float16_t, gl_ScopeSubgroup, 16, 16, gl_MatrixUseB> b;
+            coopMatLoad(a, tileA, 0u, 16u, gl_CooperativeMatrixLayoutRowMajor);
+            coopMatLoad(b, weightData, weightIndex, weightCin,
+                        gl_CooperativeMatrixLayoutColumnMajor);
+            acc = coopMatMulAdd(a, b, acc);
+        }
+    }
+
+    coopMatStore(acc, tileC, 0u, 16u, gl_CooperativeMatrixLayoutRowMajor);
+    barrier();
+    for (uint i = lane; i < 256u; i += 32u) {
+        const uint row = i / 16u;
+        const uint col = i & 15u;
+        const uint pixel = pixelBase + row;
+        const uint oc = outputBase + col;
+        if (pixel >= pixels || oc >= cout) continue;
+        float value = tileC[i];
+        if (biasBase != 0u)
+            value += loadBias(biasBase + oc * (fp16Bias ? 2u : 4u), fp16Bias);
+        if (hasRelu) value = max(value, 0.0);
+        if (outputFp16) {
+            const float finiteValue = (isnan(value) || isinf(value))
+                ? 0.0 : clamp(value, -65504.0, 65504.0);
+            edgeData[pixel * cout + oc] = float16_t(finiteValue);
+        } else {
+            accumData[accumBase + pixel * cout + oc] = float16_t(quantizeFp8(value));
+        }
+    }
+}

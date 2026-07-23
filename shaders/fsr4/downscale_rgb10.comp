@@ -1,0 +1,43 @@
+// Downscale a completed model-color image for the next progressive FSR pass.
+#version 450
+
+layout(local_size_x = 16, local_size_y = 16, local_size_z = 1) in;
+
+layout(push_constant) uniform Push {
+    uvec4 sizes; // source width/height, destination width/height
+};
+
+// Chained passes consume the completed postpass image. Convert its display
+// sRGB values back into the mu-law model domain expected by prepass.
+layout(set = 0, binding = 0, rgba8) readonly uniform image2D u_source;
+layout(set = 0, binding = 1, rgb10_a2) writeonly uniform image2D u_destination;
+
+vec3 loadClamped(ivec2 p, ivec2 size) {
+    p = clamp(p, ivec2(0), size - ivec2(1));
+    return imageLoad(u_source, p).rgb;
+}
+
+void main() {
+    const ivec2 sourceSize = ivec2(sizes.xy);
+    const ivec2 destinationSize = ivec2(sizes.zw);
+    const ivec2 p = ivec2(gl_GlobalInvocationID.xy);
+    if (p.x >= destinationSize.x || p.y >= destinationSize.y) return;
+
+    const vec2 sourcePos = (vec2(p) + vec2(0.5)) *
+                           (vec2(sourceSize) / vec2(destinationSize)) -
+                           vec2(0.5);
+    const ivec2 a = ivec2(floor(sourcePos));
+    const ivec2 b = a + ivec2(1);
+    const vec2 f = fract(sourcePos);
+    const vec3 top = mix(loadClamped(a, sourceSize),
+                         loadClamped(ivec2(b.x, a.y), sourceSize), f.x);
+    const vec3 bottom = mix(loadClamped(ivec2(a.x, b.y), sourceSize),
+                            loadClamped(b, sourceSize), f.x);
+    vec3 srgb = clamp(mix(top, bottom, f.y), vec3(0.0), vec3(1.0));
+    vec3 linearLo = srgb / 12.92;
+    vec3 linearHi = pow((srgb + 0.055) / 1.055, vec3(2.4));
+    vec3 linear = mix(linearHi, linearLo,
+                      lessThanEqual(srgb, vec3(0.04045)));
+    vec3 model = log(1.0 + 150.0 * max(linear, vec3(0.0))) / 8.51788;
+    imageStore(u_destination, p, vec4(clamp(model, vec3(0.0), vec3(1.0)), 1.0));
+}

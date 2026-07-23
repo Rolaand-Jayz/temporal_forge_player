@@ -1,0 +1,443 @@
+// Main.qml — Phase 1 functional player UI.
+// spec 05 visual style: dark modern surface, low chrome, high contrast.
+// Keyboard shortcuts (spec 05): Space, F, Esc, O, M, S, A, Ctrl+F.
+import QtQuick
+import QtQuick.Controls
+import QtQuick.Layouts
+import QtQuick.Dialogs
+import TemporalForge
+
+ApplicationWindow {
+    id: window
+    visible: false
+    width: 1280; height: 720
+    color: "#0a0a0c"
+    title: "Temporal Forge Player" + (playback.mediaTitle ? " — " + playback.mediaTitle : "")
+
+    // --- open-file dialog ---
+    FileDialog {
+        id: openDialog
+        title: "Open video"
+        nameFilters: ["Video files (*.mp4 *.mkv *.mov *.webm *.avi *.ts *.m2ts)", "All files (*)"]
+        onAccepted: playback.openUrl(currentFile)
+    }
+
+    // --- FSR4 INT8 experimental warning ---
+    Dialog {
+        id: experimentalWarning
+        title: "FSR 4.1 INT8 — Experimental"
+        modal: true
+        anchors.centerIn: parent
+        standardButtons: Dialog.Ok | Dialog.Cancel
+        Label {
+            text: "FSR 4.1 INT8 is an experimental, RE-derived video upscaler for RDNA3. Validation here covers local GPU execution, finite output, bounds, and visual A/B inspection. AMD's Windows runtime and an official video-FSR reference are outside this project's definition of done."
+            wrapMode: Text.Wrap
+            width: parent ? parent.width - 24 : 420
+        }
+    }
+
+    // Track window size for the FSR info chain (spec 02: window size only
+    // affects presentation, never the FSR target).
+    Connections {
+        target: window
+        function onWidthChanged() { fsr.setWindowSize(surfaceArea.width, surfaceArea.height) }
+        function onHeightChanged() { fsr.setWindowSize(surfaceArea.width, surfaceArea.height) }
+    }
+
+    Component.onCompleted: {
+        fsr.setWindowSize(surfaceArea.width, surfaceArea.height)
+        playback.compareEnabled = compare.active
+    }
+
+    // Refresh FSR source dims when media changes.
+    Connections {
+        target: playback
+        function onMediaChanged() { fsr.setWindowSize(surfaceArea.width, surfaceArea.height) }
+    }
+    Connections {
+        target: compare
+        function onChanged() { playback.compareEnabled = compare.active }
+    }
+
+    // --- video surface ---
+    // Anchored above the timeline. The timeline is anchored to parent.bottom
+    // with bottomMargin 60 (the controls footer height), so this chain is
+    // stable — the video stops above the timeline, not behind it.
+    Item {
+        id: surfaceArea
+        anchors.top: parent.top
+        anchors.left: parent.left
+        anchors.right: parent.right
+        anchors.bottom: timeline.top
+        clip: true
+
+        Rectangle { anchors.fill: parent; color: "#000000" }
+
+        // Video surface: imports the completed native Vulkan image written by
+        // the real FSR4 dispatch. The refresh Timer only advances frame
+        // pacing and schedules a scene-graph update.
+        // The normal surface shows the FSR4 output. In compare mode the raw
+        // decoded presentation is clipped over its left side, so both images
+        // use the same decoded frame and timing.
+        VideoSurface {
+            id: videoSurface
+            anchors.fill: parent
+            visible: playback.hasMedia
+            brightness: videoSettings.brightness
+            contrast: videoSettings.contrast
+            saturation: videoSettings.saturation
+            hue: videoSettings.hue
+            gamma: videoSettings.gamma
+            presentationScaler: videoSettings.presentationScaler
+            compareActive: false
+            compareRawOnLeft: false
+        }
+
+        Item {
+            id: compareRawPane
+            anchors.left: parent.left
+            anchors.top: parent.top
+            anchors.bottom: parent.bottom
+            width: parent.width * compare.splitPosition
+            visible: playback.hasMedia && compare.active
+            clip: true
+            z: 1
+
+            VideoSurface {
+                id: compareRawSurface
+                width: compareRawPane.parent.width
+                height: compareRawPane.parent.height
+                brightness: videoSettings.brightness
+                contrast: videoSettings.contrast
+                saturation: videoSettings.saturation
+                hue: videoSettings.hue
+                gamma: videoSettings.gamma
+                presentationScaler: videoSettings.presentationScaler
+                compareActive: true
+                compareRawOnLeft: true
+            }
+        }
+
+        // Drive the VideoSurface refresh from QML.
+        Timer {
+            running: playback.hasMedia && playback.playing
+            repeat: true
+            interval: playback.mediaInfo.fps > 0
+                      ? Math.max(8, Math.round(1000 / Math.min(playback.mediaInfo.fps, 60)))
+                      : 16
+            property int lastFrameCounter: -1
+            onTriggered: {
+                videoSurface.refresh()
+                if (compare.active && videoSurface.frameCounter !== lastFrameCounter) {
+                    lastFrameCounter = videoSurface.frameCounter
+                    compareRawSurface.requestUpdate()
+                }
+            }
+        }
+
+        // Compare divider drag handle (visible only in compare mode).
+        MouseArea {
+            anchors.fill: parent
+            enabled: compare.active
+            z: 10
+            cursorShape: compare.active ? Qt.SplitHCursor : Qt.ArrowCursor
+            onPressed: function(mouse) {
+                // Clicking anywhere moves the divider there.
+                compare.splitPosition = mouse.x / parent.width
+            }
+            onPositionChanged: function(mouse) {
+                if (pressed)
+                    compare.splitPosition = Math.max(0, Math.min(1, mouse.x / parent.width))
+            }
+        }
+
+        Rectangle {
+            visible: compare.active
+            x: parent.width * compare.splitPosition - width * 0.5
+            y: 0
+            width: 2
+            height: parent.height
+            color: "#f2f2f4"
+            opacity: 0.9
+            z: 11
+        }
+
+        Rectangle {
+            visible: compare.active
+            x: parent.width * compare.splitPosition - width * 0.5
+            y: parent.height * 0.5 - height * 0.5
+            width: 28
+            height: 28
+            radius: 14
+            color: "#15151a"
+            border.color: "#f2f2f4"
+            border.width: 2
+            z: 12
+        }
+
+        // Startup hint when no media is loaded.
+        Label {
+            anchors.centerIn: parent
+            visible: !playback.hasMedia
+            text: "Press O to open a video file"
+            color: "#6a6a75"
+            font.pixelSize: 18
+        }
+
+        // Double-click toggles fullscreen (common player UX).
+        MouseArea {
+            anchors.fill: parent
+            acceptedButtons: Qt.LeftButton
+            onDoubleClicked: window.visibility === Window.FullScreen
+                             ? window.showNormal() : window.showFullScreen()
+            onClicked: playback.togglePlay()
+        }
+    }
+
+    // --- timeline (floats above the video surface, just above controls) ---
+    Rectangle {
+        id: timeline
+        anchors.left: parent.left
+        anchors.right: parent.right
+        anchors.bottom: parent.bottom
+        anchors.bottomMargin: 60  // height of the controls footer
+        height: 36
+        color: "#0d0d11"
+        z: 10
+
+        // Click-to-seek.
+        MouseArea {
+            anchors.fill: parent
+            onClicked: function(mouse) {
+                if (!playback.hasMedia) return
+                const ratio = mouse.x / parent.width
+                playback.seekUs(ratio * playback.durationUs)
+            }
+        }
+
+        Rectangle {
+            anchors.left: parent.left
+            anchors.verticalCenter: parent.verticalCenter
+            height: 4
+            width: parent.width * (playback.durationUs > 0
+                    ? Math.min(1, Math.max(0, playback.positionUs / playback.durationUs))
+                    : 0)
+            color: "#e44d3a"
+            radius: 2
+        }
+        Rectangle {
+            anchors.fill: parent
+            color: "transparent"
+            border.color: "#1e1e24"
+            border.width: 1
+        }
+    }
+
+    // --- control bar ---
+    footer: ToolBar {
+        id: controls
+        height: 60
+        background: Rectangle { color: "#121216"; opacity: 0.95 }
+
+        RowLayout {
+            anchors.fill: parent
+            anchors.leftMargin: 12; anchors.rightMargin: 12
+            spacing: 10
+
+            Button {
+                text: playback.playing ? "❚❚" : "▶"
+                enabled: playback.hasMedia
+                onClicked: playback.togglePlay()
+                background: Rectangle { color: "transparent" }
+                contentItem: Label {
+                    text: parent.text
+                    color: parent.enabled ? "#e8e8ee" : "#555560"
+                    font.pixelSize: 18
+                    horizontalAlignment: Qt.AlignHCenter
+                }
+                Layout.preferredWidth: 40
+            }
+
+            Label {
+                text: formatTime(playback.positionUs) + " / " + formatTime(playback.durationUs)
+                color: "#b0b0bc"
+                font.pixelSize: 12
+                Layout.preferredWidth: 160
+            }
+
+            Button {
+                text: playback.muted ? "🔇" : "🔊"
+                onClicked: playback.muted = !playback.muted
+                background: Rectangle { color: "transparent" }
+                Layout.preferredWidth: 32
+            }
+            Slider {
+                from: 0; to: 100
+                value: playback.volume
+                onMoved: playback.volume = value
+                Layout.preferredWidth: 90
+            }
+
+            Item { Layout.fillWidth: true }
+
+            // FSR preset quick selector (spec 05).
+            ComboBox {
+                id: presetCombo
+                model: fsr.presetOptions
+                textRole: "label"
+                valueRole: "key"
+                currentIndex: {
+                    const key = fsr.preset
+                    for (let i = 0; i < fsr.presetOptions.length; ++i)
+                        if (fsr.presetOptions[i].key === key) return i
+                    return 0
+                }
+                onActivated: function(index) {
+                    fsr.preset = currentValue
+                }
+                Layout.preferredWidth: 220
+            }
+
+            // FSR info chip: source -> FSR target -> window (spec 05 UX principle)
+            Label {
+                text: fsr.chainLabel
+                color: "#8a8a95"
+                font.pixelSize: 11
+                elide: Text.ElideRight
+                Layout.preferredWidth: 340
+            }
+
+            Button {
+                text: "Open"
+                onClicked: openDialog.open()
+                Layout.preferredWidth: 64
+            }
+
+            // Settings gear button.
+            Button {
+                text: "⚙"
+                onClicked: settingsDialog.show()
+                Layout.preferredWidth: 40
+                background: Rectangle { color: "transparent" }
+                contentItem: Label {
+                    text: parent.text
+                    color: "#b0b0bc"
+                    font.pixelSize: 18
+                    horizontalAlignment: Qt.AlignHCenter
+                }
+            }
+        }
+    }
+
+    // --- keyboard shortcuts (spec 05) ---
+    Shortcut { sequence: "Space"; onActivated: playback.togglePlay() }
+    Shortcut { sequence: "O";     onActivated: openDialog.open() }
+    Shortcut {
+        sequence: "F"
+        onActivated: window.visibility === Window.FullScreen
+                     ? window.showNormal() : window.showFullScreen()
+    }
+    Shortcut { sequence: "Escape"; onActivated: if (window.visibility === Window.FullScreen) window.showNormal() }
+    Shortcut { sequence: "M"; onActivated: playback.muted = !playback.muted }
+    Shortcut { sequence: "Ctrl+F"; onActivated: debug.visible = !debug.visible }
+    Shortcut { sequence: "Ctrl+I"; onActivated: infoPanel.visible = !infoPanel.visible }
+    Shortcut { sequence: "Ctrl+,"; onActivated: settingsDialog.show() }
+    Shortcut { sequence: "C"; onActivated: compare.active = !compare.active }
+    Shortcut { sequence: "H"; onActivated: liveHud.hudVisible = !liveHud.hudVisible }
+    // spec 05 FSR preset shortcuts
+    Shortcut { sequence: "Ctrl+1"; onActivated: fsr.preset = 1 } // Off
+    Shortcut { sequence: "Ctrl+2"; onActivated: fsr.preset = 3 } // Quality
+    Shortcut { sequence: "Ctrl+3"; onActivated: fsr.preset = 4 } // Balanced
+    Shortcut { sequence: "Ctrl+4"; onActivated: fsr.preset = 5 } // Performance
+    Shortcut { sequence: "Ctrl+5"; onActivated: fsr.preset = 6 } // Ultra Performance
+
+    // --- debug overlay (spec 05) ---
+    Rectangle {
+        id: debugOverlay
+        visible: debug.visible
+        anchors.top: parent.top
+        anchors.left: parent.left
+        anchors.margins: 12
+        width: debugCol.implicitWidth + 24
+        height: debugCol.implicitHeight + 24
+        color: "#000000"
+        opacity: 0.82
+        radius: 6
+        z: 100
+
+        Column {
+            id: debugCol
+            anchors.margins: 12
+            anchors.fill: parent
+            spacing: 2
+            Label { text: "DEBUG (Ctrl+F)"; color: "#e44d3a"; font.pixelSize: 11; font.bold: true }
+            Label { text: "Source: " + debug.stats.sourceResolution; color: "#c8c8d0"; font.pixelSize: 11; font.family: "monospace" }
+            Label { text: "FSR target: " + debug.stats.fsrTargetResolution; color: "#c8c8d0"; font.pixelSize: 11; font.family: "monospace" }
+            Label { text: "Window: " + debug.stats.windowResolution; color: "#c8c8d0"; font.pixelSize: 11; font.family: "monospace" }
+            Label { text: "Backend: " + debug.stats.backend; color: "#c8c8d0"; font.pixelSize: 11; font.family: "monospace" }
+            Label { text: "Preset: " + debug.stats.preset; color: "#c8c8d0"; font.pixelSize: 11; font.family: "monospace" }
+            Label { text: "Video FPS: " + debug.stats.videoFps + " (preserved)"; color: "#c8c8d0"; font.pixelSize: 11; font.family: "monospace" }
+            Label { text: "Frame PTS: " + debug.stats.framePts; color: "#c8c8d0"; font.pixelSize: 11; font.family: "monospace" }
+            Label { text: "History resets: " + debug.stats.historyResets; color: "#c8c8d0"; font.pixelSize: 11; font.family: "monospace" }
+            Label { text: "Scene cuts: " + debug.stats.sceneCutsDetected; color: "#c8c8d0"; font.pixelSize: 11; font.family: "monospace" }
+            Label { text: "Motion confidence: " + debug.stats.motionConfidence.toFixed(3); color: "#c8c8d0"; font.pixelSize: 11; font.family: "monospace" }
+            Label { text: "Reactive avg: " + debug.stats.reactiveAverage.toFixed(3); color: "#c8c8d0"; font.pixelSize: 11; font.family: "monospace" }
+        }
+    }
+
+    // --- media / FSR info panel (spec 05 Media Info + FSR Info panels) ---
+    Rectangle {
+        id: infoPanel
+        visible: false
+        anchors.right: parent.right
+        anchors.top: parent.top
+        anchors.margins: 12
+        width: infoCol.implicitWidth + 24
+        height: infoCol.implicitHeight + 24
+        color: "#000000"
+        opacity: 0.85
+        radius: 6
+        z: 100
+
+        Column {
+            id: infoCol
+            anchors.margins: 12
+            anchors.fill: parent
+            spacing: 4
+            Label { text: "MEDIA INFO (Ctrl+I)"; color: "#e44d3a"; font.pixelSize: 11; font.bold: true }
+            Label { text: "File: " + playback.mediaTitle; color: "#c8c8d0"; font.pixelSize: 11 }
+            Label { text: "Container: " + playback.mediaInfo.container; color: "#9a9aa5"; font.pixelSize: 10 }
+            Label { text: "Video: " + playback.mediaInfo.videoCodec + " " + playback.mediaInfo.width + "x" + playback.mediaInfo.height; color: "#9a9aa5"; font.pixelSize: 10 }
+            Label { text: "FPS: " + playback.mediaInfo.fps + " (preserved)"; color: "#9a9aa5"; font.pixelSize: 10 }
+            Label { text: "Audio: " + playback.mediaInfo.audioCodec + " " + playback.mediaInfo.sampleRate + "Hz"; color: "#9a9aa5"; font.pixelSize: 10 }
+            Label { text: " "; color: "#9a9aa5"; font.pixelSize: 6 }
+            Label { text: "FSR CHAIN"; color: "#e44d3a"; font.pixelSize: 11; font.bold: true }
+            Label { text: fsr.chainLabel; color: "#c8c8d0"; font.pixelSize: 10; wrapMode: Text.Wrap; width: parent.width - 24 }
+            Label { text: "Backend: " + fsr.backendLabel; color: "#9a9aa5"; font.pixelSize: 10 }
+        }
+    }
+
+    // --- Live enhancement HUD (toggle with H) ---
+    // Positioning (bottom-right, above timeline) is defined in LiveHud.qml.
+    LiveHud {
+        id: liveHud
+    }
+
+    // --- Settings dialog (Ctrl+, or gear button) ---
+    SettingsDialog {
+        id: settingsDialog
+        visible: false
+        function show() { visible = true }
+    }
+
+    // --- helpers ---
+    function formatTime(us) {
+        if (us <= 0) return "0:00"
+        const totalSec = Math.floor(us / 1000000)
+        const h = Math.floor(totalSec / 3600)
+        const m = Math.floor((totalSec % 3600) / 60)
+        const s = totalSec % 60
+        if (h > 0) return h + ":" + String(m).padStart(2, '0') + ":" + String(s).padStart(2, '0')
+        return m + ":" + String(s).padStart(2, '0')
+    }
+}

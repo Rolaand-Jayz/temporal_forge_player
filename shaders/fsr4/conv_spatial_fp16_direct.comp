@@ -1,0 +1,118 @@
+#version 450 core
+#extension GL_EXT_shader_explicit_arithmetic_types_int8 : require
+#extension GL_EXT_shader_explicit_arithmetic_types_float16 : require
+#extension GL_EXT_shader_16bit_storage : require
+
+// Vectorized FP16-carrier spatial convolution. One 64-lane workgroup covers
+// 16 pixels and one 16-channel output group; each lane computes four output
+// channels for one pixel. This keeps the recovered tensor contract while
+// avoiding cooperative-matrix staging and synchronization for the 3x3 pass.
+layout(local_size_x = 64, local_size_y = 1, local_size_z = 1) in;
+
+layout(set = 0, binding = 0) uniform ConvCB {
+    ivec4 slot0;
+    ivec4 slot1;
+    ivec4 slot2;
+};
+layout(set = 0, binding = 1, std430) readonly buffer WeightBlob { uint8_t weightU8[]; };
+layout(set = 0, binding = 2, std430) readonly buffer ScratchBuf { float16_t scratchData[]; };
+layout(set = 0, binding = 3, std430) writeonly buffer AccumBuf { float16_t accumData[]; };
+layout(set = 0, binding = 5, std430) readonly buffer Fp16Weights { float16_t weightData[]; };
+
+const uint fp16WeightBase = 393216u;
+
+float loadBias(uint byteOffset, bool fp16Bias) {
+    const uint bits = uint(weightU8[byteOffset]) |
+                      (uint(weightU8[byteOffset + 1u]) << 8u);
+    return fp16Bias ? float(unpackHalf2x16(bits).x) :
+        uintBitsToFloat(bits | (uint(weightU8[byteOffset + 2u]) << 16u) |
+                        (uint(weightU8[byteOffset + 3u]) << 24u));
+}
+
+float quantizeFp8(float x) {
+    return x;
+    if (isnan(x) || isinf(x) || x == 0.0) return 0.0;
+    const uint sign = x < 0.0 ? 0x80000000u : 0u;
+    const float ax = abs(x);
+    const uint bits = floatBitsToUint(ax);
+    const uint exponent = (bits >> 23u) & 0xffu;
+    if (bits < 0x39800000u) return 0.0;
+    if (bits < 0x3c800000u) {
+        const float subnormal = clamp(round(ax * 1024.0), 0.0, 7.0) * 0.0009765625;
+        return sign != 0u ? -subnormal : subnormal;
+    }
+    if (exponent >= 135u) return sign != 0u ? -240.0 : 240.0;
+    uint mantissa = (bits & 0x007fffffu) + 0x00080000u;
+    uint outputExponent = exponent;
+    if (mantissa >= 0x00800000u) {
+        mantissa = 0u;
+        outputExponent++;
+    }
+    if (outputExponent >= 135u) return sign != 0u ? -240.0 : 240.0;
+    return uintBitsToFloat(sign | (outputExponent << 23u) |
+                           (mantissa & 0x00700000u));
+}
+
+void main() {
+    const uint lane = gl_LocalInvocationID.x;
+    const uint pixel = gl_WorkGroupID.x * 16u + (lane & 15u);
+    const uint outputBase = gl_WorkGroupID.y * 16u + (lane >> 4u) * 4u;
+    const uint dispatchW = uint(slot1.x);
+    const uint dispatchH = uint(slot1.y);
+    const uint pixels = dispatchW * dispatchH;
+    const uint cin = uint(slot0.w) & 0xffffu;
+    const uint coutBias = uint(slot1.w);
+    const uint cout = coutBias & 0xffffu;
+    const uint biasBase = coutBias >> 16u;
+    const uint weightCin = (uint(slot1.z) >> 8u) & 0xffu;
+    const uint weightCout = (uint(slot1.z) >> 16u) & 0xffu;
+    const uint featBase = uint(slot0.x);
+    const uint accumBase = uint(slot0.y);
+    const uint weightBase = uint(slot0.z);
+    const bool hasRelu = (uint(slot0.w) & 0x08000000u) != 0u;
+    const bool fp16Bias = (uint(slot0.w) & 0x04000000u) != 0u;
+
+    if (pixel >= pixels || outputBase >= cout ||
+        (cin != 16u && cin != 32u && cin != 64u) || cout != cin ||
+        weightCin != 16u || (weightCout != 16u && weightCout != 32u))
+        return;
+
+    if (outputBase >= weightCout) {
+        for (uint c = 0u; c < 4u && outputBase + c < cout; ++c) {
+            accumData[accumBase + pixel * cout + outputBase + c] =
+                scratchData[featBase + pixel * cin + outputBase + c];
+        }
+        return;
+    }
+
+    const int px = int(pixel % dispatchW);
+    const int py = int(pixel / dispatchW);
+    vec4 acc = vec4(0.0);
+    for (uint spatial = 0u; spatial < 9u; ++spatial) {
+        const int sx = px + int(spatial % 3u) - 1;
+        const int sy = py + int(spatial / 3u) - 1;
+        if (sx < 0 || sy < 0 || sx >= int(dispatchW) || sy >= int(dispatchH))
+            continue;
+        const uint inputBase = featBase +
+            (uint(sy) * dispatchW + uint(sx)) * cin;
+        const uint spatialWeightBase = fp16WeightBase + weightBase +
+            spatial * weightCin * weightCout;
+        for (uint ic = 0u; ic < weightCin; ++ic) {
+            const float inputValue = float(scratchData[inputBase + ic]);
+            const uint w = spatialWeightBase + outputBase * weightCin + ic;
+            acc += inputValue * vec4(float(weightData[w]),
+                                     float(weightData[w + weightCin]),
+                                     float(weightData[w + weightCin * 2u]),
+                                     float(weightData[w + weightCin * 3u]));
+        }
+    }
+
+    for (uint c = 0u; c < 4u && outputBase + c < cout; ++c) {
+        float value = acc[c];
+        if (biasBase != 0u)
+            value += loadBias(biasBase + (outputBase + c) * (fp16Bias ? 2u : 4u), fp16Bias);
+        if (hasRelu) value = max(value, 0.0);
+        accumData[accumBase + pixel * cout + outputBase + c] =
+            float16_t(quantizeFp8(value));
+    }
+}

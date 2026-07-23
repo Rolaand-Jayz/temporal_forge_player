@@ -1,0 +1,58 @@
+#version 450
+
+layout(local_size_x = 16, local_size_y = 16, local_size_z = 1) in;
+
+struct MotionVector {
+    ivec2 dst;
+    vec2 motion;
+    uvec2 extent;
+    uvec2 padding;
+};
+
+layout(std430, binding = 0) readonly buffer MotionVectors {
+    MotionVector vectors[];
+};
+
+layout(std430, binding = 1) buffer Owners {
+    uint owners[];
+};
+
+layout(binding = 2, rg16f) writeonly uniform image2D motionImage;
+
+layout(push_constant) uniform Push {
+    uvec4 dimensions; // width, height, vector count, vector base
+    uint resolve;
+} pc;
+
+void stampVector() {
+    uint vectorIndex = pc.dimensions.w + gl_WorkGroupID.x;
+    if (vectorIndex >= pc.dimensions.z) return;
+
+    MotionVector mv = vectors[vectorIndex];
+    for (uint y = gl_LocalInvocationID.y; y < mv.extent.y; y += 16u) {
+        for (uint x = gl_LocalInvocationID.x; x < mv.extent.x; x += 16u) {
+            ivec2 p = mv.dst + ivec2(x, y);
+            if (p.x < 0 || p.y < 0 || p.x >= int(pc.dimensions.x) ||
+                p.y >= int(pc.dimensions.y)) {
+                continue;
+            }
+            uint pixelIndex = uint(p.y) * pc.dimensions.x + uint(p.x);
+            // Preserve the CPU path's deterministic "last vector wins" rule.
+            atomicMax(owners[pixelIndex], vectorIndex + 1u);
+        }
+    }
+}
+
+void resolvePixels() {
+    uvec2 p = gl_GlobalInvocationID.xy;
+    if (p.x >= pc.dimensions.x || p.y >= pc.dimensions.y) return;
+
+    uint owner = owners[p.y * pc.dimensions.x + p.x];
+    vec2 motion = owner == 0u ? vec2(0.0) : vectors[owner - 1u].motion;
+    imageStore(motionImage, ivec2(p), vec4(motion, 0.0, 0.0));
+}
+
+void main() {
+    if (pc.resolve == 0u) stampVector();
+    else resolvePixels();
+}

@@ -1,0 +1,98 @@
+// Residual block output: scratch tensor += preserved block input.
+#version 450 core
+#extension GL_EXT_shader_explicit_arithmetic_types_float16 : require
+#extension GL_EXT_shader_16bit_storage : require
+#extension GL_EXT_shader_explicit_arithmetic_types_int8 : require
+
+layout(local_size_x = 64, local_size_y = 1, local_size_z = 1) in;
+
+layout(set = 0, binding = 0) uniform ResidualCB {
+    ivec4 slot0; // (scratchBase, residualBase, elementCount, _)
+};
+layout(set = 0, binding = 1, std430) readonly buffer ResidualBuf {
+    float16_t residualData[];
+};
+layout(set = 0, binding = 2, std430) buffer ScratchBuf {
+    float16_t scratchData[];
+};
+
+float quantizeFp8(float x) {
+    return x;
+    if (isnan(x) || isinf(x)) return 0.0;
+    const float sign = x < 0.0 ? -1.0 : 1.0;
+    const float ax = abs(x);
+    if (ax < exp2(-10.0)) return 0.0;
+    float exponent = floor(log2(ax));
+    int exponentBits = int(exponent) + 8;
+    if (exponentBits <= 0)
+        return sign * clamp(round(ax * exp2(10.0)), 0.0, 7.0) * exp2(-10.0);
+    if (exponentBits >= 16) return sign * 240.0;
+    float mantissa = round((ax / exp2(exponent) - 1.0) * 8.0);
+    if (mantissa >= 8.0) {
+        mantissa = 0.0;
+        exponentBits += 1;
+    }
+    if (exponentBits >= 16) return sign * 240.0;
+    return sign * (1.0 + mantissa / 8.0) * exp2(float(exponentBits) - 8.0);
+}
+
+float decodeFp8(uint b) {
+    const uint sign = b >> 7u;
+    const uint exponent = (b >> 3u) & 0xFu;
+    const uint mantissa = b & 0x7u;
+    if (exponent == 0u)
+        return (sign != 0u ? -1.0 : 1.0) * float(mantissa) * exp2(-10.0);
+    if (b == 0x80u) return 0.0;
+    const float value = (1.0 + float(mantissa) / 8.0) * exp2(float(exponent) - 8.0);
+    return sign != 0u ? -value : value;
+}
+
+uint encodeFp8(float x) {
+    if (isnan(x) || isinf(x)) return 0u;
+    const uint sign = x < 0.0 ? 0x80u : 0u;
+    const float ax = abs(x);
+    if (ax < exp2(-10.0)) return 0u;
+    float exponent = floor(log2(ax));
+    int exponentBits = int(exponent) + 8;
+    if (exponentBits <= 0) return sign | uint(clamp(round(ax * exp2(10.0)), 0.0, 7.0));
+    if (exponentBits >= 16) return sign | 0x7fu;
+    float mantissa = round((ax / exp2(exponent) - 1.0) * 8.0);
+    if (mantissa >= 8.0) { mantissa = 0.0; exponentBits++; }
+    if (exponentBits >= 16) return sign | 0x7fu;
+    return sign | (uint(exponentBits) << 3u) | uint(mantissa);
+}
+
+void main() {
+    const uint base = gl_GlobalInvocationID.x * 4u;
+    const uint mode = uint(slot0.w);
+    if ((mode & 0x80000000u) != 0u) {
+        const uint cin = mode & 0xffu;
+        const uint cout = (mode >> 8u) & 0xffu;
+        const uint firstChannel = (mode >> 16u) & 0xffu;
+        const uint bypass = cout - firstChannel;
+        const uint pixels = uint(slot0.z);
+        const uint count = pixels * bypass;
+        for (uint lane = 0u; lane < 4u; ++lane) {
+            const uint i = base + lane;
+            if (i >= count) continue;
+            const uint pixel = i / bypass;
+            const uint channel = firstChannel + i % bypass;
+            const float value = channel < cin
+                ? float(residualData[uint(slot0.y) + pixel * cin + channel]) : 0.0;
+            // Bypass channels cross no learned arithmetic in the partial
+            // spatial mixer. Their source is already an FP8-boundary tensor,
+            // so another quantization is redundant and can only reproduce
+            // the same float.
+            scratchData[uint(slot0.x) + pixel * cout + channel] = float16_t(value);
+        }
+        return;
+    }
+    const uint count = uint(slot0.z);
+    for (uint lane = 0u; lane < 4u; ++lane) {
+        const uint i = base + lane;
+        if (i >= count) continue;
+        const uint dst = uint(slot0.x) + i;
+        scratchData[dst] = float16_t(float(scratchData[dst]) +
+                                     float(residualData[uint(slot0.y) + i]));
+    }
+}

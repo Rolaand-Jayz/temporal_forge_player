@@ -1,0 +1,33 @@
+build/
+build-*/
+build_*/
+build.*/
+.cache/
+*.o
+*.obj
+*.spv
+compile_commands.json
+*.user
+*.qmlc
+*.qmltc
+*.autogen/
+external/FidelityFX-SDK/
+external/vma.h
+external/miniaudio.h
+CMakeUserPresets.json
+
+# Local editor / agent state (not for version control)
+.vscode/
+.remember/
+.clang-format.cache/
+
+# Benchmark corpus: binary media + generated results are too large for git.
+# Track only the scripts, manifests, SHA sums, and prose docs under
+# benchmarks/video_corpus/ (regenerate media via prepare_corpus.sh).
+benchmarks/video_corpus/clips/
+benchmarks/video_corpus/sources/
+benchmarks/video_corpus/references/
+benchmarks/video_corpus/results/
+
+# Generated shader-build intermediates (regenerate via tools/build_native_int8_pack.sh)
+**/.build/

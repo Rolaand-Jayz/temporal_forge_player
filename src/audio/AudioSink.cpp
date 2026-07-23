@@ -1,0 +1,122 @@
+// AudioSink.cpp
+#define MINIAUDIO_IMPLEMENTATION
+#include "audio/AudioSink.hpp"
+#include "util/Log.hpp"
+#include "miniaudio.h"
+
+namespace temporal_forge {
+
+namespace {
+// deviceDeleter: custom deleter bridging ma_device destruction into unique_ptr.
+//                Called automatically when AudioSink::device_ resets. Uninits the
+//                device (releases miniaudio resources) then frees the allocation.
+void deviceDeleter(ma_device* d) {
+    if (d) {
+        ma_device_uninit(d);
+        delete d;
+    }
+}
+} // namespace
+
+// AudioRing capacity: ~1 second of stereo float @ 48k = 192000 samples, rounded
+// up to 256k (power of two).
+AudioSink::AudioSink()
+    : ring_(std::make_unique<AudioRing>(262144)) {}
+
+// ~AudioSink: stop the device before members are destroyed (header contract).
+AudioSink::~AudioSink() { stop(); }
+
+bool AudioSink::start(int channels, int sampleRate) {
+    stop();
+    channels_ = channels;
+    sampleRate_ = sampleRate;
+    ring_->clear();
+    consumedTotal_.store(0, std::memory_order_relaxed);
+
+    auto* dev = new ma_device{};
+    ma_device_config cfg = ma_device_config_init(ma_device_type_playback);
+    cfg.playback.format = ma_format_f32;
+    cfg.playback.channels = static_cast<ma_uint32>(channels);
+    cfg.sampleRate = static_cast<ma_uint32>(sampleRate);
+    cfg.dataCallback = &AudioSink::dataCallback;
+    cfg.pUserData = this;
+    cfg.periodSizeInFrames = static_cast<ma_uint32>(sampleRate / 100); // ~10ms
+
+    if (ma_device_init(nullptr, &cfg, dev) != MA_SUCCESS) {
+        logError("AudioSink: ma_device_init failed");
+        delete dev;
+        return false;
+    }
+    if (ma_device_start(dev) != MA_SUCCESS) {
+        logError("AudioSink: ma_device_start failed");
+        ma_device_uninit(dev);
+        delete dev;
+        return false;
+    }
+    device_ = {dev, deviceDeleter};
+    logInfo("AudioSink: started {}ch {}Hz", channels, sampleRate);
+    return true;
+}
+
+void AudioSink::stop() {
+    if (device_) device_.reset(); // calls deleter -> uninit + delete
+}
+
+void AudioSink::push(const float* samples, size_t count) {
+    if (!ring_) return;
+    size_t off = 0;
+    while (off < count) {
+        size_t w = ring_->write(samples + off, count - off);
+        if (w == 0) {
+            // Ring full; the device will drain it. Drop remainder to avoid
+            // blocking the decode thread (audio device owns the clock).
+            break;
+        }
+        off += w;
+    }
+}
+
+void AudioSink::setStartPts(int64_t ptsUs) {
+    std::lock_guard lock(startMutex_);
+    startPtsUs_.store(ptsUs, std::memory_order_relaxed);
+    consumedTotal_.store(0, std::memory_order_relaxed);
+}
+
+int64_t AudioSink::clockUs() const {
+    const int64_t start = startPtsUs_.load(std::memory_order_acquire);
+    if (start < 0) return -1;
+    const uint64_t consumed = consumedTotal_.load(std::memory_order_acquire);
+    const double seconds = static_cast<double>(consumed) /
+                          (static_cast<double>(channels_) * sampleRate_);
+    return start + static_cast<int64_t>(seconds * 1e6);
+}
+
+void AudioSink::setVolume(float v) {
+    v = v < 0.0f ? 0.0f : (v > 1.0f ? 1.0f : v);
+    volume_.store(v, std::memory_order_relaxed);
+}
+void AudioSink::setMuted(bool m) { muted_.store(m, std::memory_order_relaxed); }
+
+void AudioSink::dataCallback(ma_device* device, void* output, const void* /*input*/,
+                             uint32_t frameCount) {
+    auto* self = static_cast<AudioSink*>(device->pUserData);
+    if (!self || !output) return;
+
+    const size_t sampleCount = static_cast<size_t>(frameCount) * self->channels_;
+    auto* out = static_cast<float*>(output);
+
+    const size_t got = self->ring_->read(out, sampleCount);
+    self->consumedTotal_.fetch_add(got, std::memory_order_relaxed);
+
+    // Apply volume / mute on the realtime thread (cheap).
+    const float vol = self->muted_.load(std::memory_order_relaxed)
+                      ? 0.0f
+                      : self->volume_.load(std::memory_order_relaxed);
+    if (vol == 0.0f) {
+        std::fill_n(out, sampleCount, 0.0f);
+    } else if (vol != 1.0f) {
+        for (size_t i = 0; i < sampleCount; ++i) out[i] *= vol;
+    }
+}
+
+} // namespace temporal_forge

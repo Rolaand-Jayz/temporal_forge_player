@@ -1,0 +1,56 @@
+# Doxyfile for Temporal Forge Player
+#
+# NOTE: the codebase uses plain // comments (not Doxygen markup), per the
+# chosen documentation convention (see docs/REFACTOR_PLAN.md). This Doxyfile
+# is provided for OPTIONAL HTML browsing of the headers and file structure.
+# It will capture the file-level header comments and section comments but
+# will not produce rich cross-referenced API docs until @brief/@param markup
+# is added (tracked as a separate follow-up).
+#
+# Generate docs:
+#   doxygen Doxyfile
+# Output appears in docs/html/ (gitignored).
+
+PROJECT_NAME           = "Temporal Forge Player"
+PROJECT_NUMBER         = 0.1.0
+PROJECT_BRIEF          = "GPU-native video player with FSR-style temporal upscaling (no frame interpolation)"
+
+# Input
+INPUT                  = src/ ../README.md ../ARCHITECTURE.md
+RECURSIVE              = YES
+FILE_PATTERNS          = *.cpp *.hpp *.h *.md
+EXCLUDE                = ../external
+EXCLUDE_PATTERNS       = */build/* */build_dbg/* */autogen/*
+
+# Extraction — capture everything (plain // comments included)
+EXTRACT_ALL            = YES
+EXTRACT_PRIVATE        = YES
+EXTRACT_STATIC         = YES
+EXTRACT_LOCAL_CLASSES  = YES
+
+# Output
+OUTPUT_DIRECTORY       = docs
+GENERATE_HTML          = YES
+HTML_OUTPUT            = html
+GENERATE_LATEX         = NO
+GENERATE_XML           = NO
+
+# Source browsing
+SOURCE_BROWSER         = YES
+INLINE_SOURCES         = NO
+REFERENCED_BY_RELATION = YES
+REFERENCES_RELATION    = YES
+
+# Warn about undocumented members (informational, not blocking)
+WARN_IF_UNDOCUMENTED   = YES
+WARN_IF_DOC_ERROR      = YES
+WARN_NO_PARAMDOC       = NO
+
+# Don't create huge call/caller graphs (slow, noisy)
+CALL_GRAPH             = NO
+CALLER_GRAPH           = NO
+HAVE_DOT               = NO
+
+# Quieter output
+QUIET                  = NO
+WARN_LOGFILE           = docs/doxygen-warnings.log

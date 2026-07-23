@@ -1,0 +1,67 @@
+// spd.comp — FSR 4.1 SPD (Single-Pass Downsampler) for exposure/luma mip.
+//
+// RE source: IMPLEMENTATION_GUIDE §1.1 (dispatch stage 4: SPD).
+// Generates a mip-level luminance pyramid for auto-exposure. This is the
+// standard AMD FidelityFX SPD pattern — a single compute pass that downsamplees
+// the output to a 1x1 luma value for exposure calculation.
+//
+// Bindings:
+//   binding 0 (uniform)  dispatch dims
+//   binding 1 (image2D)  input (the postpass output, FP32)
+//   binding  2 (buffer)  atomic counter + output luma (1x1)
+#version 450 core
+
+layout(local_size_x = 32, local_size_y = 1, local_size_z = 1) in;
+
+layout(set = 0, binding = 0) uniform SpdCB {
+    uvec4 slot0; // (inputW, inputH, _, _)
+};
+layout(set = 0, binding = 1, rgb10_a2) readonly uniform image2D u_input;
+layout(set = 0, binding = 2, std430) buffer SpdOut {
+    uint counter;
+    float luma; // 1x1 average luminance
+};
+
+// Rec.709 luma weights.
+const vec3 LUMA_W = vec3(0.2126, 0.7152, 0.0722);
+
+shared vec3 sharedRGB[1024]; // 32x32 working set for the reduction
+
+void main() {
+    const uint tid = gl_LocalInvocationID.x;
+    const uint inputW = slot0.x;
+    const uint inputH = slot0.y;
+    if (inputW == 0u) return;
+
+    // Each thread loads one pixel (clamped to image bounds).
+    const uint gx = gl_GlobalInvocationID.x;
+    const uint gy = 0u; // 1D dispatch; we map linearly
+    const uint idx = gx;
+    const uint px = idx % inputW;
+    const uint py = idx / inputW;
+    vec3 c = vec3(0.0);
+    if (py < inputH) {
+        c = imageLoad(u_input, ivec2(px, py)).rgb;
+    }
+    if (tid < 1024u) sharedRGB[tid] = c;
+    barrier();
+
+    // Tree reduction to a single luma value.
+    for (uint s = 512u; s > 0u; s >>= 1) {
+        if (tid < s && tid + s < 1024u) {
+            sharedRGB[tid] += sharedRGB[tid + s];
+        }
+        barrier();
+    }
+
+    // Thread 0 computes the average luma and writes the 1x1 result.
+    if (tid == 0u) {
+        vec3 sum = sharedRGB[0];
+        float avgLuma = dot(sum, LUMA_W) / float(inputW * inputH);
+        // Atomic store: only one work group should write (first to increment).
+        uint prev = atomicAdd(counter, 1);
+        if (prev == 0u) {
+            luma = avgLuma;
+        }
+    }
+}

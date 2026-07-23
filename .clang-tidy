@@ -1,0 +1,59 @@
+# .clang-tidy for Temporal Forge Player
+#
+# CONFIG ONLY — no WarningsAsErrors this round (see docs/REFACTOR_PLAN.md).
+# The existing mature codebase will surface many findings; forcing them would
+# balloon scope and risk behavioral changes during a refactor that must
+# preserve GPU/threading invariants. A dedicated cleanup pass is tracked as a
+# follow-up milestone; the gate is armed only after that.
+#
+# To run on a file (needs compile_commands.json — set CMAKE_EXPORT_COMPILE_COMMANDS=ON):
+#   clang-tidy -p build src/core/PlaybackEngine.cpp
+
+Checks: >
+  -*,
+  bugprone-*,
+  cert-*,
+  modernize-*,
+  performance-*,
+  readability-*,
+  -bugprone-easily-swappable-parameters,
+  -modernize-use-trailing-return-type,
+  -modernize-avoid-c-arrays,
+  -readability-magic-numbers,
+  -readability-identifier-length,
+  -readability-named-parameter,
+  -cert-err34-c,
+  -cert-err58-cpp
+
+# Rationale for disabled checks:
+#   bugprone-easily-swappable-parameters: too noisy for a media/GPU codebase
+#     that intentionally uses many int/uint32_t parameters (Vulkan/FFmpeg APIs).
+#   modernize-use-trailing-return-type: the codebase uses classic return types;
+#     this is a style preference, not a defect.
+#   modernize-avoid-c-arrays: FSR4/FFmpeg interop uses C arrays heavily.
+#   readability-magic-numbers: the FSR4 tensor table + Vulkan constants are
+#     inherently magic (RE-derived, see docs/FSR4_RE_STATUS.md); documenting
+#     every one is noise.
+#   readability-identifier-length: short names (w, h, sw, sh) are idiomatic
+#     for pixel dimensions.
+#   cert-err34-c/cert-err58-cpp: std::strtof in main.cpp and union-based
+#     FFmpeg struct access are intentional, audited patterns.
+
+WarningsAsErrors: ''
+
+HeaderFilterRegex: 'src/.*\.hpp$'
+
+CheckOptions:
+  - key:   readability-function-cognitive-complexity.Threshold
+    value: '35'        # raised from default 25; the FSR4 dispatch orchestration
+                       # is inherently complex by design.
+  - key:   readability-braces-around-statements.ShortStatementOnSingleLine
+    value: '0'
+  - key:   modernize-use-nullptr.NullMacros
+    value: 'NULL'
+
+# NOTE: this config is advisory. To apply trivially-safe auto-fixes on a file
+# being documented during Phase 4:
+#   clang-tidy -p build --fix src/<file>.cpp
+# Review the diff carefully — never accept a fix that changes a signature or
+# touches GPU/resource-lifecycle code.

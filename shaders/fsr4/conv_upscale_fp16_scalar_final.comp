@@ -1,0 +1,68 @@
+#version 450 core
+#extension GL_EXT_shader_explicit_arithmetic_types_int8 : require
+#extension GL_EXT_shader_explicit_arithmetic_types_float16 : require
+#extension GL_EXT_shader_16bit_storage : require
+
+// Pixel-owned transpose-convolution specialization for the output-preserving
+// decoder stages. Unlike the cooperative tile path, each invocation owns one
+// output pixel and computes all output channels, avoiding matrix work on the
+// three inactive parity phases.
+layout(local_size_x = 64, local_size_y = 1, local_size_z = 1) in;
+
+layout(set = 0, binding = 0) uniform ConvCB {
+    ivec4 slot0;
+    ivec4 slot1;
+    ivec4 slot2;
+};
+layout(set = 0, binding = 1, std430) readonly buffer WeightBlob { uint8_t weightU8[]; };
+layout(set = 0, binding = 2, std430) readonly buffer ScratchBuf { float16_t scratchData[]; };
+layout(set = 0, binding = 4, std430) writeonly buffer EdgeTensorBuf { float16_t edgeData[]; };
+layout(set = 0, binding = 5, std430) readonly buffer Fp16Weights { float16_t weightData[]; };
+
+const uint fp16WeightBase = 393216u;
+
+float loadBias(uint byteOffset) {
+    const uint bits = uint(weightU8[byteOffset]) |
+                      (uint(weightU8[byteOffset + 1u]) << 8u);
+    return float(unpackHalf2x16(bits).x);
+}
+
+void main() {
+    const uint pixel = gl_GlobalInvocationID.x;
+    // The scalar specialization is used by both the synthetic 2560x1440
+    // profile and real playback resolutions such as 1920x1080.  Reuse the
+    // dimensions recorded by recordConvPass; hard-coding the profile size
+    // makes the final tensor stride wrong for every other output size.
+    const uint dispatchW = uint(slot1.x);
+    const uint dispatchH = uint(slot1.y);
+    const uint pixels = dispatchW * dispatchH;
+    const uint cin = 16u;
+    const uint cout = 8u;
+    const uint biasBase = 7168u;
+    const uint featBase = uint(slot0.x);
+    const uint weightBase = uint(slot0.z);
+    const uint inputW = dispatchW / 2u;
+    const uint inputH = dispatchH / 2u;
+    if (pixel >= pixels || inputW == 0u || inputH == 0u) return;
+
+    const uint px = pixel % dispatchW;
+    const uint py = pixel / dispatchW;
+    const uint sx = px / 2u;
+    const uint sy = py / 2u;
+    if (sx >= inputW || sy >= inputH) return;
+    const uint phase = (px & 1u) + ((py & 1u) << 1u);
+    const uint inputBase = featBase + (sy * inputW + sx) * cin;
+    const uint phaseBase = fp16WeightBase + weightBase + phase * cin * cout;
+    const uint outputBase = pixel * cout;
+
+    for (uint oc = 0u; oc < cout; ++oc) {
+        float value = 0.0;
+        const uint weightOffset = phaseBase + oc * cin;
+        for (uint ic = 0u; ic < 16u; ++ic)
+            value += float(scratchData[inputBase + ic]) * float(weightData[weightOffset + ic]);
+        if (biasBase != 0u) value += loadBias(biasBase + oc * 2u);
+        const float finiteValue = (isnan(value) || isinf(value))
+            ? 0.0 : clamp(value, -65504.0, 65504.0);
+        edgeData[outputBase + oc] = float16_t(finiteValue);
+    }
+}

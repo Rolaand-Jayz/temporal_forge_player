@@ -1,0 +1,130 @@
+// yuv_to_fsr_input.comp
+//
+// Converts decoded Rec.709/YUV420 video directly on the GPU into the FSR4
+// source images. The pass also writes an optional raw RGBA8 presentation
+// image for compare mode, so the CPU no longer has to swscale or sharpen the
+// frame before FSR dispatch.
+#version 450 core
+#extension GL_GOOGLE_include_directive : enable
+
+layout(local_size_x = 16, local_size_y = 16, local_size_z = 1) in;
+
+layout(push_constant) uniform Push {
+    vec4 params;       // width, height, sharpness, compareEnabled
+    vec4 range;        // yOffset, yScale, chromaOffset, chromaScale
+    vec4 matrix;       // rV, gU, gV, bU
+} pc;
+
+layout(set = 0, binding = 0, r8) readonly uniform image2D u_y;
+layout(set = 0, binding = 1, r8) readonly uniform image2D u_u;
+layout(set = 0, binding = 2, r8) readonly uniform image2D u_v;
+layout(set = 0, binding = 3, rgb10_a2) writeonly uniform image2D u_color;
+layout(set = 0, binding = 4, rgba8) writeonly uniform image2D u_raw;
+
+const int Y_TILE_WIDTH = 18;
+const int UV_TILE_WIDTH = 10;
+shared float yTile[Y_TILE_WIDTH * Y_TILE_WIDTH];
+shared vec2 uvTile[UV_TILE_WIDTH * UV_TILE_WIDTH];
+
+float loadYCached(ivec2 p, ivec2 tileBase) {
+    const ivec2 local = p - tileBase;
+    return yTile[local.y * Y_TILE_WIDTH + local.x];
+}
+
+vec2 loadUvCached(ivec2 p, ivec2 tileBase) {
+    const ivec2 local = p - tileBase;
+    return uvTile[local.y * UV_TILE_WIDTH + local.x];
+}
+
+vec2 loadUvBilinear(ivec2 p, ivec2 size, ivec2 uvSize) {
+    // Reconstruct 4:2:0 chroma at the luma pixel center. Nearest-cell
+    // chroma creates a fixed 2x2 lattice that the neural pass can sharpen
+    // into a visible screen-door pattern on low-resolution video.
+    vec2 uvPos = (vec2(p) + vec2(0.5)) * 0.5 - vec2(0.5);
+    ivec2 base = ivec2(floor(uvPos));
+    vec2 f = fract(uvPos);
+    base = clamp(base, ivec2(0), uvSize - ivec2(1));
+    ivec2 right = min(base + ivec2(1, 0), uvSize - ivec2(1));
+    ivec2 down = min(base + ivec2(0, 1), uvSize - ivec2(1));
+    ivec2 diag = min(base + ivec2(1, 1), uvSize - ivec2(1));
+    vec2 a = vec2(imageLoad(u_u, base).r, imageLoad(u_v, base).r);
+    vec2 b = vec2(imageLoad(u_u, right).r, imageLoad(u_v, right).r);
+    vec2 c = vec2(imageLoad(u_u, down).r, imageLoad(u_v, down).r);
+    vec2 d = vec2(imageLoad(u_u, diag).r, imageLoad(u_v, diag).r);
+    return mix(mix(a, b, f.x), mix(c, d, f.x), f.y);
+}
+
+float sharpenMask(ivec2 p, ivec2 size, ivec2 tileBase,
+                  float sharpness, float luma) {
+    if (sharpness <= 0.0001) return 1.0;
+    ivec2 l = ivec2(max(p.x - 1, 0), p.y);
+    ivec2 r = ivec2(min(p.x + 1, size.x - 1), p.y);
+    ivec2 t = ivec2(p.x, max(p.y - 1, 0));
+    ivec2 b = ivec2(p.x, min(p.y + 1, size.y - 1));
+    float blur = loadYCached(l, tileBase) + loadYCached(r, tileBase) +
+                 loadYCached(t, tileBase) + loadYCached(b, tileBase);
+    float detail = luma * 4.0 - blur;
+    return clamp(1.0 + detail * (sharpness * 0.25), 0.0, 4.0);
+}
+
+vec3 yuvToRgb(float y, float u, float v) {
+    float c = (y - pc.range.x) * pc.range.y;
+    float d = u - pc.range.z;
+    float e = v - pc.range.z;
+    float r = c + pc.matrix.x * e;
+    float g = c + pc.matrix.y * d + pc.matrix.z * e;
+    float b = c + pc.matrix.w * d;
+    return clamp(vec3(r, g, b), vec3(0.0), vec3(1.0));
+}
+
+vec3 toModelColor(vec3 srgb) {
+    vec3 lo = srgb / 12.92;
+    vec3 hi = pow((srgb + 0.055) / 1.055, vec3(2.4));
+    vec3 linear = mix(hi, lo, lessThan(srgb, vec3(0.04045)));
+    return max(0.1174 * log(1.0 + 150.0 * linear), vec3(0.0));
+}
+
+void main() {
+    ivec2 size = ivec2(int(pc.params.x), int(pc.params.y));
+    ivec2 uvSize = max(size / 2, ivec2(1));
+    const ivec2 groupCoord = ivec2(gl_WorkGroupID.xy) * 16;
+    const ivec2 yTileBase = groupCoord - ivec2(1);
+    const ivec2 uvTileBase = groupCoord / 2 - ivec2(1);
+    const uint localIndex = gl_LocalInvocationID.y * 16u +
+                            gl_LocalInvocationID.x;
+    for (uint i = localIndex; i < uint(Y_TILE_WIDTH * Y_TILE_WIDTH); i += 256u) {
+        const ivec2 local = ivec2(int(i % uint(Y_TILE_WIDTH)),
+                                  int(i / uint(Y_TILE_WIDTH)));
+        const ivec2 q = clamp(yTileBase + local, ivec2(0), size - ivec2(1));
+        yTile[i] = imageLoad(u_y, q).r;
+    }
+    for (uint i = localIndex; i < uint(UV_TILE_WIDTH * UV_TILE_WIDTH); i += 256u) {
+        const ivec2 local = ivec2(int(i % uint(UV_TILE_WIDTH)),
+                                  int(i / uint(UV_TILE_WIDTH)));
+        const ivec2 q = clamp(uvTileBase + local, ivec2(0), uvSize - ivec2(1));
+        uvTile[i] = vec2(imageLoad(u_u, q).r, imageLoad(u_v, q).r);
+    }
+    barrier();
+
+    ivec2 p = ivec2(gl_GlobalInvocationID.xy);
+    if (p.x >= size.x || p.y >= size.y) return;
+
+    float y = loadYCached(p, yTileBase);
+    vec2 uv = loadUvBilinear(p, size, uvSize);
+    float u = uv.x;
+    float v = uv.y;
+    vec3 rgb = yuvToRgb(y, u, v);
+
+    float sharpness = clamp(pc.params.z, 0.0, 1.0);
+    float mask = sharpenMask(p, size, yTileBase, sharpness, y);
+    vec3 sharpened = clamp(rgb * mask, vec3(0.0), vec3(1.0));
+
+    // Cache the network's nonlinear color transform once on the source grid.
+    // The 3x upscale pre/post passes reuse these values instead of evaluating
+    // the same transform 4 and 9 times per output pixel respectively.
+    imageStore(u_color, p, vec4(toModelColor(sharpened), 1.0));
+    // Comparison toggles are applied before this dispatch, so populate the raw
+    // image only on frames where the UI can consume it.
+    if (pc.params.w > 0.5)
+        imageStore(u_raw, p, vec4(rgb, 1.0));
+}
