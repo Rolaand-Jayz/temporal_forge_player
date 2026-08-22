@@ -1,3 +1,6 @@
+// conv_pw_coop.comp — cooperative 1x1 pointwise channel-mixing convolution.
+// Upstream is the prior tensor and weight slice; downstream is the next graph
+// pass or residual/scatter boundary chosen by Fsr4DispatchHarness.
 #version 450 core
 #extension GL_KHR_cooperative_matrix : require
 #extension GL_KHR_memory_scope_semantics : require

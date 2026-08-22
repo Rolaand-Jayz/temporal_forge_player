@@ -12,6 +12,7 @@
 // GPU upload + present happens on the render thread owned by VideoSurface.
 #pragma once
 #include "config/SettingsStore.hpp"
+#include "config/QualityLabConfig.hpp"
 #include "media/Demuxer.hpp"
 #include "media/VideoDecoder.hpp"
 #include "media/AudioDecoder.hpp"
@@ -21,10 +22,12 @@
 #include "backend/GpuCapabilityProbe.hpp"
 #include "render/GpuImageUploader.hpp"
 #include "render/Fsr4DispatchHarness.hpp"
+#include "render/SideBufferSynth.hpp"
 #include "util/FsrTargetMath.hpp"
 
 #include <QObject>
 #include <QString>
+#include <QStringList>
 #include <chrono>
 #include <QUrl>
 #include <QVariantList>
@@ -38,6 +41,8 @@
 #include <mutex>
 #include <thread>
 #include <vulkan/vulkan.h>
+
+struct SwsContext;
 
 namespace temporal_forge {
 
@@ -72,6 +77,11 @@ class PlaybackEngine : public QObject {
     Q_PROPERTY(double lastFsr4DispatchMs READ lastFsr4DispatchMs NOTIFY fsr4StatusChanged)
     Q_PROPERTY(uint fsr4OutputWidth READ fsr4OutputWidth NOTIFY fsr4StatusChanged)
     Q_PROPERTY(uint fsr4OutputHeight READ fsr4OutputHeight NOTIFY fsr4StatusChanged)
+    Q_PROPERTY(QStringList playlist READ playlist NOTIFY playlistChanged)
+    Q_PROPERTY(int playlistIndex READ playlistIndex NOTIFY playlistChanged)
+    Q_PROPERTY(int playlistCount READ playlistCount NOTIFY playlistChanged)
+    Q_PROPERTY(bool hasNext READ hasNext NOTIFY playlistChanged)
+    Q_PROPERTY(bool hasPrevious READ hasPrevious NOTIFY playlistChanged)
     // Monotonic counter incremented whenever a new displayable frame is
     // produced. QML uses this to cache-bust the image provider source.
     Q_PROPERTY(int frameCounter READ frameCounter NOTIFY frameCounterChanged)
@@ -82,6 +92,12 @@ public:
 
     // --- QML-facing API ---
     Q_INVOKABLE void openUrl(const QUrl& url);
+    Q_INVOKABLE void openPlaylist(const QStringList& entries);
+    Q_INVOKABLE void appendPlaylist(const QStringList& entries);
+    Q_INVOKABLE void selectPlaylist(int index);
+    Q_INVOKABLE void next();
+    Q_INVOKABLE void previous();
+    Q_INVOKABLE void clearPlaylist();
     Q_INVOKABLE void play();
     Q_INVOKABLE void pause();
     Q_INVOKABLE void togglePlay();
@@ -95,7 +111,13 @@ public:
     void setVulkanHandles(VkPhysicalDevice physical, VkDevice device,
                           VkQueue queue, uint32_t queueFamily,
                           uint32_t presentationQueueFamily);
+    void setQualityLabConfig(const QualityLabConfig &config) {
+        qualityLabConfig_ = config;
+    }
     void setSharpness(float sharpness) { sharpness_.store(sharpness, std::memory_order_release); }
+    void setPresentationScaler(int scaler) {
+        presentationScaler_.store(std::clamp(scaler, 0, 4), std::memory_order_release);
+    }
     void setJitterStrength(float v) { jitterStrength_.store(v, std::memory_order_release); }
     bool compareEnabled() const { return compareEnabled_.load(std::memory_order_acquire); }
     void setCompareEnabled(bool enabled);
@@ -157,6 +179,11 @@ public:
     [[nodiscard]] double lastFsr4DispatchMs() const { return lastFsr4DispatchMs_.load(std::memory_order_acquire); }
     [[nodiscard]] uint32_t fsr4OutputWidth() const { return fsr4OutW_.load(std::memory_order_acquire); }
     [[nodiscard]] uint32_t fsr4OutputHeight() const { return fsr4OutH_.load(std::memory_order_acquire); }
+    QStringList playlist() const { return playlist_; }
+    int playlistIndex() const { return playlistIndex_; }
+    int playlistCount() const { return playlist_.size(); }
+    bool hasNext() const { return playlistIndex_ >= 0 && playlistIndex_ + 1 < playlist_.size(); }
+    bool hasPrevious() const { return playlistIndex_ > 0; }
 
 signals:
     void stateChanged();
@@ -167,6 +194,7 @@ signals:
     void frameCounterChanged();
     void fsr4StatusChanged();
     void compareEnabledChanged();
+    void playlistChanged();
 
 private:
     // Thread loops
@@ -181,12 +209,27 @@ private:
 
     // Helpers
     bool fillMediaInfoQml();
+    void promoteStableFsrViewport();
+    bool openUrlInternal(const QUrl& url);
+    static QUrl playlistUrl(const QString& entry);
+    static QString playlistEntry(const QUrl& url);
+    bool openPlaylistIndex(int index);
+    void advancePlaylistAtEnd();
 
     // media
     std::unique_ptr<Demuxer> demux_;
     std::unique_ptr<VideoDecoder> vdec_;
     std::unique_ptr<AudioDecoder> adec_;
     AudioSink audio_;
+    SideBufferSynth sideBufferSynth_;
+    int64_t lastAnalysisPtsUs_ = -1;
+
+    // Playlist state is owned by the Qt/UI thread. Decode-thread EOF is
+    // reduced to endOfMediaPending_; onPollTick performs the actual switch so
+    // open/close and Vulkan teardown stay on the same thread as other controls.
+    QStringList playlist_;
+    int playlistIndex_ = -1;
+    std::atomic<bool> endOfMediaPending_{false};
 
     // upscaling backend
     BackendSelector selector_;
@@ -203,6 +246,14 @@ private:
     GpuCapability  vkCap_{};
     std::unique_ptr<GpuImageUploader> fsr4Uploader_;
     std::unique_ptr<Fsr4DispatchHarness> fsr4Harness_;
+    // A second complete resource set allows the decoder to upload/record the
+    // next frame while the previous FSR submission is executing. It is used
+    // only for the ordinary single-pass path; chained passes remain serial.
+    std::unique_ptr<GpuImageUploader> fsr4InFlightUploader_;
+    std::unique_ptr<Fsr4DispatchHarness> fsr4InFlightHarness_;
+    std::atomic<GpuImageUploader *> fsr4PublishedUploader_{nullptr};
+    GpuImageUploader *fsr4LastSubmittedUploader_ = nullptr;
+    uint32_t fsr4NextDispatchSlot_ = 0;
     // Optional progressive chain. The final pass remains in the legacy
     // members above so presentation/readback keep one stable owner.
     std::vector<std::unique_ptr<GpuImageUploader>> fsr4IntermediateUploaders_;
@@ -210,8 +261,14 @@ private:
     std::vector<Size2D> fsr4PassSizes_;
     Fsr4BlobView   fsr4Blob_;
     std::vector<uint8_t> fsr4BlobStorage_; // owns the loaded blob bytes
+    Fsr4Preset fsr4LoadedBlobPreset_ = Fsr4Preset::Quality;
     std::atomic<bool> fsr4Enabled_{false}; // user wants upscaling
     std::atomic<bool> fsr4Ready_{false};   // weights + harness + uploader initialized
+    // EASU-only mode: when FSR4 is off but Vulkan is present, keep the
+    // uploader alive to run the EASU 2x GPU upscale and display it. This
+    // replaces the pixelated CPU/bilinear off-path with GPU-accelerated
+    // edge-adaptive scaling.
+    std::atomic<bool> easuOnlyMode_{false};
     // Set by the UI thread when it wants the decode loop to stop touching
     // Vulkan FSR4 resources immediately (file switch, preset change, close).
     // The decode loop polls this between frame uploads and aborts the current
@@ -232,20 +289,26 @@ private:
     std::atomic<bool> fsr4ProofPassed_{false}; // proof passed
     std::atomic<uint32_t> fsr4OutW_{0}, fsr4OutH_{0}; // current output dims
     std::atomic<uint32_t> fsrViewportW_{1280}, fsrViewportH_{720};
+    std::atomic<uint32_t> fsrTargetViewportW_{1280}, fsrTargetViewportH_{720};
+    std::atomic<int64_t> fsrViewportChangedUs_{0};
     std::atomic<float> fsrScale_{2.0f};
     std::atomic<float> sharpness_{0.3f};
+    std::atomic<int> presentationScaler_{2};
     std::atomic<float> jitterStrength_{1.0f};
+    QualityLabConfig qualityLabConfig_{};
     std::atomic<bool> compareEnabled_{false};
     float fsr4AppliedSharpness_ = -1.0f;
     bool fsr4AppliedCompareEnabled_ = false;
     std::atomic<double> lastFsr4DispatchMs_{0.0};
+    std::atomic<double> lastFsr4GpuMs_{0.0};
     // Reusable readback buffer (avoids per-frame alloc).
     std::vector<uint8_t> fsr4Readback_;
     bool fsr4DumpedOutput_ = false;
     bool fsr4DumpedRaw_ = false;
     uint32_t fsr4SequenceDumpCount_ = 0;
+    bool fsr4DumpedPresentation_ = false;
     // Initializes fsr4Harness_ + fsr4Uploader_ for the current source dims.
-    bool initFsr4Path(int srcW, int srcH);
+    bool initFsr4Path(int decodedW, int decodedH, int modelW, int modelH);
 
     // threads
     std::thread demuxThread_;

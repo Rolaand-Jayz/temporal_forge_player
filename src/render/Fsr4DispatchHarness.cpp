@@ -8,6 +8,7 @@
 #include "render/Fsr4DispatchHarness.hpp"
 #include "render/fsr4/Fsr4ConvSteps.hpp"
 #include "render/fsr4/Fsr4Memory.hpp"
+#include "util/FsrTargetMath.hpp"
 #include "util/Log.hpp"
 
 #include <algorithm>
@@ -120,6 +121,40 @@ bool Fsr4DispatchHarness::init(VkPhysicalDevice physical, VkDevice device,
     logError("Fsr4Harness: null device");
     return false;
   }
+  std::vector<uint8_t> genericCacheData;
+  std::filesystem::path genericCachePath;
+  if (const char *xdgCache = std::getenv("XDG_CACHE_HOME"))
+    genericCachePath = std::filesystem::path(xdgCache) /
+                       "temporal-forge-player/generic.bin";
+  else if (const char *home = std::getenv("HOME"))
+    genericCachePath = std::filesystem::path(home) /
+                       ".cache/temporal-forge-player/generic.bin";
+  if (!genericCachePath.empty()) {
+    std::ifstream cacheFile(genericCachePath, std::ios::binary | std::ios::ate);
+    if (cacheFile && cacheFile.tellg() > 0 && cacheFile.tellg() <= (64 << 20)) {
+      genericCacheData.resize(static_cast<size_t>(cacheFile.tellg()));
+      cacheFile.seekg(0);
+      cacheFile.read(reinterpret_cast<char *>(genericCacheData.data()),
+                     static_cast<std::streamsize>(genericCacheData.size()));
+      if (!cacheFile)
+        genericCacheData.clear();
+    }
+  }
+  VkPipelineCacheCreateInfo genericCacheInfo{};
+  genericCacheInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_CACHE_CREATE_INFO;
+  genericCacheInfo.initialDataSize = genericCacheData.size();
+  genericCacheInfo.pInitialData = genericCacheData.empty() ? nullptr
+                                                           : genericCacheData.data();
+  if (vkCreatePipelineCache(device_, &genericCacheInfo, nullptr,
+                            &genericPipelineCache_) != VK_SUCCESS) {
+    genericCacheInfo.initialDataSize = 0;
+    genericCacheInfo.pInitialData = nullptr;
+    if (vkCreatePipelineCache(device_, &genericCacheInfo, nullptr,
+                              &genericPipelineCache_) != VK_SUCCESS)
+      genericPipelineCache_ = VK_NULL_HANDLE;
+  }
+  logInfo("Fsr4Harness: generic pipeline cache loaded ({} bytes)",
+          genericCacheData.size());
   if (!createDescriptorLayout())
     return false;
   if (!createPrepassPipeline())
@@ -251,7 +286,7 @@ bool Fsr4DispatchHarness::createPrepassPipeline() {
   pci.stage.module = mod;
   pci.stage.pName = "main";
   pci.layout = prepassLayout_;
-  VkResult r = vkCreateComputePipelines(device_, VK_NULL_HANDLE, 1, &pci,
+  VkResult r = vkCreateComputePipelines(device_, genericPipelineCache_, 1, &pci,
                                         nullptr, &prepassPipeline_);
   vkDestroyShaderModule(device_, mod, nullptr);
   if (r != VK_SUCCESS) {
@@ -292,7 +327,7 @@ bool Fsr4DispatchHarness::createConvPipelines() {
     pci.stage.module = mod;
     pci.stage.pName = "main";
     pci.layout = convLayout_;
-    VkResult r = vkCreateComputePipelines(device_, VK_NULL_HANDLE, 1, &pci,
+    VkResult r = vkCreateComputePipelines(device_, genericPipelineCache_, 1, &pci,
                                           nullptr, &out);
     vkDestroyShaderModule(device_, mod, nullptr);
     return r == VK_SUCCESS;
@@ -397,7 +432,7 @@ bool Fsr4DispatchHarness::createScatterPipeline() {
   pci.stage.module = mod;
   pci.stage.pName = "main";
   pci.layout = scatterLayout_;
-  VkResult r = vkCreateComputePipelines(device_, VK_NULL_HANDLE, 1, &pci,
+  VkResult r = vkCreateComputePipelines(device_, genericPipelineCache_, 1, &pci,
                                         nullptr, &scatterPipeline_);
   vkDestroyShaderModule(device_, mod, nullptr);
   if (r != VK_SUCCESS) {
@@ -468,7 +503,7 @@ bool Fsr4DispatchHarness::createPostpassPipeline() {
   pci.stage.module = mod;
   pci.stage.pName = "main";
   pci.layout = postpassLayout_;
-  VkResult r = vkCreateComputePipelines(device_, VK_NULL_HANDLE, 1, &pci,
+  VkResult r = vkCreateComputePipelines(device_, genericPipelineCache_, 1, &pci,
                                         nullptr, &postpassPipeline_);
   vkDestroyShaderModule(device_, mod, nullptr);
   if (r != VK_SUCCESS) {
@@ -501,7 +536,7 @@ bool Fsr4DispatchHarness::createSpdPipeline() {
   pci.stage.module = mod;
   pci.stage.pName = "main";
   pci.layout = spdLayout_;
-  VkResult r = vkCreateComputePipelines(device_, VK_NULL_HANDLE, 1, &pci,
+  VkResult r = vkCreateComputePipelines(device_, genericPipelineCache_, 1, &pci,
                                         nullptr, &spdPipeline_);
   vkDestroyShaderModule(device_, mod, nullptr);
   if (r != VK_SUCCESS) {
@@ -550,7 +585,7 @@ bool Fsr4DispatchHarness::createDownscalePipeline() {
   pci.stage.pName = "main";
   pci.layout = downscaleLayout_;
   const VkResult result = vkCreateComputePipelines(
-      device_, VK_NULL_HANDLE, 1, &pci, nullptr, &downscalePipeline_);
+      device_, genericPipelineCache_, 1, &pci, nullptr, &downscalePipeline_);
   vkDestroyShaderModule(device_, module, nullptr);
   return result == VK_SUCCESS;
 }
@@ -720,6 +755,36 @@ bool Fsr4DispatchHarness::ensureNativeInt8Pipelines(NativeInt8Graph graph) {
     pipelines = &nativeInt8PerformancePipelines4320_;
     available = &nativeInt8PerformancePipelines4320Available_;
     break;
+  case NativeInt8Graph::QualityFourThree1440:
+    name = "quality_4x3_1440";
+    pipelines = &nativeInt8QualityFourThreePipelines1440_;
+    available = &nativeInt8QualityFourThreePipelines1440Available_;
+    break;
+  case NativeInt8Graph::UltraPerformanceFourThree1440:
+    name = "ultraperf_4x3_1440";
+    pipelines = &nativeInt8UltraFourThreePipelines1440_;
+    available = &nativeInt8UltraFourThreePipelines1440Available_;
+    break;
+  case NativeInt8Graph::PerformanceFourThree1440:
+    name = "performance_4x3_1440";
+    pipelines = &nativeInt8PerformanceFourThreePipelines1440_;
+    available = &nativeInt8PerformanceFourThreePipelines1440Available_;
+    break;
+  case NativeInt8Graph::QualityFourThree2880:
+    name = "quality_4x3_2880";
+    pipelines = &nativeInt8QualityFourThreePipelines2880_;
+    available = &nativeInt8QualityFourThreePipelines2880Available_;
+    break;
+  case NativeInt8Graph::UltraPerformanceFourThree2880:
+    name = "ultraperf_4x3_2880";
+    pipelines = &nativeInt8UltraFourThreePipelines2880_;
+    available = &nativeInt8UltraFourThreePipelines2880Available_;
+    break;
+  case NativeInt8Graph::PerformanceFourThree2880:
+    name = "performance_4x3_2880";
+    pipelines = &nativeInt8PerformanceFourThreePipelines2880_;
+    available = &nativeInt8PerformanceFourThreePipelines2880Available_;
+    break;
   case NativeInt8Graph::None:
     return false;
   }
@@ -832,6 +897,50 @@ void Fsr4DispatchHarness::persistNativeInt8PipelineCache() {
   }
 }
 
+void Fsr4DispatchHarness::persistGenericPipelineCache() {
+  if (genericPipelineCache_ == VK_NULL_HANDLE)
+    return;
+  size_t byteCount = 0;
+  if (vkGetPipelineCacheData(device_, genericPipelineCache_, &byteCount,
+                             nullptr) != VK_SUCCESS ||
+      byteCount == 0 || byteCount > (64u << 20u))
+    return;
+  std::vector<uint8_t> data(byteCount);
+  if (vkGetPipelineCacheData(device_, genericPipelineCache_, &byteCount,
+                             data.data()) != VK_SUCCESS)
+    return;
+  data.resize(byteCount);
+
+  std::filesystem::path path;
+  if (const char *xdgCache = std::getenv("XDG_CACHE_HOME"))
+    path = std::filesystem::path(xdgCache) /
+           "temporal-forge-player/generic.bin";
+  else if (const char *home = std::getenv("HOME"))
+    path = std::filesystem::path(home) /
+           ".cache/temporal-forge-player/generic.bin";
+  if (path.empty())
+    return;
+  std::error_code ec;
+  std::filesystem::create_directories(path.parent_path(), ec);
+  if (ec)
+    return;
+  const std::filesystem::path temporary = path.string() + ".tmp";
+  std::ofstream file(temporary, std::ios::binary | std::ios::trunc);
+  if (!file)
+    return;
+  file.write(reinterpret_cast<const char *>(data.data()),
+             static_cast<std::streamsize>(data.size()));
+  file.close();
+  if (!file)
+    return;
+  std::filesystem::rename(temporary, path, ec);
+  if (ec) {
+    std::filesystem::remove(path, ec);
+    ec.clear();
+    std::filesystem::rename(temporary, path, ec);
+  }
+}
+
 bool Fsr4DispatchHarness::createCommandBuffer() {
   VkCommandPoolCreateInfo pci{};
   pci.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
@@ -884,6 +993,16 @@ bool Fsr4DispatchHarness::createCommandBuffer() {
 
 bool Fsr4DispatchHarness::allocateResources(const Fsr4DispatchResources &r) {
   // Free any previous allocations.
+  // Resource replacement is performed by PlaybackEngine after its queue-idle
+  // handoff. Invalidate cached descriptor objects before their old buffers and
+  // images are released; the next frame repopulates the same small cache.
+  if (descPool_ != VK_NULL_HANDLE)
+    // Descriptor sets are persistent for the target allocation; the queue
+    // fence above is sufficient to retire this diagnostic command.
+  prepassSet_ = VK_NULL_HANDLE;
+  convDescriptorSets_.fill(VK_NULL_HANDLE);
+  residualDescriptorSets_.fill(VK_NULL_HANDLE);
+  postpassSet_ = VK_NULL_HANDLE;
   nativeInt8Active_ = false;
   nativeInt8Graph_ = NativeInt8Graph::None;
   if (nativeInt8DescPool_ != VK_NULL_HANDLE) {
@@ -932,36 +1051,67 @@ bool Fsr4DispatchHarness::allocateResources(const Fsr4DispatchResources &r) {
       static_cast<VkDeviceSize>(slotSizeWords_) * sizeof(uint16_t);
   const bool nativeEnabled =
       std::getenv("TFORGE_FSR4_DISABLE_NATIVE_INT8") == nullptr;
-  const uint64_t outputScale100 =
-      static_cast<uint64_t>(res_.outputWidth) * 100u;
+  const bool nativeSourceAspectSupported =
+      nativeInt8SourceAspectSupported(res_.sourceWidth, res_.sourceHeight);
+  const float requestedScale =
+      res_.requestedScale >= 1.0f
+          ? res_.requestedScale
+          : (res_.sourceWidth == 0
+                 ? 0.0f
+                 : static_cast<float>(res_.outputWidth) /
+                       static_cast<float>(res_.sourceWidth));
   const bool wantsUltraPerformance =
-      outputScale100 >= static_cast<uint64_t>(res_.sourceWidth) * 299u;
+      requestedScale >= 2.99f;
+  // Balanced (1.7x) has no separate native pack.  Use the available
+  // performance graph for the same fixed target; otherwise this one UI option
+  // falls into the generic RE path and is orders of magnitude slower.
   const bool wantsPerformance =
-      !wantsUltraPerformance &&
-      outputScale100 >= static_cast<uint64_t>(res_.sourceWidth) * 199u;
+      !wantsUltraPerformance && requestedScale >= 1.69f;
   const bool wantsQuality =
-      !wantsPerformance &&
-      outputScale100 >= static_cast<uint64_t>(res_.sourceWidth) * 149u &&
-      outputScale100 < static_cast<uint64_t>(res_.sourceWidth) * 160u;
+      !wantsPerformance && requestedScale >= 1.49f && requestedScale < 1.60f;
   NativeInt8Graph requestedGraph = NativeInt8Graph::None;
-  if (nativeEnabled && wantsUltraPerformance && res_.outputWidth == 1920 &&
+  if (nativeEnabled && nativeSourceAspectSupported && wantsUltraPerformance &&
+      res_.outputWidth == 1920 &&
       res_.outputHeight == 1080)
     requestedGraph = NativeInt8Graph::UltraPerformance1080;
-  else if (nativeEnabled && wantsUltraPerformance && res_.outputWidth == 3840 &&
+  else if (nativeEnabled && nativeSourceAspectSupported &&
+           wantsUltraPerformance && res_.outputWidth == 3840 &&
            res_.outputHeight == 2160)
     requestedGraph = NativeInt8Graph::UltraPerformance2160;
-  else if (nativeEnabled && wantsPerformance && res_.outputWidth == 3840 &&
+  else if (nativeEnabled && nativeSourceAspectSupported && wantsPerformance &&
+           res_.outputWidth == 3840 &&
            res_.outputHeight == 2160)
     requestedGraph = NativeInt8Graph::Performance2160;
-  else if (nativeEnabled && wantsPerformance && res_.outputWidth == 7680 &&
+  else if (nativeEnabled && nativeSourceAspectSupported && wantsPerformance &&
+           res_.outputWidth == 7680 &&
            res_.outputHeight == 4320)
     requestedGraph = NativeInt8Graph::Performance4320;
-  else if (nativeEnabled && wantsQuality && res_.outputWidth == 1920 &&
+  else if (nativeEnabled && nativeSourceAspectSupported && wantsQuality &&
+           res_.outputWidth == 1920 &&
            res_.outputHeight == 1080)
     requestedGraph = NativeInt8Graph::Quality1080;
-  else if (nativeEnabled && wantsQuality && res_.outputWidth == 3840 &&
+  else if (nativeEnabled && nativeSourceAspectSupported && wantsQuality &&
+           res_.outputWidth == 3840 &&
            res_.outputHeight == 2160)
     requestedGraph = NativeInt8Graph::Quality2160;
+  else if (nativeEnabled && nativeSourceAspectSupported && wantsUltraPerformance &&
+           res_.outputWidth == 1440 && res_.outputHeight == 1080)
+    requestedGraph = NativeInt8Graph::UltraPerformanceFourThree1440;
+  else if (nativeEnabled && nativeSourceAspectSupported && wantsPerformance &&
+           res_.outputWidth == 1440 && res_.outputHeight == 1080)
+    requestedGraph = NativeInt8Graph::PerformanceFourThree1440;
+  else if (nativeEnabled && nativeSourceAspectSupported && wantsQuality &&
+           res_.outputWidth == 1440 && res_.outputHeight == 1080)
+    requestedGraph = NativeInt8Graph::QualityFourThree1440;
+  else if (nativeEnabled && nativeSourceAspectSupported && wantsUltraPerformance &&
+           res_.outputWidth == 2880 && res_.outputHeight == 2160)
+    requestedGraph = NativeInt8Graph::UltraPerformanceFourThree2880;
+  else if (nativeEnabled && nativeSourceAspectSupported && wantsPerformance &&
+           res_.outputWidth == 2880 && res_.outputHeight == 2160)
+    requestedGraph = NativeInt8Graph::PerformanceFourThree2880;
+  else if (nativeEnabled && nativeSourceAspectSupported && wantsQuality &&
+           res_.outputWidth == 2880 && res_.outputHeight == 2160)
+    requestedGraph = NativeInt8Graph::QualityFourThree2880;
   if (requestedGraph != NativeInt8Graph::None &&
       !ensureNativeInt8Pipelines(requestedGraph))
     requestedGraph = NativeInt8Graph::None;
@@ -969,12 +1119,8 @@ bool Fsr4DispatchHarness::allocateResources(const Fsr4DispatchResources &r) {
   nativeInt8Graph_ = requestedGraph;
   VkDeviceSize nativeScratchSize = 0;
   if (useNativeInt8) {
-    if (res_.outputHeight == 1080)
-      nativeScratchSize = 20736000ull;
-    else if (res_.outputHeight == 2160)
-      nativeScratchSize = 82944000ull;
-    else if (res_.outputHeight == 4320)
-      nativeScratchSize = 331776000ull;
+    nativeScratchSize = static_cast<VkDeviceSize>(res_.outputWidth) *
+                        res_.outputHeight * 10ull;
   }
   const VkDeviceSize scratchSize =
       useNativeInt8 ? nativeScratchSize : slotBytes * 2ull + (1ull << 20);
@@ -1039,6 +1185,18 @@ bool Fsr4DispatchHarness::prepareNativeInt8Resources() {
     initializerPack = "quality_1080";
   else if (nativeInt8Graph_ == NativeInt8Graph::Quality2160)
     initializerPack = "quality_2160";
+  else if (nativeInt8Graph_ == NativeInt8Graph::QualityFourThree1440)
+    initializerPack = "quality_4x3_1440";
+  else if (nativeInt8Graph_ == NativeInt8Graph::UltraPerformanceFourThree1440)
+    initializerPack = "ultraperf_4x3_1440";
+  else if (nativeInt8Graph_ == NativeInt8Graph::PerformanceFourThree1440)
+    initializerPack = "performance_4x3_1440";
+  else if (nativeInt8Graph_ == NativeInt8Graph::QualityFourThree2880)
+    initializerPack = "quality_4x3_2880";
+  else if (nativeInt8Graph_ == NativeInt8Graph::UltraPerformanceFourThree2880)
+    initializerPack = "ultraperf_4x3_2880";
+  else if (nativeInt8Graph_ == NativeInt8Graph::PerformanceFourThree2880)
+    initializerPack = "performance_4x3_2880";
   const std::string path = std::string(TFORGE_SOURCE_ROOT) +
                            "/resources/fsr4/native_i8/" + initializerPack +
                            "/initializers.bin";
@@ -1165,6 +1323,18 @@ bool Fsr4DispatchHarness::prepareNativeInt8Resources() {
   else if (nativeInt8Graph_ == NativeInt8Graph::Quality1080 ||
            nativeInt8Graph_ == NativeInt8Graph::Quality2160)
     graphName = "quality";
+  else if (nativeInt8Graph_ == NativeInt8Graph::QualityFourThree1440)
+    graphName = "quality-4:3";
+  else if (nativeInt8Graph_ == NativeInt8Graph::UltraPerformanceFourThree1440)
+    graphName = "ultraperformance-4:3";
+  else if (nativeInt8Graph_ == NativeInt8Graph::PerformanceFourThree1440)
+    graphName = "performance-4:3";
+  else if (nativeInt8Graph_ == NativeInt8Graph::QualityFourThree2880)
+    graphName = "quality-4:3";
+  else if (nativeInt8Graph_ == NativeInt8Graph::UltraPerformanceFourThree2880)
+    graphName = "ultraperformance-4:3";
+  else if (nativeInt8Graph_ == NativeInt8Graph::PerformanceFourThree2880)
+    graphName = "performance-4:3";
   logInfo("Fsr4Harness: native INT8 graph {} active for {}x{}", graphName,
           res_.outputWidth, res_.outputHeight);
   return true;
@@ -1208,6 +1378,18 @@ void Fsr4DispatchHarness::recordNativeInt8Graph(VkCommandBuffer cmd) {
     pipelines = &nativeInt8PerformancePipelines2160_;
   else if (nativeInt8Graph_ == NativeInt8Graph::Performance4320)
     pipelines = &nativeInt8PerformancePipelines4320_;
+  else if (nativeInt8Graph_ == NativeInt8Graph::QualityFourThree1440)
+    pipelines = &nativeInt8QualityFourThreePipelines1440_;
+  else if (nativeInt8Graph_ == NativeInt8Graph::UltraPerformanceFourThree1440)
+    pipelines = &nativeInt8UltraFourThreePipelines1440_;
+  else if (nativeInt8Graph_ == NativeInt8Graph::PerformanceFourThree1440)
+    pipelines = &nativeInt8PerformanceFourThreePipelines1440_;
+  else if (nativeInt8Graph_ == NativeInt8Graph::QualityFourThree2880)
+    pipelines = &nativeInt8QualityFourThreePipelines2880_;
+  else if (nativeInt8Graph_ == NativeInt8Graph::UltraPerformanceFourThree2880)
+    pipelines = &nativeInt8UltraFourThreePipelines2880_;
+  else if (nativeInt8Graph_ == NativeInt8Graph::PerformanceFourThree2880)
+    pipelines = &nativeInt8PerformanceFourThreePipelines2880_;
   vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE,
                           nativeInt8Layout_, 0, 1, &nativeInt8Set_, 0, nullptr);
   for (uint32_t i = 0; i < pipelines->size(); ++i) {
@@ -1518,17 +1700,24 @@ void Fsr4DispatchHarness::recordConvPass(VkCommandBuffer cmd,
   if (cbRingMapped_)
     std::memcpy(static_cast<char *>(cbRingMapped_) + cbOffsetConv, &cb,
                 sizeof(ConvCB));
+  const uint32_t stepIndex = passCounter_ - 1u;
 
-  // Per-pass descriptor set (correct + simple; the ring buffer fixed the
-  // real alloc bottleneck — descriptor alloc/free is cheap relative to that).
-  VkDescriptorSetAllocateInfo asi{};
-  asi.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
-  asi.descriptorPool = descPool_;
-  asi.descriptorSetCount = 1;
-  asi.pSetLayouts = &convDescLayout_;
-  VkDescriptorSet set = VK_NULL_HANDLE;
-  if (vkAllocateDescriptorSets(device_, &asi, &set) != VK_SUCCESS)
-    return;
+  // One persistent descriptor set per graph operation. The CB offset and
+  // storage buffers are stable for this target allocation, so allocating the
+  // set once avoids a driver allocator call on every frame.
+  const uint32_t descriptorIndex =
+      std::min<uint32_t>(stepIndex, kMaxPasses - 1u);
+  VkDescriptorSet set = convDescriptorSets_[descriptorIndex];
+  if (set == VK_NULL_HANDLE) {
+    VkDescriptorSetAllocateInfo asi{};
+    asi.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
+    asi.descriptorPool = descPool_;
+    asi.descriptorSetCount = 1;
+    asi.pSetLayouts = &convDescLayout_;
+    if (vkAllocateDescriptorSets(device_, &asi, &set) != VK_SUCCESS)
+      return;
+    convDescriptorSets_[descriptorIndex] = set;
+  }
 
   VkDescriptorBufferInfo cbInfo{cbRingBuffer_, cbOffsetConv, sizeof(ConvCB)};
   VkDescriptorBufferInfo wInfo{res_.weightBuffer, 0, VK_WHOLE_SIZE};
@@ -1565,7 +1754,6 @@ void Fsr4DispatchHarness::recordConvPass(VkCommandBuffer cmd,
     if (end != value)
       coopMaxStep = static_cast<uint32_t>(parsed);
   }
-  const uint32_t stepIndex = passCounter_ - 1u;
   const bool coopEligible = !cfg.fp16Weights && !cfg.isUpscale;
   const bool useCoop = !coopDisabled && stepIndex <= coopMaxStep &&
                        coopEligible && cap_.hasInt32Accum &&
@@ -1687,13 +1875,19 @@ void Fsr4DispatchHarness::recordConvPass(VkCommandBuffer cmd,
     if (cbRingMapped_)
       std::memcpy(static_cast<char *>(cbRingMapped_) + bypassCbOffset, &bypass,
                   sizeof(bypass));
-    VkDescriptorSet bypassSet = VK_NULL_HANDLE;
-    VkDescriptorSetAllocateInfo bai{};
-    bai.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
-    bai.descriptorPool = descPool_;
-    bai.descriptorSetCount = 1;
-    bai.pSetLayouts = &convDescLayout_;
-    if (vkAllocateDescriptorSets(device_, &bai, &bypassSet) == VK_SUCCESS) {
+    const uint32_t bypassIndex =
+        std::min<uint32_t>(stepIndex, kMaxPasses - 1u);
+    VkDescriptorSet bypassSet = residualDescriptorSets_[bypassIndex];
+    if (bypassSet == VK_NULL_HANDLE) {
+      VkDescriptorSetAllocateInfo bai{};
+      bai.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
+      bai.descriptorPool = descPool_;
+      bai.descriptorSetCount = 1;
+      bai.pSetLayouts = &convDescLayout_;
+      if (vkAllocateDescriptorSets(device_, &bai, &bypassSet) == VK_SUCCESS)
+        residualDescriptorSets_[bypassIndex] = bypassSet;
+    }
+    if (bypassSet != VK_NULL_HANDLE) {
       VkDescriptorBufferInfo bcbInfo{cbRingBuffer_, bypassCbOffset,
                                      sizeof(BypassCB)};
       VkDescriptorBufferInfo sharedInfo{res_.sharedScratch, 0, VK_WHOLE_SIZE};
@@ -1737,6 +1931,8 @@ void Fsr4DispatchHarness::recordFusedResidualBlock16(
     int32_t slot2[4];
   } cb{};
 
+  const uint32_t descriptorIndex =
+      std::min<uint32_t>(passCounter_, kMaxPasses - 1u);
   const uint32_t inputBase = (passCounter_ % 2u) * slotSizeWords_;
   const uint32_t outputBase = ((passCounter_ + 3u) % 2u) * slotSizeWords_;
   passCounter_ += 3u;
@@ -1756,14 +1952,17 @@ void Fsr4DispatchHarness::recordFusedResidualBlock16(
   if (cbRingMapped_)
     std::memcpy(static_cast<char *>(cbRingMapped_) + cbOffset, &cb, sizeof(cb));
 
-  VkDescriptorSetAllocateInfo asi{};
-  asi.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
-  asi.descriptorPool = descPool_;
-  asi.descriptorSetCount = 1;
-  asi.pSetLayouts = &convDescLayout_;
-  VkDescriptorSet set = VK_NULL_HANDLE;
-  if (vkAllocateDescriptorSets(device_, &asi, &set) != VK_SUCCESS)
-    return;
+  VkDescriptorSet set = convDescriptorSets_[descriptorIndex];
+  if (set == VK_NULL_HANDLE) {
+    VkDescriptorSetAllocateInfo asi{};
+    asi.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
+    asi.descriptorPool = descPool_;
+    asi.descriptorSetCount = 1;
+    asi.pSetLayouts = &convDescLayout_;
+    if (vkAllocateDescriptorSets(device_, &asi, &set) != VK_SUCCESS)
+      return;
+    convDescriptorSets_[descriptorIndex] = set;
+  }
 
   VkDescriptorBufferInfo cbInfo{cbRingBuffer_, cbOffset, sizeof(cb)};
   VkDescriptorBufferInfo weightInfo{res_.weightBuffer, 0, VK_WHOLE_SIZE};
@@ -1859,14 +2058,20 @@ void Fsr4DispatchHarness::recordResidualAdd(VkCommandBuffer cmd,
   if (cbRingMapped_)
     std::memcpy(static_cast<char *>(cbRingMapped_) + cbOffset, &cb, sizeof(cb));
 
-  VkDescriptorSetAllocateInfo asi{};
-  asi.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
-  asi.descriptorPool = descPool_;
-  asi.descriptorSetCount = 1;
-  asi.pSetLayouts = &convDescLayout_;
-  VkDescriptorSet set = VK_NULL_HANDLE;
-  if (vkAllocateDescriptorSets(device_, &asi, &set) != VK_SUCCESS)
-    return;
+  const uint32_t descriptorIndex =
+      std::min<uint32_t>(kMaxPasses - 1u,
+                         kMaxPasses / 2u + residualOpCounter_ - 1u);
+  VkDescriptorSet set = residualDescriptorSets_[descriptorIndex];
+  if (set == VK_NULL_HANDLE) {
+    VkDescriptorSetAllocateInfo asi{};
+    asi.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
+    asi.descriptorPool = descPool_;
+    asi.descriptorSetCount = 1;
+    asi.pSetLayouts = &convDescLayout_;
+    if (vkAllocateDescriptorSets(device_, &asi, &set) != VK_SUCCESS)
+      return;
+    residualDescriptorSets_[descriptorIndex] = set;
+  }
 
   VkDescriptorBufferInfo cbInfo{cbRingBuffer_, cbOffset, sizeof(cb)};
   VkDescriptorBufferInfo residualInfo{res_.featureBuffer, 0, VK_WHOLE_SIZE};
@@ -1923,7 +2128,7 @@ Fsr4DispatchResult Fsr4DispatchHarness::dispatchFrame(bool reset) {
     r.failReason = "harness not initialized";
     return r;
   }
-  if (!weightsUploaded_) {
+  if (!nativeInt8Active_ && !weightsUploaded_) {
     r.error = UpscaleError::InvalidResource;
     r.failReason = "weights not uploaded";
     return r;
@@ -2194,7 +2399,8 @@ Fsr4DispatchResult Fsr4DispatchHarness::dispatchFrame(bool reset) {
   vkWaitForFences(device_, 1, &fence_, VK_TRUE, UINT64_MAX);
   vkResetFences(device_, 1, &fence_);
   vkResetCommandBuffer(cmd_, 0);
-  vkResetDescriptorPool(device_, descPool_, 0);
+  // Descriptor sets are cached for this target allocation. They are
+  // invalidated by allocateResources(), after the queue-idle handoff.
 
   std::array<uint64_t, kTimestampQueryCount> timestamps{};
   if (vkGetQueryPoolResults(device_, timestampPool_, 0, endQuery + 1u,
@@ -2239,15 +2445,18 @@ void Fsr4DispatchHarness::recordPrepass(VkCommandBuffer cmd,
   //   b0 uniform (PrepassCB), b1 color image, b2 motion image, b3 depth image,
   //   b4 weight blob SSBO, b5 prepass-output SSBO, b7 previous display
   //   history, b8 previous recurrent state.
-  VkDescriptorSet set = VK_NULL_HANDLE;
-  VkDescriptorSetAllocateInfo asi{};
-  asi.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
-  asi.descriptorPool = descPool_;
-  asi.descriptorSetCount = 1;
-  asi.pSetLayouts = &descLayout_;
-  if (vkAllocateDescriptorSets(device_, &asi, &set) != VK_SUCCESS) {
-    logError("Fsr4Harness: prepass desc set alloc failed");
-    return;
+  VkDescriptorSet set = prepassSet_;
+  if (set == VK_NULL_HANDLE) {
+    VkDescriptorSetAllocateInfo asi{};
+    asi.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
+    asi.descriptorPool = descPool_;
+    asi.descriptorSetCount = 1;
+    asi.pSetLayouts = &descLayout_;
+    if (vkAllocateDescriptorSets(device_, &asi, &set) != VK_SUCCESS) {
+      logError("Fsr4Harness: prepass desc set alloc failed");
+      return;
+    }
+    prepassSet_ = set;
   }
 
   // Write the uniform buffer (PrepassCB) into the CB ring at slot 0.
@@ -2552,12 +2761,17 @@ bool Fsr4DispatchHarness::diagnosePrepass(const FrameDispatchInput &in) {
 Fsr4DispatchResult
 Fsr4DispatchHarness::dispatchFrame(const FrameDispatchInput &in) {
   Fsr4DispatchResult r;
+  if (frameInFlight_) {
+    r.error = UpscaleError::DispatchFailed;
+    r.failReason = "previous asynchronous frame is still in flight";
+    return r;
+  }
   if (!initialized()) {
     r.error = UpscaleError::ContextCreateFailed;
     r.failReason = "harness not initialized";
     return r;
   }
-  if (!weightsUploaded_) {
+  if (!nativeInt8Active_ && !weightsUploaded_) {
     r.error = UpscaleError::InvalidResource;
     r.failReason = "weights not uploaded";
     return r;
@@ -2594,6 +2808,25 @@ Fsr4DispatchHarness::dispatchFrame(const FrameDispatchInput &in) {
                       profileStages ? kTimestampQueryCount : 2u);
   vkCmdWriteTimestamp(cmd_, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, timestampPool_,
                       0);
+
+  // The uploader prefix is ordered before this command buffer in the same
+  // queue submission. Establish visibility for the exact color image bound
+  // below; command-buffer ordering alone is not a shader memory dependency.
+  if (in.colorImage != VK_NULL_HANDLE) {
+    VkImageMemoryBarrier inputBarrier{};
+    inputBarrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+    inputBarrier.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
+    inputBarrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+    inputBarrier.oldLayout = VK_IMAGE_LAYOUT_GENERAL;
+    inputBarrier.newLayout = VK_IMAGE_LAYOUT_GENERAL;
+    inputBarrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    inputBarrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    inputBarrier.image = in.colorImage;
+    inputBarrier.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+    vkCmdPipelineBarrier(cmd_, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+                         VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 0, nullptr,
+                         0, nullptr, 1, &inputBarrier);
+  }
 
   // The prepass consumes the previous display/recurrent history before the
   // conv chain begins. Make the prior frame's shader writes visible here;
@@ -2651,7 +2884,7 @@ Fsr4DispatchHarness::dispatchFrame(const FrameDispatchInput &in) {
       const uint32_t dispH = std::max<uint32_t>(1u, baseH / s.spatialDiv);
       const bool fused16 =
           residualBlock16Int8Pipeline_ != VK_NULL_HANDLE &&
-          std::getenv("TFORGE_FSR4_ENABLE_FUSED_INT8") != nullptr &&
+          std::getenv("TFORGE_FSR4_DISABLE_FUSED_INT8") == nullptr &&
           (si == 1 || si == 4 || si == 32 || si == 35);
       if (fused16) {
         recordFusedResidualBlock16(
@@ -2769,13 +3002,18 @@ Fsr4DispatchHarness::dispatchFrame(const FrameDispatchInput &in) {
     }
   }
   if (std::getenv("TFORGE_FSR4_DISABLE_POSTPASS") == nullptr) {
-    VkDescriptorSetAllocateInfo asi{};
-    asi.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
-    asi.descriptorPool = descPool_;
-    asi.descriptorSetCount = 1;
-    asi.pSetLayouts = &postpassDescLayout_;
-    VkDescriptorSet set = VK_NULL_HANDLE;
-    VkResult allocRes = vkAllocateDescriptorSets(device_, &asi, &set);
+    VkDescriptorSet set = postpassSet_;
+    VkResult allocRes = VK_SUCCESS;
+    if (set == VK_NULL_HANDLE) {
+      VkDescriptorSetAllocateInfo asi{};
+      asi.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
+      asi.descriptorPool = descPool_;
+      asi.descriptorSetCount = 1;
+      asi.pSetLayouts = &postpassDescLayout_;
+      allocRes = vkAllocateDescriptorSets(device_, &asi, &set);
+      if (allocRes == VK_SUCCESS)
+        postpassSet_ = set;
+    }
     if (allocRes != VK_SUCCESS) {
       logError("Fsr4Harness: postpass desc alloc failed (code={})",
                static_cast<int>(allocRes));
@@ -2786,22 +3024,28 @@ Fsr4DispatchHarness::dispatchFrame(const FrameDispatchInput &in) {
       // into an earlier slot changes an already-recorded conv command.
       const VkDeviceSize ppCbOffset = 112 * kCbSize;
       struct PostpassCB {
-        uint32_t s0x, s0y, s0z, s0w;
-        float s1x, s1y, s1z, s1w;
-        uint32_t sourceW, sourceH, pad0, pad1;
+        uint32_t slot0[4];
+        float slot1[4];
+        uint32_t slot2[4];
+        uint32_t slot3[4];
+        float slot4[4];
+        float slot5[4];
+        float slot6[4];
+        float slot7[4];
       };
-      PostpassCB pp;
-      pp.s0x = res_.outputWidth;
-      pp.s0y = res_.outputHeight;
-      pp.s0z = in.reset ? 1u : 0u;
+      static_assert(sizeof(PostpassCB) == kCbSize);
+      PostpassCB pp{};
+      pp.slot0[0] = res_.outputWidth;
+      pp.slot0[1] = res_.outputHeight;
+      pp.slot0[2] = in.reset ? 1u : 0u;
       if (!std::getenv("TFORGE_FSR4_ENABLE_RECURRENT"))
-        pp.s0z |= 2u;
+        pp.slot0[2] |= 2u;
       // The final transpose convolution writes its FP16 decoder tensor
       // through the dedicated edge/final-tensor binding at offset 0.
-      pp.s0w = 0;
-      pp.s1x = in.jitterX;
-      pp.s1y = in.jitterY;
-      pp.s1z = in.frameTimeMs;
+      pp.slot0[3] = 0;
+      pp.slot1[0] = in.jitterX;
+      pp.slot1[1] = in.jitterY;
+      pp.slot1[2] = in.frameTimeMs;
       static const float learnedStrengthOverride = [] {
         const char *value = std::getenv("TFORGE_FSR4_LEARNED_STRENGTH");
         if (!value)
@@ -2818,12 +3062,52 @@ Fsr4DispatchHarness::dispatchFrame(const FrameDispatchInput &in) {
         const float t = static_cast<float>(res_.sourceHeight - 480u) / 240.0f;
         learnedStrength = 0.15f + 0.40f * t;
       }
-      if (learnedStrengthOverride >= 0.0f) {
+      const bool experimentalComposition =
+          qualityLabConfig_.enabled &&
+          qualityLabConfig_.compositionMode != QualityCompositionMode::Current;
+      if (experimentalComposition)
+        learnedStrength = std::clamp(qualityLabConfig_.learnedStrength, 0.0f,
+                                     1.0f);
+      if (learnedStrengthOverride >= 0.0f)
         learnedStrength = learnedStrengthOverride;
-      }
-      pp.s1w = learnedStrength;
-      pp.sourceW = res_.sourceWidth;
-      pp.sourceH = res_.sourceHeight;
+      // Codec motion confidence gates how much of the learned temporal
+      // reconstruction is trusted. A reset handles hard discontinuities;
+      // this continuous weighting prevents moderate vector uncertainty from
+      // becoming a soft ghost trail.
+      pp.slot1[3] = experimentalComposition
+                        ? learnedStrength
+                        : learnedStrength *
+                              std::clamp(in.historyConfidence, 0.0f, 1.0f);
+      pp.slot2[0] = res_.sourceWidth;
+      pp.slot2[1] = res_.sourceHeight;
+      pp.slot2[2] = in.transfer;
+      pp.slot2[3] =
+          (in.hdr && std::getenv("TFORGE_FSR4_HDR_OUTPUT")) ? 1u : 0u;
+      pp.slot3[0] = static_cast<uint32_t>(qualityLabConfig_.compositionMode);
+      pp.slot3[1] = static_cast<uint32_t>(qualityLabConfig_.baseFilterMode);
+      pp.slot3[2] = static_cast<uint32_t>(qualityLabConfig_.residualLowpassMode);
+      pp.slot3[3] = static_cast<uint32_t>(qualityLabConfig_.sharpenMode);
+      pp.slot4[0] = qualityLabConfig_.baseB;
+      pp.slot4[1] = qualityLabConfig_.baseC;
+      pp.slot4[2] = qualityLabConfig_.residualRadius;
+      pp.slot4[3] = qualityLabConfig_.residualSigma;
+      pp.slot5[0] = qualityLabConfig_.learnedStrength;
+      pp.slot5[1] = qualityLabConfig_.residualStrength;
+      pp.slot5[2] = qualityLabConfig_.sharpenStrength;
+      pp.slot5[3] = qualityLabConfig_.sharpenLimit;
+      pp.slot6[0] = qualityLabConfig_.sharpenThreshold;
+      pp.slot6[1] = qualityLabConfig_.toneExposureEV;
+      pp.slot6[2] = qualityLabConfig_.toneContrast;
+      pp.slot6[3] = qualityLabConfig_.toneContrastPivot;
+      pp.slot7[0] = qualityLabConfig_.toneGamma;
+      pp.slot7[1] = qualityLabConfig_.enabled ? 1.0f : 0.0f;
+      const char *casStrengthEnv = std::getenv("TFORGE_FSR4_CAS_STRENGTH");
+      const float casStrength = casStrengthEnv && *casStrengthEnv
+                                    ? std::clamp(std::strtof(casStrengthEnv,
+                                                             nullptr), 0.0f, 1.0f)
+                                    : 0.04f;
+      pp.slot7[2] = casStrength;
+      pp.slot7[3] = std::getenv("TFORGE_FSR4_DISABLE_CAS") ? 0.0f : 1.0f;
       if (cbRingMapped_)
         std::memcpy(static_cast<char *>(cbRingMapped_) + ppCbOffset, &pp,
                     sizeof(pp));
@@ -3010,10 +3294,26 @@ Fsr4DispatchHarness::dispatchFrame(const FrameDispatchInput &in) {
     r.failReason = "queue submit";
     return r;
   }
+
+  // The asynchronous entry point returns here. The command buffer, fence,
+  // timestamp pool, descriptor sets, and every image named by `in` remain
+  // owned by this submitted frame until waitForFrame() retires them.
+  if (asyncDispatchRequested_) {
+    frameInFlight_ = true;
+    pendingDispatchStart_ = t0;
+    pendingDispatchResult_ = r;
+    pendingDispatchResult_.ok = true;
+    pendingDispatchResult_.dispatchMs =
+        std::chrono::duration<double, std::milli>(
+            std::chrono::steady_clock::now() - t0)
+            .count();
+    return pendingDispatchResult_;
+  }
   vkWaitForFences(device_, 1, &fence_, VK_TRUE, UINT64_MAX);
   vkResetFences(device_, 1, &fence_);
   vkResetCommandBuffer(cmd_, 0);
-  vkResetDescriptorPool(device_, descPool_, 0);
+  // Cached descriptor sets remain valid until allocateResources() replaces
+  // the target buffers and resets the pool.
 
   std::array<uint64_t, kTimestampQueryCount> timestamps{};
   if (vkGetQueryPoolResults(device_, timestampPool_, 0, endQuery + 1u,
@@ -3067,6 +3367,61 @@ Fsr4DispatchHarness::dispatchFrame(const FrameDispatchInput &in) {
   auto t1 = std::chrono::steady_clock::now();
   r.dispatchMs = std::chrono::duration<double, std::milli>(t1 - t0).count();
   r.ok = true;
+  return r;
+}
+
+Fsr4DispatchResult
+Fsr4DispatchHarness::dispatchFrameAsync(const FrameDispatchInput &in) {
+  if (frameInFlight_) {
+    Fsr4DispatchResult r;
+    r.error = UpscaleError::DispatchFailed;
+    r.failReason = "previous asynchronous frame is still in flight";
+    return r;
+  }
+  asyncDispatchRequested_ = true;
+  auto result = dispatchFrame(in);
+  asyncDispatchRequested_ = false;
+  return result;
+}
+
+Fsr4DispatchResult Fsr4DispatchHarness::waitForFrame() {
+  if (!frameInFlight_) {
+    Fsr4DispatchResult r;
+    r.error = UpscaleError::DispatchFailed;
+    r.failReason = "no asynchronous frame is in flight";
+    return r;
+  }
+
+  Fsr4DispatchResult r = pendingDispatchResult_;
+  if (vkWaitForFences(device_, 1, &fence_, VK_TRUE, UINT64_MAX) != VK_SUCCESS) {
+    r.ok = false;
+    r.error = UpscaleError::DispatchFailed;
+    r.failReason = "wait for asynchronous frame";
+    frameInFlight_ = false;
+    return r;
+  }
+
+  vkResetFences(device_, 1, &fence_);
+  vkResetCommandBuffer(cmd_, 0);
+  const bool profileStages =
+      std::getenv("TFORGE_FSR4_PROFILE_STAGES") != nullptr;
+  const uint32_t endQuery =
+      profileStages ? (nativeInt8Active_ ? 16u : 41u) : 1u;
+  std::array<uint64_t, kTimestampQueryCount> timestamps{};
+  if (vkGetQueryPoolResults(device_, timestampPool_, 0, endQuery + 1u,
+                            (endQuery + 1u) * sizeof(uint64_t),
+                            timestamps.data(), sizeof(uint64_t),
+                            VK_QUERY_RESULT_64_BIT) == VK_SUCCESS &&
+      timestamps[endQuery] >= timestamps[0]) {
+    r.gpuMs = double(timestamps[endQuery] - timestamps[0]) *
+              timestampPeriodNs_ / 1.0e6;
+  }
+  r.dispatchMs = std::chrono::duration<double, std::milli>(
+                     std::chrono::steady_clock::now() - pendingDispatchStart_)
+                     .count();
+  r.ok = true;
+  frameInFlight_ = false;
+  pendingDispatchResult_ = {};
   return r;
 }
 
@@ -3143,6 +3498,12 @@ bool Fsr4DispatchHarness::readbackFinalAccum(std::vector<float> &out) {
 void Fsr4DispatchHarness::destroy() {
   if (device_ == VK_NULL_HANDLE)
     return;
+  // An asynchronous submission owns the command buffer, descriptor sets, and
+  // all input/output resources until its fence signals. Retire it before any
+  // of those objects are destroyed, even if the caller is tearing down during
+  // a file switch or device shutdown.
+  if (frameInFlight_)
+    (void)waitForFrame();
   // Free per-source GPU buffers.
   freeGpuBuffer(res_.weightBuffer, res_.weightMemory);
   freeGpuBuffer(res_.sharedScratch, res_.sharedScratchMemory);
@@ -3209,8 +3570,14 @@ void Fsr4DispatchHarness::destroy() {
   for (auto *pack :
        {&nativeInt8QualityPipelines1080_, &nativeInt8QualityPipelines2160_,
         &nativeInt8UltraPipelines1080_, &nativeInt8UltraPipelines2160_,
-        &nativeInt8PerformancePipelines2160_,
-        &nativeInt8PerformancePipelines4320_})
+       &nativeInt8PerformancePipelines2160_,
+        &nativeInt8PerformancePipelines4320_,
+        &nativeInt8QualityFourThreePipelines1440_,
+        &nativeInt8UltraFourThreePipelines1440_,
+        &nativeInt8PerformanceFourThreePipelines1440_,
+        &nativeInt8QualityFourThreePipelines2880_,
+        &nativeInt8UltraFourThreePipelines2880_,
+        &nativeInt8PerformanceFourThreePipelines2880_})
     for (auto &pipeline : *pack) {
       if (pipeline)
         vkDestroyPipeline(device_, pipeline, nullptr);
@@ -3220,6 +3587,9 @@ void Fsr4DispatchHarness::destroy() {
     vkDestroyDescriptorPool(device_, nativeInt8DescPool_, nullptr);
   if (nativeInt8Layout_)
     vkDestroyPipelineLayout(device_, nativeInt8Layout_, nullptr);
+  persistGenericPipelineCache();
+  if (genericPipelineCache_)
+    vkDestroyPipelineCache(device_, genericPipelineCache_, nullptr);
   if (nativeInt8PipelineCache_)
     vkDestroyPipelineCache(device_, nativeInt8PipelineCache_, nullptr);
   if (nativeInt8DescLayout_)
@@ -3269,6 +3639,7 @@ void Fsr4DispatchHarness::destroy() {
   nativeInt8DescPool_ = VK_NULL_HANDLE;
   nativeInt8DescLayout_ = VK_NULL_HANDLE;
   nativeInt8Layout_ = VK_NULL_HANDLE;
+  genericPipelineCache_ = VK_NULL_HANDLE;
   nativeInt8PipelineCache_ = VK_NULL_HANDLE;
   nativeInt8Set_ = VK_NULL_HANDLE;
   nativeInt8PipelinesAvailable_ = false;
@@ -3278,6 +3649,12 @@ void Fsr4DispatchHarness::destroy() {
   nativeInt8UltraPipelines2160Available_ = false;
   nativeInt8PerformancePipelines2160Available_ = false;
   nativeInt8PerformancePipelines4320Available_ = false;
+  nativeInt8QualityFourThreePipelines1440Available_ = false;
+  nativeInt8UltraFourThreePipelines1440Available_ = false;
+  nativeInt8PerformanceFourThreePipelines1440Available_ = false;
+  nativeInt8QualityFourThreePipelines2880Available_ = false;
+  nativeInt8UltraFourThreePipelines2880Available_ = false;
+  nativeInt8PerformanceFourThreePipelines2880Available_ = false;
   nativeInt8Active_ = false;
   nativeInt8Graph_ = NativeInt8Graph::None;
   device_ = VK_NULL_HANDLE;

@@ -17,6 +17,9 @@ if(NOT CMAKE_BUILD_TYPE)
 endif()
 
 # Qt + RHI prefer Ninja for faster, more deterministic builds.
+if(NINJA_EXE AND NOT EXISTS "${NINJA_EXE}")
+    unset(NINJA_EXE CACHE)
+endif()
 find_program(NINJA_EXE ninja REQUIRED)
 
 # --- dependencies ---
@@ -27,7 +30,21 @@ pkg_check_modules(FFMPEG REQUIRED
     libavcodec libavformat libavutil libswscale libswresample)
 
 # Vulkan
-pkg_check_modules(VULKAN REQUIRED vulkan)
+# The loader's pkg-config file is useful for diagnostics, but it is not the
+# source of truth for the headers.  Some systems ship the loader/ICD without
+# the SDK development package, and stale CMake caches can also retain a
+# `Vulkan_INCLUDE_DIR-NOTFOUND` value.
+pkg_check_modules(VULKAN QUIET vulkan)
+# Some runtime-only Vulkan installations provide the loader and ICD but not
+# the development headers.  This repository carries the matching public
+# headers needed to compile the player, so use them when CMake cannot find a
+# system Vulkan include directory (including a stale NOTFOUND cache entry).
+set(TFORGE_BUNDLED_VULKAN_INCLUDE
+    "${CMAKE_CURRENT_SOURCE_DIR}/external/vulkan_include")
+if(EXISTS "${TFORGE_BUNDLED_VULKAN_INCLUDE}/vulkan/vulkan.h")
+  set(Vulkan_INCLUDE_DIR "${TFORGE_BUNDLED_VULKAN_INCLUDE}" CACHE PATH
+      "Vulkan include directory" FORCE)
+endif()
 find_package(Vulkan REQUIRED)
 
 # FSR4 GLSL->SPIR-V shader compilation + embedding.
@@ -54,6 +71,8 @@ tforge_compile_shaders(
             ${CMAKE_CURRENT_SOURCE_DIR}/shaders/fsr4/scatter.comp
             ${CMAKE_CURRENT_SOURCE_DIR}/shaders/fsr4/postpass_composite.comp
             ${CMAKE_CURRENT_SOURCE_DIR}/shaders/fsr4/downscale_rgb10.comp
+            ${CMAKE_CURRENT_SOURCE_DIR}/shaders/fsr4/easu.comp
+            ${CMAKE_CURRENT_SOURCE_DIR}/shaders/fsr4/bicubic_prefilter.comp
             ${CMAKE_CURRENT_SOURCE_DIR}/shaders/fsr4/spd.comp)
 
 # Qt6 (spec: Core/Gui/Quick/Qml/Widgets)

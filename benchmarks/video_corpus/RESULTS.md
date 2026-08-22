@@ -4,6 +4,41 @@ Measured 2026-07-17 through 2026-07-18 on an RX 7900 GRE using the native RDNA3
 INT8 path. Quality measurements use frame 48 and the matching lossless native-4K
 frame.
 
+## 2026-08-21 reconstruction-quality campaign addendum
+
+The current quality finalist is `base_only` with a bilinear stable base,
+disabled learned residual and adaptive sharpening, corrective exposure
+`-0.015 EV`, neutral contrast/pivot/gamma, and bicubic presentation. The
+staircase investigation found that pure learned output retained stronger
+colored stepped edges, while the stable base was the strongest controlled
+path; sharper kernels, residuals, and adaptive sharpening did not remove the
+artifact at an acceptable quality/performance tradeoff. A separate post-fix
+shader change removes Halton jitter from the base-only spatial resolve, which
+eliminated the measured shimmer without changing the neural graph.
+
+The post-fix six-row full-reference 426x240 finalist run measured mean FSR
+PSNR/SSIM/edge-SSIM `28.342274 / 0.751456 / 0.797694`, luma MAE `0.012008`,
+and signed bias `+0.002138`; the quality-capture timing was `1.429 ms` GPU and
+`1.546 ms` pipeline CPU. The three-clip local neighborhood winner measured
+`24.101126 / 0.737582 / 0.713305` and `1.425 / 1.539 ms`. These aggregates
+are reported with their exact source subsets and are not a claim of universal
+superiority over spatial controls.
+
+Dedicated performance traces for the same stable path recorded GPU means of
+`0.971 ms` at 426x240 input, `0.966 ms` at 640x360, `3.985 ms` at 854x480,
+and `3.994 ms` at 1280x720, all below the 5 ms target in the measured runs.
+The supersampled anti-aliasing run and same-frame libplacebo/FSRCNNX controls
+are preserved under `/tmp/tforge-supersampled-aa-20260821b/` and
+`/tmp/tforge-competitors-20260821/`. The installed mpv build did not provide
+an FSR1 scaler, so no FSR1 result is represented.
+
+The temporal runner now includes a direct bilinear control. Post-fix
+FSR-vs-bilinear temporal-delta error was `0.005165` on Tears of Steel,
+`0.291354` on Sintel, and `0.014183` on a moving synthetic control; visual
+strips showed no new shimmer or ghost trails. The checked-in synthetic-motion
+generator currently produces a static sequence and is excluded from this
+temporal conclusion until its generator is corrected.
+
 ## Quality correction
 
 The checkerboard-like edge blending had two spatial causes:
@@ -15,9 +50,25 @@ The checkerboard-like edge blending had two spatial causes:
   reconstruction. A 55% learned contribution retains the INT8 model's edge
   recovery while suppressing unstable alternating filter directions.
 
-Centered bilinear 4:2:0 chroma reconstruction now replaces nearest 2x2 chroma
-replication. Forced-reset testing changed the worst pre-fix SSIM by only
+Centered bicubic 4:2:0 chroma reconstruction now covers both the regular
+planar-YUV and DRM/NV12 GPU conversion paths; it replaces nearest 2x2 chroma
+replication and the former DRM-only bilinear fallback. Forced-reset testing changed the worst pre-fix SSIM by only
 `-0.00034`, ruling out temporal history as the primary defect.
+
+The current preset sweep also verifies that the multiplier changes the neural
+input size while keeping the presentation target fixed. On a 1920x1080 source
+with a 1280x720 output, the measured inputs were Native 1280x720, Quality
+854x480, Balanced 754x424, Performance 640x360, and Ultra Performance 428x240.
+On the daylight CRF-12 frame-60 sample, the corrected runner selected the
+expected dimensions and kept the 1280x720 presentation target fixed. The
+measured FSR SSIM values were Quality 0.887572, Balanced 0.893219,
+Performance 0.894729, Ultra Performance 0.870226, and NativeAA 0.879589;
+edge SSIM was strongest for NativeAA (0.767988) and Quality (0.772393), while
+Ultra Performance fell to 0.653599. This is a single-frame diagnostic, not a
+default-selection recommendation; the full corpus remains the acceptance
+gate. The corresponding corrected outputs are tagged `*PostFix` under
+`results/quality_frames` and should be repeated after model or postpass
+changes.
 
 Decoded color range and matrix metadata now reach the GPU conversion pass.
 Limited/full range and BT.601, BT.709, BT.2020, FCC, and SMPTE 240M matrices
@@ -434,3 +485,34 @@ is charted in `results/benchmark_frame_budget_240p_to_4k.svg`.
   other aspect ratios, and unmatched larger inputs still use the generic graph.
 - Decode, presentation, and sustained high-frame-rate pacing still need broader
   coverage at 4K and above; the former CPU codec-motion bottleneck is removed.
+## Synthetic edge and dark-scene controls
+
+The deterministic synthetic families are now materialized in `manifest.csv`
+and exercised by the quality runner rather than being silently skipped. At
+Balanced, 640x360 input, frame 60, and a 1280x720 output:
+
+| Scene | FSR SSIM | FSR edge SSIM | Lanczos SSIM | Lanczos edge SSIM | SSIM delta | Edge delta |
+|---|---:|---:|---:|---:|---:|---:|
+| synthetic_edges_text | 0.776000 | 0.917689 | 0.864528 | 0.975517 | -0.088528 | -0.057828 |
+| synthetic_dark | 0.512300 | 0.992029 | 0.768910 | 0.998358 | -0.256610 | -0.006329 |
+
+The native 4:3 case also completed without padding: `synthetic_4_3` at
+640x480 produced a fitted 960x720 output with FSR SSIM `0.817773` and edge
+SSIM `0.909072`, versus Lanczos SSIM `0.922124` and edge SSIM `0.955032`.
+
+These are diagnostic controls, not claims of superiority: they expose text,
+one-pixel edges, and dark-tone reconstruction losses that are diluted in the
+natural-footage aggregate. The generated files and per-frame difference images
+remain available under `results/quality_frames`.
+
+The five-preset sweep on the same 640x360 inputs showed that the source-size
+clamp correctly collapses NativeAA, Quality, Balanced, and Performance to the
+decoded dimensions; only Ultra Performance actually lowers the model input:
+
+| Preset | Edge/text SSIM | Edge/text edge SSIM | Dark SSIM | Dark edge SSIM |
+|---|---:|---:|---:|---:|
+| NativeAA | 0.776004 | 0.917713 | 0.512300 | 0.992029 |
+| Quality | 0.776001 | 0.917841 | 0.512300 | 0.992029 |
+| Balanced | 0.776005 | 0.917720 | 0.512300 | 0.992029 |
+| Performance | 0.776002 | 0.917653 | 0.512300 | 0.992029 |
+| Ultra Performance | 0.771596 | 0.890851 | 0.512589 | 0.996054 |

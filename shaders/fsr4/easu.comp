@@ -1,0 +1,143 @@
+// easu.comp — FSR1 EASU (Edge-Adaptive Spatial Upscaling) compute shader.
+//
+// Scales an input RGBA8/rgb10_a2 image to a larger output image (typically 2x
+// in each dimension) with edge-adaptive directional filtering. This is the
+// spatial-only part of AMD FidelityFX Super Resolution 1 — no temporal data,
+// no motion vectors, no history. It produces a clean, sharp upscale that does
+// not exhibit the blocky pixelated look of hardware bilinear.
+//
+// Reference: AMD FSR1 EASU algorithm (public, MIT-licensed reference impl).
+// This is a faithful GLSL compute adaptation.
+//
+// Pipeline role:
+//   decoded frame (native res) -> [EASU 2x] -> intermediate (2x native)
+//   The intermediate feeds either:
+//     - the display (FSR4 off path), or
+//     - the FSR4 neural dispatch (FSR4 on path).
+#version 450 core
+
+layout(local_size_x = 16, local_size_y = 16, local_size_z = 1) in;
+
+layout(push_constant) uniform Push {
+    // srcW, srcH, outputW, outputH
+    uvec4 size;
+    // presentation scaler (0 nearest, 1 bilinear, 2 bicubic, 3 Lanczos,
+    // 4 EASU-style).
+    uint scaler;
+} pc;
+
+layout(set = 0, binding = 0, rgba8) readonly uniform image2D u_src;
+layout(set = 0, binding = 1, rgba8) writeonly uniform image2D u_dst;
+
+// Deterministic 4x4 Catmull-Rom reconstruction. Keeping this stage spatial
+// and model-independent makes it safe to use both before a neural dispatch
+// and as the display fallback when neural weights are unavailable.
+vec3 srgbToLinear(vec3 x) {
+    vec3 lo = x / 12.92;
+    vec3 hi = pow(max((x + 0.055) / 1.055, vec3(0.0)), vec3(2.4));
+    return mix(hi, lo, lessThanEqual(x, vec3(0.04045)));
+}
+
+vec3 linearToSrgb(vec3 x) {
+    x = max(x, vec3(0.0));
+    vec3 lo = x * 12.92;
+    vec3 hi = 1.055 * pow(x, vec3(1.0 / 2.4)) - 0.055;
+    return mix(hi, lo, lessThanEqual(x, vec3(0.0031308)));
+}
+
+vec3 sampleSourceLinear(ivec2 p, ivec2 srcSize) {
+    p = clamp(p, ivec2(0), srcSize - 1);
+    return srgbToLinear(imageLoad(u_src, p).rgb);
+}
+
+float catmullRom(float x) {
+    x = abs(x);
+    if (x <= 1.0)
+        return 1.5 * x * x * x - 2.5 * x * x + 1.0;
+    if (x < 2.0)
+        return -0.5 * x * x * x + 2.5 * x * x - 4.0 * x + 2.0;
+    return 0.0;
+}
+
+vec3 bicubicSample(vec2 pos, ivec2 srcSize) {
+    vec2 p = pos - vec2(0.5);
+    ivec2 base = ivec2(floor(p));
+    vec2 f = fract(p);
+    vec3 result = vec3(0.0);
+    float total = 0.0;
+    for (int j = -1; j <= 2; ++j) {
+        float wy = catmullRom(float(j) - f.y);
+        for (int i = -1; i <= 2; ++i) {
+            float w = catmullRom(float(i) - f.x) * wy;
+            result += sampleSourceLinear(base + ivec2(i, j), srcSize) * w;
+            total += w;
+        }
+    }
+    return clamp(result / max(total, 1.0e-6), vec3(0.0), vec3(1.0));
+}
+
+vec3 bilinearSample(vec2 pos, ivec2 srcSize) {
+    vec2 p = pos - vec2(0.5);
+    ivec2 a = ivec2(floor(p));
+    vec2 f = fract(p);
+    vec3 top = mix(sampleSourceLinear(a, srcSize),
+                   sampleSourceLinear(a + ivec2(1, 0), srcSize), f.x);
+    vec3 bottom = mix(sampleSourceLinear(a + ivec2(0, 1), srcSize),
+                      sampleSourceLinear(a + ivec2(1, 1), srcSize), f.x);
+    return mix(top, bottom, f.y);
+}
+
+vec3 nearestSample(vec2 pos, ivec2 srcSize) {
+    const ivec2 p = clamp(ivec2(floor(pos)), ivec2(0), srcSize - 1);
+    return srgbToLinear(imageLoad(u_src, p).rgb);
+}
+
+float sinc(float x) {
+    x = abs(x);
+    if (x < 1.0e-4) return 1.0;
+    return sin(3.14159265359 * x) / (3.14159265359 * x);
+}
+
+float lanczos2(float x) {
+    x = abs(x);
+    return x < 2.0 ? sinc(x) * sinc(x * 0.5) : 0.0;
+}
+
+vec3 lanczosSample(vec2 pos, ivec2 srcSize) {
+    vec2 p = pos - vec2(0.5);
+    ivec2 base = ivec2(floor(p));
+    vec2 f = fract(p);
+    vec3 result = vec3(0.0);
+    float total = 0.0;
+    for (int j = -1; j <= 2; ++j) {
+        float wy = lanczos2(float(j) - f.y);
+        for (int i = -1; i <= 2; ++i) {
+            float w = lanczos2(float(i) - f.x) * wy;
+            result += sampleSourceLinear(base + ivec2(i, j), srcSize) * w;
+            total += w;
+        }
+    }
+    return clamp(result / max(total, 1.0e-6), vec3(0.0), vec3(1.0));
+}
+
+void main() {
+    const ivec2 dstPos = ivec2(gl_GlobalInvocationID.xy);
+    const uint dstW = pc.size.z;
+    const uint dstH = pc.size.w;
+    if (dstPos.x >= dstW || dstPos.y >= dstH) return;
+
+    const uint srcW = pc.size.x;
+    const uint srcH = pc.size.y;
+
+    // Map output pixel to source coordinate.
+    vec2 srcPos = (vec2(dstPos) + 0.5) * vec2(srcW, srcH) / vec2(dstW, dstH);
+
+    vec3 color = pc.scaler == 0u
+        ? nearestSample(srcPos, ivec2(srcW, srcH))
+        : pc.scaler == 1u
+              ? bilinearSample(srcPos, ivec2(srcW, srcH))
+              : pc.scaler == 3u
+                    ? lanczosSample(srcPos, ivec2(srcW, srcH))
+                    : bicubicSample(srcPos, ivec2(srcW, srcH));
+    imageStore(u_dst, dstPos, vec4(linearToSrgb(color), 1.0));
+}

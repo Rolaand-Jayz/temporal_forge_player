@@ -22,7 +22,9 @@ layout(set = 0, binding = 3, rgb10_a2) writeonly uniform image2D u_color;
 layout(set = 0, binding = 4, rgba8) writeonly uniform image2D u_raw;
 
 const int Y_TILE_WIDTH = 18;
-const int UV_TILE_WIDTH = 10;
+// Bicubic chroma needs one additional texel beyond the bilinear footprint at
+// the right/bottom edge of each 16x16 luma workgroup.
+const int UV_TILE_WIDTH = 11;
 shared float yTile[Y_TILE_WIDTH * Y_TILE_WIDTH];
 shared vec2 uvTile[UV_TILE_WIDTH * UV_TILE_WIDTH];
 
@@ -36,22 +38,34 @@ vec2 loadUvCached(ivec2 p, ivec2 tileBase) {
     return uvTile[local.y * UV_TILE_WIDTH + local.x];
 }
 
-vec2 loadUvBilinear(ivec2 p, ivec2 size, ivec2 uvSize) {
-    // Reconstruct 4:2:0 chroma at the luma pixel center. Nearest-cell
-    // chroma creates a fixed 2x2 lattice that the neural pass can sharpen
-    // into a visible screen-door pattern on low-resolution video.
+vec4 catmullRomWeights(float f) {
+    float f2 = f * f;
+    float f3 = f2 * f;
+    return vec4(-0.5 * f3 + f2 - 0.5 * f,
+                 1.5 * f3 - 2.5 * f2 + 1.0,
+                -1.5 * f3 + 2.0 * f2 + 0.5 * f,
+                 0.5 * f3 - 0.5 * f2);
+}
+
+vec2 loadUvBicubic(ivec2 p, ivec2 size, ivec2 uvSize, ivec2 tileBase) {
+    // Reconstruct 4:2:0 chroma at the luma pixel center. The cubic footprint
+    // avoids the soft 2x2 bilinear chroma cells that are especially visible
+    // around text and high-contrast screen-recording edges.
     vec2 uvPos = (vec2(p) + vec2(0.5)) * 0.5 - vec2(0.5);
     ivec2 base = ivec2(floor(uvPos));
     vec2 f = fract(uvPos);
-    base = clamp(base, ivec2(0), uvSize - ivec2(1));
-    ivec2 right = min(base + ivec2(1, 0), uvSize - ivec2(1));
-    ivec2 down = min(base + ivec2(0, 1), uvSize - ivec2(1));
-    ivec2 diag = min(base + ivec2(1, 1), uvSize - ivec2(1));
-    vec2 a = vec2(imageLoad(u_u, base).r, imageLoad(u_v, base).r);
-    vec2 b = vec2(imageLoad(u_u, right).r, imageLoad(u_v, right).r);
-    vec2 c = vec2(imageLoad(u_u, down).r, imageLoad(u_v, down).r);
-    vec2 d = vec2(imageLoad(u_u, diag).r, imageLoad(u_v, diag).r);
-    return mix(mix(a, b, f.x), mix(c, d, f.x), f.y);
+    vec4 wx = catmullRomWeights(f.x);
+    vec4 wy = catmullRomWeights(f.y);
+    vec2 result = vec2(0.0);
+    for (int y = 0; y < 4; ++y) {
+        int sy = clamp(base.y + y - 1, 0, uvSize.y - 1);
+        for (int x = 0; x < 4; ++x) {
+            int sx = clamp(base.x + x - 1, 0, uvSize.x - 1);
+            vec2 sampleUv = loadUvCached(ivec2(sx, sy), tileBase);
+            result += sampleUv * (wx[x] * wy[y]);
+        }
+    }
+    return clamp(result, 0.0, 1.0);
 }
 
 float sharpenMask(ivec2 p, ivec2 size, ivec2 tileBase,
@@ -86,7 +100,7 @@ vec3 toModelColor(vec3 srgb) {
 
 void main() {
     ivec2 size = ivec2(int(pc.params.x), int(pc.params.y));
-    ivec2 uvSize = max(size / 2, ivec2(1));
+    ivec2 uvSize = max((size + ivec2(1)) / 2, ivec2(1));
     const ivec2 groupCoord = ivec2(gl_WorkGroupID.xy) * 16;
     const ivec2 yTileBase = groupCoord - ivec2(1);
     const ivec2 uvTileBase = groupCoord / 2 - ivec2(1);
@@ -110,7 +124,7 @@ void main() {
     if (p.x >= size.x || p.y >= size.y) return;
 
     float y = loadYCached(p, yTileBase);
-    vec2 uv = loadUvBilinear(p, size, uvSize);
+    vec2 uv = loadUvBicubic(p, size, uvSize, uvTileBase);
     float u = uv.x;
     float v = uv.y;
     vec3 rgb = yuvToRgb(y, u, v);
@@ -123,8 +137,8 @@ void main() {
     // The 3x upscale pre/post passes reuse these values instead of evaluating
     // the same transform 4 and 9 times per output pixel respectively.
     imageStore(u_color, p, vec4(toModelColor(sharpened), 1.0));
-    // Comparison toggles are applied before this dispatch, so populate the raw
-    // image only on frames where the UI can consume it.
-    if (pc.params.w > 0.5)
-        imageStore(u_raw, p, vec4(rgb, 1.0));
+    // The bicubic prefilter consumes this display-space image before the FSR
+    // model pass. Keep it populated for normal playback as well as A/B
+    // compare; leaving it zero when compare is off makes the FSR input black.
+    imageStore(u_raw, p, vec4(rgb, 1.0));
 }

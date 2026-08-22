@@ -1,3 +1,7 @@
+// drm_yuv_to_fsr_input.comp — convert imported DRM YUV planes into the RGB10
+// model-color image consumed by the FSR4 prepass. GpuImageUploader binds the
+// imported plane views and output image; no CPU conversion or quality decision
+// belongs in this shader.
 #version 450
 
 layout(local_size_x = 16, local_size_y = 16, local_size_z = 1) in;
@@ -14,7 +18,10 @@ layout(push_constant) uniform Push {
 } pc;
 
 const int Y_TILE_WIDTH = 18;
-const int UV_TILE_WIDTH = 10;
+// The cubic footprint reaches one texel beyond the bilinear footprint at
+// both edges of a 16x16 luma tile.  With the chroma tile starting at -1,
+// eleven samples cover the complete [base-1, base+2] range.
+const int UV_TILE_WIDTH = 11;
 shared float yTile[Y_TILE_WIDTH * Y_TILE_WIDTH];
 shared vec2 uvTile[UV_TILE_WIDTH * UV_TILE_WIDTH];
 
@@ -28,21 +35,34 @@ vec2 loadUvCached(ivec2 p, ivec2 tileBase) {
     return uvTile[local.y * UV_TILE_WIDTH + local.x];
 }
 
-vec2 loadUvBilinear(ivec2 p, ivec2 uvSize) {
-    // DRM PRIME is the normal hardware-decoder path. Nearest-cell 4:2:0
-    // chroma here creates a fixed lattice that FSR amplifies into a
-    // screen-door texture on compressed video.
+vec4 catmullRomWeights(float f) {
+    float f2 = f * f;
+    float f3 = f2 * f;
+    return vec4(-0.5 * f3 + f2 - 0.5 * f,
+                 1.5 * f3 - 2.5 * f2 + 1.0,
+                -1.5 * f3 + 2.0 * f2 + 0.5 * f,
+                 0.5 * f3 - 0.5 * f2);
+}
+
+vec2 loadUvBicubic(ivec2 p, ivec2 uvSize, ivec2 tileBase) {
+    // Keep the DRM PRIME path identical in reconstruction quality to the
+    // regular YUV path.  Bilinear chroma creates a soft 2x2 lattice which
+    // becomes visible after neural upscaling, especially around text.
     vec2 uvPos = (vec2(p) + vec2(0.5)) * 0.5 - vec2(0.5);
-    ivec2 a = clamp(ivec2(floor(uvPos)), ivec2(0), uvSize - ivec2(1));
-    ivec2 b = min(a + ivec2(1, 0), uvSize - ivec2(1));
-    ivec2 c = min(a + ivec2(0, 1), uvSize - ivec2(1));
-    ivec2 d = min(a + ivec2(1, 1), uvSize - ivec2(1));
+    ivec2 base = ivec2(floor(uvPos));
     vec2 f = fract(uvPos);
-    vec2 top = mix(texelFetch(uvTex, a, 0).rg,
-                   texelFetch(uvTex, b, 0).rg, f.x);
-    vec2 bottom = mix(texelFetch(uvTex, c, 0).rg,
-                      texelFetch(uvTex, d, 0).rg, f.x);
-    return mix(top, bottom, f.y);
+    vec4 wx = catmullRomWeights(f.x);
+    vec4 wy = catmullRomWeights(f.y);
+    vec2 result = vec2(0.0);
+    for (int y = 0; y < 4; ++y) {
+        int sy = clamp(base.y + y - 1, 0, uvSize.y - 1);
+        for (int x = 0; x < 4; ++x) {
+            int sx = clamp(base.x + x - 1, 0, uvSize.x - 1);
+            result += loadUvCached(ivec2(sx, sy), tileBase) *
+                      (wx[x] * wy[y]);
+        }
+    }
+    return clamp(result, 0.0, 1.0);
 }
 
 vec3 yuvToRgb(float y, vec2 uv) {
@@ -63,7 +83,7 @@ vec3 toModelColor(vec3 srgb) {
 
 void main() {
     ivec2 size = ivec2(pc.params.xy);
-    ivec2 uvSize = max(size / 2, ivec2(1));
+    ivec2 uvSize = max((size + ivec2(1)) / 2, ivec2(1));
     ivec2 groupCoord = ivec2(gl_WorkGroupID.xy) * 16;
     ivec2 yTileBase = groupCoord - ivec2(1);
     ivec2 uvTileBase = groupCoord / 2 - ivec2(1);
@@ -87,7 +107,7 @@ void main() {
     if (any(greaterThanEqual(p, size))) return;
 
     float y = loadYCached(p, yTileBase);
-    vec3 rgb = yuvToRgb(y, loadUvBilinear(p, uvSize));
+    vec3 rgb = yuvToRgb(y, loadUvBicubic(p, uvSize, uvTileBase));
 
     float blur = loadYCached(ivec2(max(p.x - 1, 0), p.y), yTileBase) +
                  loadYCached(ivec2(min(p.x + 1, size.x - 1), p.y), yTileBase) +
@@ -97,6 +117,8 @@ void main() {
     float mask = clamp(1.0 + detail * (clamp(pc.params.z, 0.0, 1.0) * 0.25),
                        0.0, 4.0);
     imageStore(colorImg, p, vec4(toModelColor(clamp(rgb * mask, 0.0, 1.0)), 1.0));
-    if (pc.params.w > 0.5)
-        imageStore(rawImg, p, vec4(rgb, 1.0));
+    // The bicubic prefilter consumes this display-space image before the FSR
+    // model pass. Keep it populated for normal playback as well as A/B
+    // compare; leaving it zero when compare is off makes the FSR input black.
+    imageStore(rawImg, p, vec4(rgb, 1.0));
 }

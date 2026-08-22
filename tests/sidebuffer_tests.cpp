@@ -79,6 +79,27 @@ static void test_static_vs_cut() {
     CHECK(s2.reset == true); // histogram delta = 1.0 > 0.65
 }
 
+static void test_pts_gap_uses_prior_cadence() {
+    LumaBuffer frame;
+    frame.width = 8; frame.height = 8;
+    frame.data.assign(64, 0.4f);
+
+    SideBufferSynth synth;
+    synth.update(frame, 41.7f, false); // establish a 24-fps cadence
+    auto normal = synth.update(frame, 41.7f, false);
+    CHECK(normal.reset == false);
+
+    // A 5x gap must reset against the prior 41.7 ms cadence. The old
+    // implementation compared the gap to itself and could never detect it.
+    auto gap = synth.update(frame, 208.5f, false);
+    CHECK(gap.reset == true);
+
+    // The discontinuity must not poison the cadence estimate: the next
+    // normal frame is still interpreted as a regular frame.
+    auto recovered = synth.update(frame, 41.7f, false);
+    CHECK(recovered.reset == false);
+}
+
 static void test_low_res_jitter_scaling() {
     LumaBuffer frame;
     frame.width = 640;
@@ -100,12 +121,33 @@ static void test_low_res_jitter_scaling() {
     CHECK(std::fabs(high.jitterY) >= std::fabs(low.jitterY));
 }
 
+static void test_jitter_strength_override() {
+    LumaBuffer frame;
+    frame.width = 1920;
+    frame.height = 1080;
+    frame.data.assign(16, 0.5f);
+
+    SideBufferSynth synth;
+    synth.setRenderSize(frame.width, frame.height);
+    synth.setJitterStrength(0.0f);
+    const auto disabled = synth.update(frame, 16.7f, false);
+    CHECK_FEQ(disabled.jitterX, 0.0f);
+    CHECK_FEQ(disabled.jitterY, 0.0f);
+
+    synth.setJitterStrength(1.0f);
+    const auto enabled = synth.update(frame, 16.7f, false);
+    CHECK(std::fabs(enabled.jitterX) > 0.0f ||
+          std::fabs(enabled.jitterY) > 0.0f);
+}
+
 int main() {
     test_reactive_formula();
     test_scene_cut_thresholds();
     test_histogram_delta();
     test_static_vs_cut();
+    test_pts_gap_uses_prior_cadence();
     test_low_res_jitter_scaling();
+    test_jitter_strength_override();
     if (g_failures == 0) { std::printf("sidebuffer_tests: OK\n"); return 0; }
     std::fprintf(stderr, "sidebuffer_tests: %d FAILURES\n", g_failures);
     return 1;

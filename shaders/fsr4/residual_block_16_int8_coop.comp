@@ -1,3 +1,6 @@
+// residual_block_16_int8_coop.comp — cooperative INT8 residual block for the
+// recovered FSR4 network. It consumes the preserved block input plus the
+// current tensor and writes the residual output that residual_add consumes.
 #version 450 core
 #extension GL_KHR_cooperative_matrix : require
 #extension GL_KHR_memory_scope_semantics : require

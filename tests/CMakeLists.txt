@@ -1,3 +1,8 @@
+# tests/CMakeLists.txt — declare the focused contract tests for the player.
+# Upstream: the real src library and small test fixtures. Downstream: ctest
+# executables that validate math, configuration, media lifetime, backend
+# contracts, and optional GPU diagnostics without changing runtime code.
+#
 # tests/CMakeLists.txt
 # Headless unit tests. Run with: ctest --output-on-failure
 #
@@ -18,6 +23,11 @@ endfunction()
 tforge_add_test(preset_math_tests
     SOURCES preset_math_tests.cpp
             ../src/backend/UpscaleTypes.cpp)
+
+tforge_add_test(quality_lab_config_tests
+    SOURCES quality_lab_config_tests.cpp
+            ../src/config/QualityLabConfig.cpp)
+target_link_libraries(quality_lab_config_tests PRIVATE Qt6::Core)
 
 tforge_add_test(jitter_tests
     SOURCES jitter_tests.cpp)
@@ -63,7 +73,8 @@ tforge_add_test(fsr4_tensormap_tests
             ../src/backend/Fsr4TensorMap.cpp
             ../src/util/Log.cpp)
 set_tests_properties(fsr4_tensormap_tests PROPERTIES
-    WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
+    WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
+    SKIP_RETURN_CODE 77)
 
 # Standalone GPU capability probe (not a ctest — run manually; needs a GPU).
 tforge_add_test(gpu_probe

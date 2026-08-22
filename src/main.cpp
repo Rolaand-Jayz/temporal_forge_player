@@ -2,6 +2,7 @@
 // Wires: Vulkan context, settings, PlaybackEngine (QML bridge), and the
 // native Vulkan video surface.
 #include "config/SettingsStore.hpp"
+#include "config/QualityLabConfig.hpp"
 #include "core/PlaybackEngine.hpp"
 #include "render/VulkanContext.hpp"
 #include "ui/VideoSurfaceItem.hpp"
@@ -23,12 +24,13 @@
 #include <QQuickItem>
 #include <QTimer>
 #include <QElapsedTimer>
-#include <QFileInfo>
+#include <QStringList>
 #include <QtGlobal>
 #include <QtQml>
 
 #include <algorithm>
 #include <cstdlib>
+#include <string_view>
 
 // main: application entry point.
 //
@@ -80,6 +82,32 @@ int main(int argc, char** argv) {
                             hadSettings ? "loaded" : "defaults",
                             store.path().string());
     store.save(settings);
+
+    const auto qualityLabPath = temporal_forge::qualityLabConfigPath();
+    const auto qualityLab =
+        temporal_forge::loadQualityLabConfig(qualityLabPath);
+    temporal_forge::logInfo(
+        "QualityLab: {} enabled={} composition={} base={} sharpen={} toneEV={:.3f}",
+        qualityLabPath.string(), qualityLab.enabled,
+        temporal_forge::qualityCompositionModeName(qualityLab.compositionMode),
+        temporal_forge::qualityBaseFilterModeName(qualityLab.baseFilterMode),
+        temporal_forge::qualitySharpenModeName(qualityLab.sharpenMode),
+        qualityLab.toneExposureEV);
+    // Benchmark-only override. It is intentionally applied after loading and
+    // before controller construction, and is never persisted, so corpus runs
+    // can exercise every preset without changing the user's UI selection.
+    if (const char* value = std::getenv("TFORGE_BENCHMARK_PRESET")) {
+        const std::string_view preset(value);
+        using temporal_forge::UpscalePreset;
+        if (preset == "Off") settings.preset = UpscalePreset::Off;
+        else if (preset == "NativeAA") settings.preset = UpscalePreset::NativeAA;
+        else if (preset == "Quality") settings.preset = UpscalePreset::Quality;
+        else if (preset == "Balanced") settings.preset = UpscalePreset::Balanced;
+        else if (preset == "Performance") settings.preset = UpscalePreset::Performance;
+        else if (preset == "UltraPerformance") settings.preset = UpscalePreset::UltraPerformance;
+        else if (preset == "AutoMatchDisplay") settings.preset = UpscalePreset::AutoMatchDisplay;
+        else temporal_forge::logWarn("Unknown benchmark preset '{}'; using saved preset", value);
+    }
     if (const char* value = std::getenv("TFORGE_BENCHMARK_SHARPNESS")) {
         settings.sharpness = std::clamp(std::strtof(value, nullptr), 0.0f, 1.0f);
     }
@@ -88,6 +116,7 @@ int main(int argc, char** argv) {
     }
 
     temporal_forge::PlaybackEngine engine;
+    engine.setQualityLabConfig(qualityLab);
     temporal_forge::FsrController fsr(&engine);
     temporal_forge::DebugOverlayModel debug;
     temporal_forge::VideoSettingsController videoSettings;
@@ -97,10 +126,14 @@ int main(int argc, char** argv) {
     videoSettings.setSettings(&settings);
     engine.setSharpness(settings.sharpness);
     engine.setJitterStrength(settings.jitterStrength);
+    engine.setPresentationScaler(
+        static_cast<int>(settings.presentationScaler));
     QObject::connect(&videoSettings, &temporal_forge::VideoSettingsController::tuningChanged,
                      [&]() {
                          engine.setSharpness(videoSettings.sharpness());
                          engine.setJitterStrength(videoSettings.jitterStrength());
+                         engine.setPresentationScaler(
+                             videoSettings.presentationScaler());
                      });
 
     // Wire the FSR4 real-frame upscaling path to the Vulkan device.
@@ -204,14 +237,16 @@ int main(int argc, char** argv) {
 
     refreshTimer.start();
 
-    // If a file was passed on the command line, open it immediately.
+    // Positional media arguments form a playlist. A single path retains the
+    // original behavior; multiple paths play in argument order and advance
+    // automatically at end-of-file.
     if (argc > 1) {
-        const QString arg = QString::fromUtf8(argv[1]);
-        QFileInfo fi(arg);
-        QUrl url = fi.exists() ? QUrl::fromLocalFile(fi.absoluteFilePath())
-                               : QUrl::fromUserInput(arg);
-        temporal_forge::logInfo("Auto-opening file: {}", argv[1]);
-        engine.openUrl(url);
+        QStringList entries;
+        for (int i = 1; i < argc; ++i)
+            entries.push_back(QString::fromUtf8(argv[i]));
+        temporal_forge::logInfo("Auto-opening playlist with {} item(s)",
+                                entries.size());
+        engine.openPlaylist(entries);
     }
 
     // Persist settings on quit (spec 05 "Settings Persistence").

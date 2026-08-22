@@ -40,6 +40,21 @@ static bool has_media_within(PlaybackEngine &engine, int timeout_ms) {
     return engine.hasMedia();
 }
 
+static bool playlist_reaches_index(PlaybackEngine &engine, int wanted,
+                                   int timeout_ms) {
+    for (int elapsed = 0; elapsed < timeout_ms; elapsed += 25) {
+        // A real QML VideoSurface consumes frames through this method. Pump
+        // it here as well so EOF advancement is tested with the same queue
+        // state as the player, without requiring a GUI window in ctest.
+        (void)engine.advanceRenderFrame();
+        QCoreApplication::processEvents(QEventLoop::AllEvents, 25);
+        if (engine.playlistIndex() == wanted)
+            return true;
+        std::this_thread::sleep_for(std::chrono::milliseconds(25));
+    }
+    return engine.playlistIndex() == wanted;
+}
+
 int main(int argc, char **argv) {
     QCoreApplication app(argc, argv);
 
@@ -64,11 +79,30 @@ int main(int argc, char **argv) {
 
     PlaybackEngine engine;
 
-    // 1. Open the first file and wait for media to come up.
-    engine.openUrl(QUrl::fromLocalFile(QString::fromStdString(fileA)));
+    // 1. Open both files as one playlist and wait for the first item.
+    // This exercises the public playlist API before the legacy single-file
+    // switch checks below. The fixtures intentionally may be identical; the
+    // playlist index and transport state are the observable contract here.
+    engine.openPlaylist(QStringList{
+        QString::fromStdString(fileA), QString::fromStdString(fileB)});
+    CHECK(engine.playlistCount() == 2);
+    CHECK(engine.playlistIndex() == 0);
+    CHECK(engine.hasNext());
+    CHECK(!engine.hasPrevious());
     CHECK(has_media_within(engine, 3000));
     CHECK(engine.mediaTitle().toStdString().find(
         QFileInfo(QString::fromStdString(fileA)).fileName().toStdString()) != std::string::npos);
+
+    // Manual playlist navigation must use the same clean close/open path as
+    // an automatic end-of-media transition.
+    engine.next();
+    CHECK(engine.playlistIndex() == 1);
+    CHECK(!engine.hasNext());
+    CHECK(engine.hasPrevious());
+    CHECK(has_media_within(engine, 3000));
+    engine.previous();
+    CHECK(engine.playlistIndex() == 0);
+    CHECK(has_media_within(engine, 3000));
 
     // 2. Let it actually decode + play for ~500ms so threads are mid-flight.
     QCoreApplication::processEvents(QEventLoop::AllEvents, 500);
@@ -101,8 +135,18 @@ int main(int argc, char **argv) {
     CHECK(has_media_within(engine, 3000));
     engine.close();
 
+    // 7. End-of-media should advance a playing playlist item automatically.
+    // The generated fixture is five seconds long, so this remains a bounded
+    // integration check rather than a synthetic signal-only test.
+    engine.openPlaylist(QStringList{
+        QString::fromStdString(fileA), QString::fromStdString(fileB)});
+    CHECK(playlist_reaches_index(engine, 1, 7500));
+    CHECK(engine.playlistIndex() == 1);
+    CHECK(engine.hasMedia());
+    engine.close();
+
     if (g_failures == 0) {
-        std::printf("file_switch_tests: PASS (4 clean file switches)\n");
+        std::printf("file_switch_tests: PASS (playlist navigation, EOF advance, and clean file switches)\n");
         return 0;
     }
     std::printf("file_switch_tests: FAIL (%d failures)\n", g_failures);

@@ -83,11 +83,12 @@ bool SideBufferSynth::shouldReset(float histogramDelta,
 //           shouldReset (scene-cut detection), reactiveValue.
 // Notes:    Maintains the previous-frame histogram/average for delta computation;
 //           forcedReset (seek/new-file) bypasses the detector and resets anyway.
-//           motionConfidence is currently a placeholder 1.0 (refinement with
-//           codec motion vectors is tracked as Phase 5 work).
+//           motionConfidence is supplied by the decoder's codec-vector
+//           analysis; it is deliberately conservative when vectors are sparse.
 SideBufferInputs SideBufferSynth::update(const LumaBuffer& lumaCurrent,
                                          float ptsDeltaMs,
-                                         bool forcedReset) {
+                                         bool forcedReset,
+                                         float motionConfidence) {
     SideBufferInputs out;
 
     // --- jitter ---
@@ -105,12 +106,18 @@ SideBufferInputs SideBufferSynth::update(const LumaBuffer& lumaCurrent,
         ? std::abs(cur.average - previousAvgLuma_) : 0.0f;
 
     // --- scene-cut / reset (spec 03 section 8) ---
-    // Expected interval: use the PTS delta as the nominal frame interval.
-    const float expectedInterval = (ptsDeltaMs > 0.0f) ? ptsDeltaMs : 16.6667f;
-    out.motionConfidence = 1.0f; // refined in Phase 5 with motion vectors
+    // Keep a stable cadence estimate. Using the current delta as both the
+    // observed gap and the expected interval makes a dropped/torn timestamp
+    // impossible to detect (the gap can never exceed itself). The first
+    // valid frame establishes the estimate; later normal deltas adapt it
+    // slowly, while a large gap is deliberately not folded into the estimate.
+    const float observedInterval = ptsDeltaMs > 0.0f ? ptsDeltaMs : expectedFrameIntervalMs_;
+    const float expectedInterval = previousFrameValid_
+        ? expectedFrameIntervalMs_ : observedInterval;
+    out.motionConfidence = std::clamp(motionConfidence, 0.0f, 1.0f);
     const bool sceneCut = shouldReset(out.histogramDelta,
                                       out.motionConfidence,
-                                      ptsDeltaMs,
+                                      previousFrameValid_ ? ptsDeltaMs : 0.0f,
                                       expectedInterval);
     out.reset = forcedReset || sceneCut;
 
@@ -128,6 +135,17 @@ SideBufferInputs SideBufferSynth::update(const LumaBuffer& lumaCurrent,
     previousLuma_ = lumaCurrent;
     previousHist_ = cur.hist;
     previousAvgLuma_ = cur.average;
+    if (ptsDeltaMs > 0.0f) {
+        if (!previousFrameValid_) {
+            expectedFrameIntervalMs_ = ptsDeltaMs;
+        } else if (ptsDeltaMs <= 2.5f * expectedFrameIntervalMs_) {
+            // A small EMA follows VFR without allowing one bad gap to
+            // disable the discontinuity detector on the next frame.
+            expectedFrameIntervalMs_ =
+                expectedFrameIntervalMs_ * 0.9f + ptsDeltaMs * 0.1f;
+        }
+    }
+    previousFrameValid_ = true;
 
     // spec 02: reset jitter index on seek/new-file/scene-cut discontinuity.
     if (out.reset) jitterIndex_ = 1;

@@ -57,7 +57,8 @@ public:
     // forcedReset: seek/new-file/scene-cut from caller.
     SideBufferInputs update(const LumaBuffer& lumaCurrent,
                             float ptsDeltaMs,
-                            bool forcedReset);
+                            bool forcedReset,
+                            float motionConfidence = 1.0f);
 
     // Resolution-aware jitter scaling for low-res sources.
     void setRenderSize(uint32_t width, uint32_t height) {
@@ -93,6 +94,8 @@ private:
     LumaBuffer previousLuma_;
     float previousAvgLuma_ = -1.0f;
     std::array<uint32_t, 64> previousHist_{}; // 64-bin histogram
+    bool previousFrameValid_ = false;
+    float expectedFrameIntervalMs_ = 16.6667f;
     uint32_t jitterIndex_ = 1;           // Halton sequence index
     uint32_t renderWidth_ = 0;
     uint32_t renderHeight_ = 0;

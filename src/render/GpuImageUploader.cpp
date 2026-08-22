@@ -3,18 +3,22 @@
 #include "render/upload/DrmFormat.hpp"
 #include "render/upload/YuvConstants.hpp"
 #include "codec_motion_expand.spv.h"
+#include "bicubic_prefilter.spv.h"
 #include "drm_yuv_to_fsr_input.spv.h"
+#include "easu.spv.h"
 #include "util/Log.hpp"
 #include "yuv_to_fsr_input.spv.h"
 
 extern "C" {
 #include <libavutil/pixfmt.h>
+#include <libavutil/pixdesc.h>
 #include <libdrm/drm_fourcc.h>
 #include <libswscale/swscale.h>
 }
 
 #include <algorithm>
 #include <array>
+#include <chrono>
 #include <cmath>
 #include <cstdlib>
 #include <cstring>
@@ -33,6 +37,11 @@ bool GpuImageUploader::init(VkPhysicalDevice physical, VkDevice device,
   presentationQueueFamily_ = presentationQueueFamily;
   if (device_ == VK_NULL_HANDLE)
     return false;
+  VkFormatProperties easuFormatProperties{};
+  vkGetPhysicalDeviceFormatProperties(
+      physical_, VK_FORMAT_R8G8B8A8_UNORM, &easuFormatProperties);
+  logInfo("GpuImageUploader: EASU RGBA8 format features optimal=0x{:x}",
+          easuFormatProperties.optimalTilingFeatures);
 
   VkCommandPoolCreateInfo pci{};
   pci.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
@@ -254,6 +263,153 @@ bool GpuImageUploader::init(VkPhysicalDevice physical, VkDevice device,
   vkDestroyShaderModule(device_, motionMod, nullptr);
   vkDestroyShaderModule(device_, drmMod, nullptr);
   vkDestroyShaderModule(device_, mod, nullptr);
+
+  // --- GPU bicubic prefilter ---
+  std::array<VkDescriptorSetLayoutBinding, 2> prefilterBindings{};
+  prefilterBindings[0] = {0, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1,
+                          VK_SHADER_STAGE_COMPUTE_BIT, nullptr};
+  prefilterBindings[1] = {1, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1,
+                          VK_SHADER_STAGE_COMPUTE_BIT, nullptr};
+  VkDescriptorSetLayoutCreateInfo prefilterDci{};
+  prefilterDci.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
+  prefilterDci.bindingCount = static_cast<uint32_t>(prefilterBindings.size());
+  prefilterDci.pBindings = prefilterBindings.data();
+  if (vkCreateDescriptorSetLayout(device_, &prefilterDci, nullptr,
+                                  &prefilterDescLayout_) != VK_SUCCESS)
+    return false;
+  VkPushConstantRange prefilterPcr{};
+  prefilterPcr.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+  prefilterPcr.size = sizeof(uint32_t) * 5;
+  VkPipelineLayoutCreateInfo prefilterPl{};
+  prefilterPl.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
+  prefilterPl.setLayoutCount = 1;
+  prefilterPl.pSetLayouts = &prefilterDescLayout_;
+  prefilterPl.pushConstantRangeCount = 1;
+  prefilterPl.pPushConstantRanges = &prefilterPcr;
+  if (vkCreatePipelineLayout(device_, &prefilterPl, nullptr,
+                             &prefilterPipelineLayout_) != VK_SUCCESS)
+    return false;
+  VkShaderModuleCreateInfo prefilterSm{};
+  prefilterSm.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;
+  prefilterSm.codeSize = kbicubic_prefilter_spv_words * sizeof(uint32_t);
+  prefilterSm.pCode = kbicubic_prefilter_spv;
+  VkShaderModule prefilterMod = VK_NULL_HANDLE;
+  if (vkCreateShaderModule(device_, &prefilterSm, nullptr, &prefilterMod) !=
+      VK_SUCCESS)
+    return false;
+  VkComputePipelineCreateInfo prefilterCpci{};
+  prefilterCpci.sType = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO;
+  prefilterCpci.stage.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+  prefilterCpci.stage.stage = VK_SHADER_STAGE_COMPUTE_BIT;
+  prefilterCpci.stage.module = prefilterMod;
+  prefilterCpci.stage.pName = "main";
+  prefilterCpci.layout = prefilterPipelineLayout_;
+  const VkResult prefilterResult = vkCreateComputePipelines(
+      device_, VK_NULL_HANDLE, 1, &prefilterCpci, nullptr,
+      &prefilterPipeline_);
+  vkDestroyShaderModule(device_, prefilterMod, nullptr);
+  if (prefilterResult != VK_SUCCESS)
+    return false;
+  std::array<VkDescriptorPoolSize, 1> prefilterPoolSizes{{
+      {VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 2}}};
+  VkDescriptorPoolCreateInfo prefilterDpci{};
+  prefilterDpci.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
+  prefilterDpci.maxSets = 1;
+  prefilterDpci.poolSizeCount = 1;
+  prefilterDpci.pPoolSizes = prefilterPoolSizes.data();
+  if (vkCreateDescriptorPool(device_, &prefilterDpci, nullptr,
+                             &prefilterDescPool_) != VK_SUCCESS)
+    return false;
+  VkDescriptorSetAllocateInfo prefilterSai{};
+  prefilterSai.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
+  prefilterSai.descriptorPool = prefilterDescPool_;
+  prefilterSai.descriptorSetCount = 1;
+  prefilterSai.pSetLayouts = &prefilterDescLayout_;
+  if (vkAllocateDescriptorSets(device_, &prefilterSai, &prefilterSet_) !=
+      VK_SUCCESS)
+    return false;
+
+  // --- EASU pipeline (FSR1 edge-adaptive spatial upscale) ---
+  // Descriptor layout: binding 0 = src image (rgba8 readonly), binding 1 = dst
+  // image (rgba8 writeonly). Push constant = uvec4(srcW, srcH, dstW, dstH).
+  std::array<VkDescriptorSetLayoutBinding, 2> easuBindings{};
+  easuBindings[0] = {0, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1,
+                     VK_SHADER_STAGE_COMPUTE_BIT, nullptr};
+  easuBindings[1] = {1, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1,
+                     VK_SHADER_STAGE_COMPUTE_BIT, nullptr};
+  VkDescriptorSetLayoutCreateInfo easuDci{};
+  easuDci.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
+  easuDci.bindingCount = static_cast<uint32_t>(easuBindings.size());
+  easuDci.pBindings = easuBindings.data();
+  if (vkCreateDescriptorSetLayout(device_, &easuDci, nullptr,
+                                  &easuDescLayout_) != VK_SUCCESS) {
+    logError("GpuImageUploader: create easu descriptor layout failed");
+    return false;
+  }
+  VkPushConstantRange easuPcr{};
+  easuPcr.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+  easuPcr.offset = 0;
+  easuPcr.size = sizeof(uint32_t) * 5;
+  VkPipelineLayoutCreateInfo easuPl{};
+  easuPl.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
+  easuPl.setLayoutCount = 1;
+  easuPl.pSetLayouts = &easuDescLayout_;
+  easuPl.pushConstantRangeCount = 1;
+  easuPl.pPushConstantRanges = &easuPcr;
+  if (vkCreatePipelineLayout(device_, &easuPl, nullptr,
+                             &easuPipelineLayout_) != VK_SUCCESS) {
+    logError("GpuImageUploader: create easu pipeline layout failed");
+    return false;
+  }
+  VkShaderModuleCreateInfo easuSm{};
+  easuSm.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;
+  easuSm.codeSize = keasu_spv_words * sizeof(uint32_t);
+  easuSm.pCode = keasu_spv;
+  VkShaderModule easuMod = VK_NULL_HANDLE;
+  if (vkCreateShaderModule(device_, &easuSm, nullptr, &easuMod) != VK_SUCCESS) {
+    logError("GpuImageUploader: create easu shader module failed");
+    return false;
+  }
+  VkComputePipelineCreateInfo easuCpci{};
+  easuCpci.sType = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO;
+  easuCpci.stage.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+  easuCpci.stage.stage = VK_SHADER_STAGE_COMPUTE_BIT;
+  easuCpci.stage.module = easuMod;
+  easuCpci.stage.pName = "main";
+  easuCpci.layout = easuPipelineLayout_;
+  if (vkCreateComputePipelines(device_, VK_NULL_HANDLE, 1, &easuCpci, nullptr,
+                               &easuPipeline_) != VK_SUCCESS) {
+    vkDestroyShaderModule(device_, easuMod, nullptr);
+    logError("GpuImageUploader: create easu pipeline failed");
+    return false;
+  }
+  vkDestroyShaderModule(device_, easuMod, nullptr);
+  // EASU descriptor pool + set (one persistent set; re-bound per allocate).
+  std::array<VkDescriptorPoolSize, 1> easuPoolSizes{};
+  easuPoolSizes[0] = {VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 4};
+  VkDescriptorPoolCreateInfo easuDpci{};
+  easuDpci.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
+  easuDpci.maxSets = 2;
+  easuDpci.poolSizeCount = static_cast<uint32_t>(easuPoolSizes.size());
+  easuDpci.pPoolSizes = easuPoolSizes.data();
+  if (vkCreateDescriptorPool(device_, &easuDpci, nullptr,
+                             &easuDescPool_) != VK_SUCCESS) {
+    logError("GpuImageUploader: create easu descriptor pool failed");
+    return false;
+  }
+  VkDescriptorSetAllocateInfo easuSai{};
+  easuSai.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
+  easuSai.descriptorPool = easuDescPool_;
+  easuSai.descriptorSetCount = 1;
+  easuSai.pSetLayouts = &easuDescLayout_;
+  const VkResult easuSetResult =
+      vkAllocateDescriptorSets(device_, &easuSai, &easuSet_);
+  if (easuSetResult != VK_SUCCESS) {
+    logError("GpuImageUploader: allocate easu descriptor set failed ({})",
+             static_cast<int>(easuSetResult));
+    easuSet_ = VK_NULL_HANDLE;
+    return false;
+  }
   return true;
 }
 
@@ -272,6 +428,14 @@ void GpuImageUploader::destroy() {
     vkDestroyPipeline(device_, motionPipeline_, nullptr);
     motionPipeline_ = VK_NULL_HANDLE;
   }
+  if (prefilterPipeline_ != VK_NULL_HANDLE) {
+    vkDestroyPipeline(device_, prefilterPipeline_, nullptr);
+    prefilterPipeline_ = VK_NULL_HANDLE;
+  }
+  if (easuPipeline_ != VK_NULL_HANDLE) {
+    vkDestroyPipeline(device_, easuPipeline_, nullptr);
+    easuPipeline_ = VK_NULL_HANDLE;
+  }
   if (yuvPipelineLayout_ != VK_NULL_HANDLE) {
     vkDestroyPipelineLayout(device_, yuvPipelineLayout_, nullptr);
     yuvPipelineLayout_ = VK_NULL_HANDLE;
@@ -283,6 +447,14 @@ void GpuImageUploader::destroy() {
   if (motionPipelineLayout_ != VK_NULL_HANDLE) {
     vkDestroyPipelineLayout(device_, motionPipelineLayout_, nullptr);
     motionPipelineLayout_ = VK_NULL_HANDLE;
+  }
+  if (prefilterPipelineLayout_ != VK_NULL_HANDLE) {
+    vkDestroyPipelineLayout(device_, prefilterPipelineLayout_, nullptr);
+    prefilterPipelineLayout_ = VK_NULL_HANDLE;
+  }
+  if (easuPipelineLayout_ != VK_NULL_HANDLE) {
+    vkDestroyPipelineLayout(device_, easuPipelineLayout_, nullptr);
+    easuPipelineLayout_ = VK_NULL_HANDLE;
   }
   if (yuvDescPool_ != VK_NULL_HANDLE) {
     vkDestroyDescriptorPool(device_, yuvDescPool_, nullptr);
@@ -296,6 +468,16 @@ void GpuImageUploader::destroy() {
     vkDestroyDescriptorPool(device_, motionDescPool_, nullptr);
     motionDescPool_ = VK_NULL_HANDLE;
   }
+  if (prefilterDescPool_ != VK_NULL_HANDLE) {
+    vkDestroyDescriptorPool(device_, prefilterDescPool_, nullptr);
+    prefilterDescPool_ = VK_NULL_HANDLE;
+    prefilterSet_ = VK_NULL_HANDLE;
+  }
+  if (easuDescPool_ != VK_NULL_HANDLE) {
+    vkDestroyDescriptorPool(device_, easuDescPool_, nullptr);
+    easuDescPool_ = VK_NULL_HANDLE;
+    easuSet_ = VK_NULL_HANDLE;
+  }
   if (yuvDescLayout_ != VK_NULL_HANDLE) {
     vkDestroyDescriptorSetLayout(device_, yuvDescLayout_, nullptr);
     yuvDescLayout_ = VK_NULL_HANDLE;
@@ -308,7 +490,17 @@ void GpuImageUploader::destroy() {
     vkDestroyDescriptorSetLayout(device_, motionDescLayout_, nullptr);
     motionDescLayout_ = VK_NULL_HANDLE;
   }
+  if (prefilterDescLayout_ != VK_NULL_HANDLE) {
+    vkDestroyDescriptorSetLayout(device_, prefilterDescLayout_, nullptr);
+    prefilterDescLayout_ = VK_NULL_HANDLE;
+  }
+  if (easuDescLayout_ != VK_NULL_HANDLE) {
+    vkDestroyDescriptorSetLayout(device_, easuDescLayout_, nullptr);
+    easuDescLayout_ = VK_NULL_HANDLE;
+  }
+  destroyGpuImage(device_, easuImage_);
   destroyImportedDrmRuntime(drmRt_);
+  destroyGpuImage(device_, sourceModel_);
   destroyGpuImage(device_, color_);
   destroyGpuImage(device_, rawPresentation_);
   destroyGpuImage(device_, yPlane_);
@@ -320,6 +512,8 @@ void GpuImageUploader::destroy() {
   destroyGpuImage(device_, tcMask_);
   destroyGpuImage(device_, exposure_);
   destroyGpuImage(device_, output_);
+  destroyGpuImage(device_, presentation_);
+  destroyGpuImage(device_, presentationRetained_);
   destroyGpuImage(device_, history_[0]);
   destroyGpuImage(device_, history_[1]);
   destroyGpuImage(device_, recurrent_[0]);
@@ -329,6 +523,13 @@ void GpuImageUploader::destroy() {
     stagingMapped_ = nullptr;
   }
   destroyGpuBufferObj(device_, staging_);
+  if (swsColor_) {
+    sws_freeContext(swsColor_);
+    swsColor_ = nullptr;
+  }
+  swsW_ = swsH_ = 0;
+  swsFormat_ = -1;
+  yuv420Scratch_.clear();
   if (motionVectorsMapped_) {
     vkUnmapMemory(device_, motionVectors_.memory);
     motionVectorsMapped_ = nullptr;
@@ -344,20 +545,24 @@ void GpuImageUploader::destroy() {
     cmdPool_ = VK_NULL_HANDLE;
   }
   cmd_ = VK_NULL_HANDLE;
-  srcW_ = srcH_ = outW_ = outH_ = 0;
+  srcW_ = srcH_ = modelW_ = modelH_ = outW_ = outH_ = 0;
   rgbaScratch_.clear();
   rgbaSharpScratch_.clear();
   lumaScratch_.clear();
 }
 
 bool GpuImageUploader::allocate(uint32_t sourceW, uint32_t sourceH,
-                                uint32_t outputW, uint32_t outputH) {
+                                uint32_t outputW, uint32_t outputH,
+                                uint32_t modelW, uint32_t modelH) {
+  if (modelW == 0) modelW = sourceW;
+  if (modelH == 0) modelH = sourceH;
   if (sourceW == srcW_ && sourceH == srcH_ && outputW == outW_ &&
-      outputH == outH_)
+      outputH == outH_ && modelW == modelW_ && modelH == modelH_)
     return true; // no change
   if (sourceW == 0 || sourceH == 0 || outputW == 0 || outputH == 0)
     return false;
 
+  destroyGpuImage(device_, sourceModel_);
   destroyGpuImage(device_, color_);
   destroyGpuImage(device_, rawPresentation_);
   destroyGpuImage(device_, yPlane_);
@@ -369,10 +574,13 @@ bool GpuImageUploader::allocate(uint32_t sourceW, uint32_t sourceH,
   destroyGpuImage(device_, tcMask_);
   destroyGpuImage(device_, exposure_);
   destroyGpuImage(device_, output_);
+  destroyGpuImage(device_, presentation_);
+  destroyGpuImage(device_, presentationRetained_);
   destroyGpuImage(device_, history_[0]);
   destroyGpuImage(device_, history_[1]);
   destroyGpuImage(device_, recurrent_[0]);
   destroyGpuImage(device_, recurrent_[1]);
+  destroyGpuImage(device_, easuImage_);
   destroyGpuBufferObj(device_, motionOwners_);
 
   const VkImageUsageFlags inputUsage = VK_IMAGE_USAGE_TRANSFER_DST_BIT |
@@ -388,19 +596,24 @@ bool GpuImageUploader::allocate(uint32_t sourceW, uint32_t sourceH,
                            VK_IMAGE_USAGE_STORAGE_BIT |
                            VK_IMAGE_USAGE_SAMPLED_BIT,
                        VK_IMAGE_ASPECT_COLOR_BIT, yPlane_, "fsr4_y_plane");
-  ok &= createGpuImage(device_, physical_, std::max(1u, sourceW / 2u),
-                       std::max(1u, sourceH / 2u), VK_FORMAT_R8_UNORM,
+  const uint32_t chromaW = std::max(1u, (sourceW + 1u) / 2u);
+  const uint32_t chromaH = std::max(1u, (sourceH + 1u) / 2u);
+  ok &= createGpuImage(device_, physical_, chromaW, chromaH, VK_FORMAT_R8_UNORM,
                        VK_IMAGE_USAGE_TRANSFER_DST_BIT |
                            VK_IMAGE_USAGE_STORAGE_BIT |
                            VK_IMAGE_USAGE_SAMPLED_BIT,
                        VK_IMAGE_ASPECT_COLOR_BIT, uPlane_, "fsr4_u_plane");
-  ok &= createGpuImage(device_, physical_, std::max(1u, sourceW / 2u),
-                       std::max(1u, sourceH / 2u), VK_FORMAT_R8_UNORM,
+  ok &= createGpuImage(device_, physical_, chromaW, chromaH, VK_FORMAT_R8_UNORM,
                        VK_IMAGE_USAGE_TRANSFER_DST_BIT |
                            VK_IMAGE_USAGE_STORAGE_BIT |
                            VK_IMAGE_USAGE_SAMPLED_BIT,
                        VK_IMAGE_ASPECT_COLOR_BIT, vPlane_, "fsr4_v_plane");
   ok &= createGpuImage(device_, physical_, sourceW, sourceH,
+                       VK_FORMAT_A2B10G10R10_UNORM_PACK32,
+                       VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
+                       VK_IMAGE_ASPECT_COLOR_BIT, sourceModel_,
+                       "fsr4_source_model");
+  ok &= createGpuImage(device_, physical_, modelW, modelH,
                        VK_FORMAT_A2B10G10R10_UNORM_PACK32,
                        VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
                        VK_IMAGE_ASPECT_COLOR_BIT, color_, "fsr4_color");
@@ -409,16 +622,27 @@ bool GpuImageUploader::allocate(uint32_t sourceW, uint32_t sourceH,
       VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
       VK_IMAGE_ASPECT_COLOR_BIT, rawPresentation_, "fsr4_raw_present",
       queueFamily_, presentationQueueFamily_);
-  ok &= createGpuImage(device_, physical_, sourceW, sourceH,
+  // EASU 2x intermediate: same format as color_ (rgb10_a2) so the FSR4
+  // prepass can consume it directly. Allocated at 2x native dimensions.
+  const uint32_t easuW = sourceW * 2u;
+  const uint32_t easuH = sourceH * 2u;
+  ok &= createGpuImage(device_, physical_, easuW, easuH,
+                       VK_FORMAT_R8G8B8A8_UNORM,
+                       VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT |
+                           VK_IMAGE_USAGE_TRANSFER_SRC_BIT |
+                           VK_IMAGE_USAGE_TRANSFER_DST_BIT,
+                       VK_IMAGE_ASPECT_COLOR_BIT, easuImage_, "fsr4_easu",
+                       queueFamily_, presentationQueueFamily_);
+  ok &= createGpuImage(device_, physical_, modelW, modelH,
                        VK_FORMAT_R16G16_SFLOAT, inputUsage,
                        VK_IMAGE_ASPECT_COLOR_BIT, motion_, "fsr4_motion");
-  ok &= createGpuImage(device_, physical_, sourceW, sourceH,
+  ok &= createGpuImage(device_, physical_, modelW, modelH,
                        VK_FORMAT_R32_SFLOAT, inputUsage,
                        VK_IMAGE_ASPECT_COLOR_BIT, depth_, "fsr4_depth");
-  ok &= createGpuImage(device_, physical_, sourceW, sourceH, VK_FORMAT_R8_UNORM,
+  ok &= createGpuImage(device_, physical_, modelW, modelH, VK_FORMAT_R8_UNORM,
                        inputUsage, VK_IMAGE_ASPECT_COLOR_BIT, reactive_,
                        "fsr4_reactive");
-  ok &= createGpuImage(device_, physical_, sourceW, sourceH, VK_FORMAT_R8_UNORM,
+  ok &= createGpuImage(device_, physical_, modelW, modelH, VK_FORMAT_R8_UNORM,
                        inputUsage, VK_IMAGE_ASPECT_COLOR_BIT, tcMask_,
                        "fsr4_tcmask");
   // Exposure is 1x1.
@@ -458,14 +682,16 @@ bool GpuImageUploader::allocate(uint32_t sourceW, uint32_t sourceH,
   }
   srcW_ = sourceW;
   srcH_ = sourceH;
+  modelW_ = modelW;
+  modelH_ = modelH;
   outW_ = outputW;
   outH_ = outputH;
   const size_t rgba8Size = (size_t)srcW_ * srcH_ * 4;
   rgbaScratch_.reserve(rgba8Size);
   rgbaSharpScratch_.reserve(rgba8Size);
-  lumaScratch_.reserve((size_t)srcW_ * srcH_);
-  logInfo("GpuImageUploader: allocated {}x{} -> {}x{}", sourceW, sourceH,
-          outputW, outputH);
+  lumaScratch_.reserve((size_t)modelW_ * modelH_);
+  logInfo("GpuImageUploader: allocated source {}x{} -> model {}x{} -> output {}x{}",
+          sourceW, sourceH, modelW, modelH, outputW, outputH);
   return true;
 }
 
@@ -558,6 +784,28 @@ bool GpuImageUploader::endFrameUploads(VkCommandBuffer *deferredCmd) {
   if (frameUploadBatch_) {
     frameUploadBatch_ = false;
     if (deferredCmd) {
+      // This command buffer is submitted immediately before the FSR dispatch
+      // buffer.  Make the final conversion/prefilter writes visible to the
+      // dispatch command buffer; command-buffer order is not itself a shader
+      // memory dependency.
+      const VkImage producedImage = colorImage();
+      if (producedImage != VK_NULL_HANDLE) {
+        VkImageMemoryBarrier producedBarrier{};
+        producedBarrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+        producedBarrier.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
+        producedBarrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+        producedBarrier.oldLayout = VK_IMAGE_LAYOUT_GENERAL;
+        producedBarrier.newLayout = VK_IMAGE_LAYOUT_GENERAL;
+        producedBarrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+        producedBarrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+        producedBarrier.image = producedImage;
+        producedBarrier.subresourceRange = {
+            VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+        vkCmdPipelineBarrier(
+            cmd_, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+            VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 0, nullptr, 0, nullptr,
+            1, &producedBarrier);
+      }
       if (vkEndCommandBuffer(cmd_) != VK_SUCCESS)
         return false;
       deferredFrameUploads_ = true;
@@ -657,11 +905,123 @@ bool GpuImageUploader::uploadColor(const DecodedVideoFrame &frame) {
   return uploadColorTo(frame, color_);
 }
 
+bool GpuImageUploader::dispatchBicubicPrefilter(const DecodedVideoFrame &frame) {
+  if (prefilterPipeline_ == VK_NULL_HANDLE || prefilterSet_ == VK_NULL_HANDLE ||
+      rawPresentation_.image == VK_NULL_HANDLE || color_.image == VK_NULL_HANDLE)
+    return false;
+  if (!beginUploadCmd())
+    return false;
+
+  if (sourceModel_.layout != VK_IMAGE_LAYOUT_GENERAL) {
+    VkImageMemoryBarrier sourceBarrier{};
+    sourceBarrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+    sourceBarrier.srcAccessMask = sourceModel_.layout == VK_IMAGE_LAYOUT_UNDEFINED
+                                      ? 0
+                                      : VK_ACCESS_SHADER_WRITE_BIT;
+    sourceBarrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+    sourceBarrier.oldLayout = sourceModel_.layout;
+    sourceBarrier.newLayout = VK_IMAGE_LAYOUT_GENERAL;
+    sourceBarrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    sourceBarrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    sourceBarrier.image = sourceModel_.image;
+    sourceBarrier.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+    vkCmdPipelineBarrier(
+        cmd_, sourceModel_.layout == VK_IMAGE_LAYOUT_UNDEFINED
+                  ? VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT
+                  : VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+        VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 0, nullptr, 0, nullptr, 1,
+        &sourceBarrier);
+    sourceModel_.layout = VK_IMAGE_LAYOUT_GENERAL;
+  }
+
+  if (color_.layout != VK_IMAGE_LAYOUT_GENERAL) {
+    VkImageMemoryBarrier barrier{};
+    barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+    barrier.srcAccessMask = color_.layout == VK_IMAGE_LAYOUT_UNDEFINED
+                                ? 0
+                                : VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT;
+    barrier.dstAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
+    barrier.oldLayout = color_.layout;
+    barrier.newLayout = VK_IMAGE_LAYOUT_GENERAL;
+    barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    barrier.image = color_.image;
+    barrier.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+    vkCmdPipelineBarrier(cmd_,
+                         color_.layout == VK_IMAGE_LAYOUT_UNDEFINED
+                             ? VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT
+                             : VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+                         VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 0, nullptr,
+                         0, nullptr, 1, &barrier);
+    color_.layout = VK_IMAGE_LAYOUT_GENERAL;
+  }
+
+  VkDescriptorImageInfo sourceInfo{VK_NULL_HANDLE, sourceModel_.view,
+                                   VK_IMAGE_LAYOUT_GENERAL};
+  VkDescriptorImageInfo destinationInfo{VK_NULL_HANDLE, color_.view,
+                                        VK_IMAGE_LAYOUT_GENERAL};
+  VkWriteDescriptorSet writes[2]{};
+  for (uint32_t i = 0; i < 2; ++i) {
+    writes[i].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+    writes[i].dstSet = prefilterSet_;
+    writes[i].dstBinding = i;
+    writes[i].descriptorCount = 1;
+    writes[i].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+  }
+  writes[0].pImageInfo = &sourceInfo;
+  writes[1].pImageInfo = &destinationInfo;
+  vkUpdateDescriptorSets(device_, 2, writes, 0, nullptr);
+  const uint32_t transfer =
+      frame.colorTransfer == AVCOL_TRC_SMPTE2084
+          ? 1u
+          : frame.colorTransfer == AVCOL_TRC_ARIB_STD_B67 ? 2u : 0u;
+  const uint32_t push[5] = {srcW_, srcH_, modelW_, modelH_, transfer};
+  vkCmdBindPipeline(cmd_, VK_PIPELINE_BIND_POINT_COMPUTE, prefilterPipeline_);
+  vkCmdBindDescriptorSets(cmd_, VK_PIPELINE_BIND_POINT_COMPUTE,
+                          prefilterPipelineLayout_, 0, 1, &prefilterSet_, 0,
+                          nullptr);
+  vkCmdPushConstants(cmd_, prefilterPipelineLayout_, VK_SHADER_STAGE_COMPUTE_BIT,
+                     0, sizeof(push), push);
+  vkCmdDispatch(cmd_, (modelW_ + 15u) / 16u, (modelH_ + 15u) / 16u, 1);
+  VkMemoryBarrier memory{};
+  memory.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER;
+  memory.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
+  memory.dstAccessMask = VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT;
+  vkCmdPipelineBarrier(cmd_, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+                       VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 1, &memory, 0,
+                       nullptr, 0, nullptr);
+  return true;
+}
+
 bool GpuImageUploader::dispatchYuvConvert(const DecodedVideoFrame &frame,
                                           bool compareEnabled,
                                           float sharpness) {
   if (yuvPipeline_ == VK_NULL_HANDLE)
     return false;
+
+  for (GpuImage *image : {&sourceModel_, &rawPresentation_, &color_}) {
+    if (image->layout == VK_IMAGE_LAYOUT_GENERAL)
+      continue;
+    VkImageMemoryBarrier barrier{};
+    barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+    barrier.srcAccessMask = image->layout == VK_IMAGE_LAYOUT_UNDEFINED
+                                ? 0
+                                : VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT;
+    barrier.dstAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
+    barrier.oldLayout = image->layout;
+    barrier.newLayout = VK_IMAGE_LAYOUT_GENERAL;
+    barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    barrier.image = image->image;
+    barrier.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+    vkCmdPipelineBarrier(cmd_,
+                         image->layout == VK_IMAGE_LAYOUT_UNDEFINED
+                             ? VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT
+                             : VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+                         VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 0, nullptr,
+                         0, nullptr, 1, &barrier);
+    image->layout = VK_IMAGE_LAYOUT_GENERAL;
+  }
 
   VkDescriptorSet set = VK_NULL_HANDLE;
   VkDescriptorSetAllocateInfo asi{};
@@ -679,8 +1039,10 @@ bool GpuImageUploader::dispatchYuvConvert(const DecodedVideoFrame &frame,
                               VK_IMAGE_LAYOUT_GENERAL};
   VkDescriptorImageInfo vInfo{VK_NULL_HANDLE, vPlane_.view,
                               VK_IMAGE_LAYOUT_GENERAL};
-  VkDescriptorImageInfo colorInfo{VK_NULL_HANDLE, color_.view,
-                                  VK_IMAGE_LAYOUT_GENERAL};
+  VkDescriptorImageInfo colorInfo{
+      VK_NULL_HANDLE,
+      (modelW_ == srcW_ && modelH_ == srcH_) ? color_.view : sourceModel_.view,
+      VK_IMAGE_LAYOUT_GENERAL};
   VkDescriptorImageInfo rawInfo{VK_NULL_HANDLE, rawPresentation_.view,
                                 VK_IMAGE_LAYOUT_GENERAL};
   VkWriteDescriptorSet w[5]{};
@@ -980,6 +1342,36 @@ bool GpuImageUploader::importAndConvertDrmFrame(
   if (!beginUploadCmd())
     return false;
 
+  // The DRM conversion writes all three destinations.  The old path only
+  // transitioned color_, leaving rawPresentation_ (the EASU source) and the
+  // optional sourceModel_ prefilter target in UNDEFINED layout.  That made
+  // the neural color path appear valid while the spatial presentation path
+  // produced black output on VAAPI/DRM frames.
+  for (GpuImage *image : {&color_, &rawPresentation_, &sourceModel_}) {
+    if (image->layout == VK_IMAGE_LAYOUT_GENERAL)
+      continue;
+    VkImageMemoryBarrier barrier{};
+    barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+    barrier.srcAccessMask = image->layout == VK_IMAGE_LAYOUT_UNDEFINED
+                                ? 0
+                                : VK_ACCESS_SHADER_READ_BIT |
+                                      VK_ACCESS_SHADER_WRITE_BIT;
+    barrier.dstAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
+    barrier.oldLayout = image->layout;
+    barrier.newLayout = VK_IMAGE_LAYOUT_GENERAL;
+    barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    barrier.image = image->image;
+    barrier.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+    vkCmdPipelineBarrier(
+        cmd_, image->layout == VK_IMAGE_LAYOUT_UNDEFINED
+                  ? VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT
+                  : VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+        VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 0, nullptr, 0, nullptr, 1,
+        &barrier);
+    image->layout = VK_IMAGE_LAYOUT_GENERAL;
+  }
+
   auto fail = [&]() {
     vkEndCommandBuffer(cmd_);
     return false;
@@ -998,8 +1390,10 @@ bool GpuImageUploader::importAndConvertDrmFrame(
                               VK_IMAGE_LAYOUT_GENERAL};
   VkDescriptorImageInfo uvInfo{drmRt_.sampler, drmRt_.uvView,
                                VK_IMAGE_LAYOUT_GENERAL};
-  VkDescriptorImageInfo colorInfo{VK_NULL_HANDLE, color_.view,
-                                  VK_IMAGE_LAYOUT_GENERAL};
+  VkDescriptorImageInfo colorInfo{
+      VK_NULL_HANDLE,
+      (modelW_ == srcW_ && modelH_ == srcH_) ? color_.view : sourceModel_.view,
+      VK_IMAGE_LAYOUT_GENERAL};
   VkDescriptorImageInfo rawInfo{VK_NULL_HANDLE, rawPresentation_.view,
                                 VK_IMAGE_LAYOUT_GENERAL};
   VkWriteDescriptorSet w[4]{};
@@ -1064,6 +1458,9 @@ bool GpuImageUploader::uploadColorTo(const DecodedVideoFrame &frame,
 
   if (frame.hwFrame) {
     if (importAndConvertDrmFrame(frame)) {
+      if ((modelW_ != srcW_ || modelH_ != srcH_) &&
+          !dispatchBicubicPrefilter(frame))
+        return false;
       if (!endUploadCmd())
         return false;
       if (frameUploadBatch_) {
@@ -1076,12 +1473,74 @@ bool GpuImageUploader::uploadColorTo(const DecodedVideoFrame &frame,
     destroyImportedDrmRuntime(drmRt_);
   }
 
+  // The GPU conversion shader consumes planar 4:2:0. Normalize other
+  // software-decoded formats here instead of dropping their frames upstream.
+  // This covers RGB, 4:2:2/4:4:4, and software 10/12-bit formats supported by
+  // the installed libswscale build.
+  if (!planar420) {
+    if (frame.planes <= 0 || !frame.plane[0].data() ||
+        !av_pix_fmt_desc_get(fmt)) {
+      logWarn("GpuImageUploader: cannot normalize pixel format {}",
+              av_get_pix_fmt_name(fmt));
+      return false;
+    }
+
+    swsColor_ = sws_getCachedContext(
+        swsColor_, frame.width, frame.height, fmt, frame.width, frame.height,
+        AV_PIX_FMT_YUV420P, SWS_BICUBIC, nullptr, nullptr, nullptr);
+    if (!swsColor_) {
+      logWarn("GpuImageUploader: libswscale cannot convert {} to yuv420p",
+              av_get_pix_fmt_name(fmt));
+      return false;
+    }
+    swsW_ = frame.width;
+    swsH_ = frame.height;
+    swsFormat_ = fmt;
+
+    const int uvW = std::max(1, (frame.width + 1) / 2);
+    const int uvH = std::max(1, (frame.height + 1) / 2);
+    const size_t ySize = static_cast<size_t>(frame.width) * frame.height;
+    const size_t uvSize = static_cast<size_t>(uvW) * uvH;
+    yuv420Scratch_.resize(ySize + uvSize * 2);
+    uint8_t *dstData[4] = {
+        yuv420Scratch_.data(), yuv420Scratch_.data() + ySize,
+        yuv420Scratch_.data() + ySize + uvSize, nullptr};
+    int dstLinesize[4] = {frame.width, uvW, uvW, 0};
+    const uint8_t *srcData[4] = {nullptr, nullptr, nullptr, nullptr};
+    int srcLinesize[4] = {0, 0, 0, 0};
+    for (int i = 0; i < std::min(frame.planes, 4); ++i) {
+      srcData[i] = frame.plane[i].data();
+      srcLinesize[i] = frame.linesize[i];
+    }
+    if (sws_scale(swsColor_, srcData, srcLinesize, 0, frame.height,
+                  dstData, dstLinesize) <= 0) {
+      logWarn("GpuImageUploader: libswscale returned no output for {}",
+              av_get_pix_fmt_name(fmt));
+      return false;
+    }
+
+    DecodedVideoFrame normalized;
+    normalized.width = frame.width;
+    normalized.height = frame.height;
+    normalized.avFormat = AV_PIX_FMT_YUV420P;
+    normalized.colorRange = frame.colorRange;
+    normalized.colorSpace = frame.colorSpace;
+    normalized.planes = 3;
+    normalized.linesize[0] = frame.width;
+    normalized.linesize[1] = uvW;
+    normalized.linesize[2] = uvW;
+    normalized.plane[0].assign(dstData[0], dstData[0] + ySize);
+    normalized.plane[1].assign(dstData[1], dstData[1] + uvSize);
+    normalized.plane[2].assign(dstData[2], dstData[2] + uvSize);
+    return uploadColorTo(normalized, image);
+  }
+
   if (planar420 && yuvPipeline_ != VK_NULL_HANDLE && frame.planes >= 3 &&
       frame.plane[0].data() && frame.plane[1].data() && frame.plane[2].data()) {
     const uint32_t yW = (uint32_t)frame.width;
     const uint32_t yH = (uint32_t)frame.height;
-    const uint32_t uvW = std::max(1u, yW / 2u);
-    const uint32_t uvH = std::max(1u, yH / 2u);
+    const uint32_t uvW = std::max(1u, (yW + 1u) / 2u);
+    const uint32_t uvH = std::max(1u, (yH + 1u) / 2u);
     const size_t ySize = (size_t)frame.linesize[0] * yH;
     const size_t uSize = (size_t)frame.linesize[1] * uvH;
     const size_t vSize = (size_t)frame.linesize[2] * uvH;
@@ -1121,6 +1580,9 @@ bool GpuImageUploader::uploadColorTo(const DecodedVideoFrame &frame,
     if (!dispatchYuvConvert(
             frame, compareEnabled_.load(std::memory_order_acquire), sharpness))
       return false;
+    if ((modelW_ != srcW_ || modelH_ != srcH_) &&
+        !dispatchBicubicPrefilter(frame))
+      return false;
     if (!endUploadCmd())
       return false;
     if (frameUploadBatch_) {
@@ -1141,7 +1603,7 @@ bool GpuImageUploader::uploadMotion(const std::vector<MvEntry> &mvs) {
   if (forceCpu || motionPipeline_ == VK_NULL_HANDLE) {
     return uploadMotionCpu(mvs);
   }
-  if (srcW_ == 0 || motionOwners_.buffer == VK_NULL_HANDLE ||
+  if (modelW_ == 0 || motionOwners_.buffer == VK_NULL_HANDLE ||
       !ensureMotionVectorBuffer(mvs.size())) {
     return false;
   }
@@ -1240,7 +1702,7 @@ bool GpuImageUploader::uploadMotion(const std::vector<MvEntry> &mvs) {
   vkCmdBindDescriptorSets(cmd_, VK_PIPELINE_BIND_POINT_COMPUTE,
                           motionPipelineLayout_, 0, 1, &set, 0, nullptr);
   constexpr uint32_t maxDispatchX = 65535;
-  uint32_t push[5] = {srcW_, srcH_, static_cast<uint32_t>(mvs.size()), 0, 0};
+  uint32_t push[5] = {modelW_, modelH_, static_cast<uint32_t>(mvs.size()), 0, 0};
   while (push[3] < push[2]) {
     const uint32_t count = std::min(maxDispatchX, push[2] - push[3]);
     vkCmdPushConstants(cmd_, motionPipelineLayout_, VK_SHADER_STAGE_COMPUTE_BIT,
@@ -1260,7 +1722,7 @@ bool GpuImageUploader::uploadMotion(const std::vector<MvEntry> &mvs) {
   push[4] = 1;
   vkCmdPushConstants(cmd_, motionPipelineLayout_, VK_SHADER_STAGE_COMPUTE_BIT,
                      0, sizeof(push), push);
-  vkCmdDispatch(cmd_, (srcW_ + 15u) / 16u, (srcH_ + 15u) / 16u, 1);
+  vkCmdDispatch(cmd_, (modelW_ + 15u) / 16u, (modelH_ + 15u) / 16u, 1);
 
   VkImageMemoryBarrier motionWritten = motionReady;
   motionWritten.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
@@ -1281,12 +1743,12 @@ bool GpuImageUploader::uploadMotion(const std::vector<MvEntry> &mvs) {
 }
 
 bool GpuImageUploader::uploadMotionCpu(const std::vector<MvEntry> &mvs) {
-  if (srcW_ == 0)
+  if (modelW_ == 0)
     return false;
   // Each source pixel gets its block's MV via nearest block lookup. Build a
   // lookup table of (dstX, dstY) → mv per block, then splat.
   // Layout: rg16f = 2 × half per pixel = 4 bytes/pixel.
-  const size_t motionSize = (size_t)srcW_ * srcH_ * 4;
+  const size_t motionSize = (size_t)modelW_ * modelH_ * 4;
   if (!ensureStaging(std::max(motionSize, (VkDeviceSize)4096)))
     return false;
 
@@ -1324,11 +1786,11 @@ bool GpuImageUploader::uploadMotionCpu(const std::vector<MvEntry> &mvs) {
   for (const auto &m : mvs) {
     int x0 = std::max(0, (int)m.dstX);
     int y0 = std::max(0, (int)m.dstY);
-    int x1 = std::min((int)srcW_, (int)m.dstX + m.w);
-    int y1 = std::min((int)srcH_, (int)m.dstY + m.h);
+    int x1 = std::min((int)modelW_, (int)m.dstX + m.w);
+    int y1 = std::min((int)modelH_, (int)m.dstY + m.h);
     for (int y = y0; y < y1; ++y) {
       for (int x = x0; x < x1; ++x) {
-        size_t idx = (size_t)y * srcW_ + x;
+        size_t idx = (size_t)y * modelW_ + x;
         writeHalf(idx, m.mvX, m.mvY);
       }
     }
@@ -1336,26 +1798,26 @@ bool GpuImageUploader::uploadMotionCpu(const std::vector<MvEntry> &mvs) {
 
   if (!beginUploadCmd())
     return false;
-  if (!copyBufferToImage(motion_, staging_.buffer, 0, srcW_, srcH_,
+  if (!copyBufferToImage(motion_, staging_.buffer, 0, modelW_, modelH_,
                          VK_IMAGE_ASPECT_COLOR_BIT))
     return false;
   return endUploadCmd();
 }
 
 bool GpuImageUploader::uploadDepthFlat() {
-  if (srcW_ == 0)
+  if (modelW_ == 0)
     return false;
-  const size_t depthSize = (size_t)srcW_ * srcH_ * 4; // r32f = 4 bytes
+  const size_t depthSize = (size_t)modelW_ * modelH_ * 4; // r32f = 4 bytes
   if (!ensureStaging(std::max(depthSize, (VkDeviceSize)4096)))
     return false;
   // Flat depth = 1.0 everywhere (spec EdgeLite "Flat" mode).
   auto *f = reinterpret_cast<float *>(stagingMapped_);
-  for (size_t i = 0; i < (size_t)srcW_ * srcH_; ++i)
+  for (size_t i = 0; i < (size_t)modelW_ * modelH_; ++i)
     f[i] = 1.0f;
 
   if (!beginUploadCmd())
     return false;
-  return copyBufferToImage(depth_, staging_.buffer, 0, srcW_, srcH_,
+  return copyBufferToImage(depth_, staging_.buffer, 0, modelW_, modelH_,
                            VK_IMAGE_ASPECT_COLOR_BIT) &&
          endUploadCmd();
 }
@@ -1367,7 +1829,7 @@ bool GpuImageUploader::uploadDepthEdgeLite(const SideBufferSource &s) {
   const int H = s.lumaHeight;
   if (W <= 0 || H <= 0)
     return false;
-  const size_t depthSize = (size_t)srcW_ * srcH_ * 4;
+  const size_t depthSize = (size_t)modelW_ * modelH_ * 4;
   if (!ensureStaging(std::max(depthSize, (VkDeviceSize)4096)))
     return false;
 
@@ -1379,11 +1841,11 @@ bool GpuImageUploader::uploadDepthEdgeLite(const SideBufferSource &s) {
     y = std::clamp(y, 0, H - 1);
     return s.luma[(size_t)y * s.lumaLinesize + x] * (1.0f / 255.0f);
   };
-  for (int y = 0; y < (int)srcH_; ++y) {
-    for (int x = 0; x < (int)srcW_; ++x) {
+  for (int y = 0; y < (int)modelH_; ++y) {
+    for (int x = 0; x < (int)modelW_; ++x) {
       // Map to luma coords (source may equal luma for yuv420p luma plane).
-      int lx = W == (int)srcW_ ? x : (x * W) / (int)srcW_;
-      int ly = H == (int)srcH_ ? y : (y * H) / (int)srcH_;
+      int lx = W == (int)modelW_ ? x : (x * W) / (int)modelW_;
+      int ly = H == (int)modelH_ ? y : (y * H) / (int)modelH_;
       float gx = -at(lx - 1, ly - 1) - 2 * at(lx - 1, ly) - at(lx - 1, ly + 1) +
                  at(lx + 1, ly - 1) + 2 * at(lx + 1, ly) + at(lx + 1, ly + 1);
       float gy = -at(lx - 1, ly - 1) - 2 * at(lx, ly - 1) - at(lx + 1, ly - 1) +
@@ -1391,22 +1853,22 @@ bool GpuImageUploader::uploadDepthEdgeLite(const SideBufferSource &s) {
       float mag = std::sqrt(gx * gx + gy * gy);
       // Edge magnitude ~ [0, ~4]. Map: high edge → low depth.
       float depth = std::clamp(1.0f - mag * 0.5f, 0.0f, 1.0f);
-      out[(size_t)y * srcW_ + x] = depth;
+      out[(size_t)y * modelW_ + x] = depth;
     }
   }
 
   if (!beginUploadCmd())
     return false;
-  return copyBufferToImage(depth_, staging_.buffer, 0, srcW_, srcH_,
+  return copyBufferToImage(depth_, staging_.buffer, 0, modelW_, modelH_,
                            VK_IMAGE_ASPECT_COLOR_BIT) &&
          endUploadCmd();
 }
 
 bool GpuImageUploader::uploadReactive(const SideBufferSource &s,
                                       bool aggressive) {
-  if (srcW_ == 0)
+  if (modelW_ == 0)
     return false;
-  const size_t reacSize = (size_t)srcW_ * srcH_; // r8 = 1 byte
+  const size_t reacSize = (size_t)modelW_ * modelH_; // r8 = 1 byte
   if (!ensureStaging(std::max(reacSize, (VkDeviceSize)4096)))
     return false;
 
@@ -1415,7 +1877,7 @@ bool GpuImageUploader::uploadReactive(const SideBufferSource &s,
     std::memset(out, 0, reacSize);
     if (!beginUploadCmd())
       return false;
-    return copyBufferToImage(reactive_, staging_.buffer, 0, srcW_, srcH_,
+    return copyBufferToImage(reactive_, staging_.buffer, 0, modelW_, modelH_,
                              VK_IMAGE_ASPECT_COLOR_BIT) &&
            endUploadCmd();
   }
@@ -1432,10 +1894,10 @@ bool GpuImageUploader::uploadReactive(const SideBufferSource &s,
     y = std::clamp(y, 0, H - 1);
     return s.luma[(size_t)y * s.lumaLinesize + x] * (1.0f / 255.0f);
   };
-  for (int y = 0; y < (int)srcH_; ++y) {
-    for (int x = 0; x < (int)srcW_; ++x) {
-      int lx = W == (int)srcW_ ? x : (x * W) / (int)srcW_;
-      int ly = H == (int)srcH_ ? y : (y * H) / (int)srcH_;
+  for (int y = 0; y < (int)modelH_; ++y) {
+    for (int x = 0; x < (int)modelW_; ++x) {
+      int lx = W == (int)modelW_ ? x : (x * W) / (int)modelW_;
+      int ly = H == (int)modelH_ ? y : (y * H) / (int)modelH_;
       float c = at(lx, ly);
       float mean = (at(lx - 1, ly - 1) + at(lx, ly - 1) + at(lx + 1, ly - 1) +
                     at(lx - 1, ly) + c + at(lx + 1, ly) + at(lx - 1, ly + 1) +
@@ -1450,27 +1912,27 @@ bool GpuImageUploader::uploadReactive(const SideBufferSource &s,
       var *= (1.0f / 9.0f);
       // var ~ [0, 0.25]. Scale + apply reactiveAverage + gain.
       float r = std::clamp(var * 8.0f * s.reactiveAverage * gain, 0.0f, 1.0f);
-      out[(size_t)y * srcW_ + x] = static_cast<uint8_t>(r * 255.0f);
+      out[(size_t)y * modelW_ + x] = static_cast<uint8_t>(r * 255.0f);
     }
   }
 
   if (!beginUploadCmd())
     return false;
-  return copyBufferToImage(reactive_, staging_.buffer, 0, srcW_, srcH_,
+  return copyBufferToImage(reactive_, staging_.buffer, 0, modelW_, modelH_,
                            VK_IMAGE_ASPECT_COLOR_BIT) &&
          endUploadCmd();
 }
 
 bool GpuImageUploader::clearTcMask() {
-  if (srcW_ == 0)
+  if (modelW_ == 0)
     return false;
-  const size_t sz = (size_t)srcW_ * srcH_;
+  const size_t sz = (size_t)modelW_ * modelH_;
   if (!ensureStaging(std::max(sz, (VkDeviceSize)4096)))
     return false;
   std::memset(stagingMapped_, 0, sz);
   if (!beginUploadCmd())
     return false;
-  return copyBufferToImage(tcMask_, staging_.buffer, 0, srcW_, srcH_,
+  return copyBufferToImage(tcMask_, staging_.buffer, 0, modelW_, modelH_,
                            VK_IMAGE_ASPECT_COLOR_BIT) &&
          endUploadCmd();
 }
@@ -1495,6 +1957,187 @@ bool GpuImageUploader::uploadExposure(float scalar) {
   return copyBufferToImage(exposure_, staging_.buffer, 0, 1, 1,
                            VK_IMAGE_ASPECT_COLOR_BIT) &&
          endUploadCmd();
+}
+
+// dispatchEasu: run the FSR1-EASU compute pass to scale the native-res color
+//               image to the 2x easuImage_ intermediate. Records into the
+//               active frame-upload command buffer (must be called after
+//               uploadColor + dispatchYuvConvert, before endFrameUploads).
+bool GpuImageUploader::dispatchEasu() {
+  if (easuPipeline_ == VK_NULL_HANDLE || easuImage_.image == VK_NULL_HANDLE ||
+      rawPresentation_.image == VK_NULL_HANDLE || easuSet_ == VK_NULL_HANDLE)
+    return false;
+  if (!beginUploadCmd())
+    return false;
+
+  // uploadColor() may have submitted the YUV/DRM conversion separately.
+  // Make that shader write visible to this dispatch even when the fallback
+  // is not using the batched neural prefix path.
+  VkImageMemoryBarrier sourceReady{};
+  sourceReady.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+  sourceReady.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
+  sourceReady.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+  sourceReady.oldLayout = VK_IMAGE_LAYOUT_GENERAL;
+  sourceReady.newLayout = VK_IMAGE_LAYOUT_GENERAL;
+  sourceReady.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+  sourceReady.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+  sourceReady.image = rawPresentation_.image;
+  sourceReady.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+  vkCmdPipelineBarrier(cmd_, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+                       VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 0, nullptr, 0,
+                       nullptr, 1, &sourceReady);
+
+  // Transition easuImage_ from UNDEFINED to GENERAL (first use per allocate).
+  if (easuImage_.layout != VK_IMAGE_LAYOUT_GENERAL) {
+    VkImageMemoryBarrier b{};
+    b.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+    b.srcAccessMask = 0;
+    b.dstAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
+    b.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+    b.newLayout = VK_IMAGE_LAYOUT_GENERAL;
+    b.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    b.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    b.image = easuImage_.image;
+    b.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+    vkCmdPipelineBarrier(cmd_, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
+                         VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 0, nullptr, 0,
+                         nullptr, 1, &b);
+    easuImage_.layout = VK_IMAGE_LAYOUT_GENERAL;
+  }
+
+  // Bicubic operates on display RGB, not the model-space RGB10 image used by
+  // the FSR network. The raw image is written by the YUV conversion pass.
+  std::array<VkDescriptorImageInfo, 2> imgInfos{};
+  imgInfos[0].sampler = VK_NULL_HANDLE;
+  imgInfos[0].imageView = rawPresentation_.view;
+  imgInfos[0].imageLayout = VK_IMAGE_LAYOUT_GENERAL;
+  imgInfos[1].sampler = VK_NULL_HANDLE;
+  imgInfos[1].imageView = easuImage_.view;
+  imgInfos[1].imageLayout = VK_IMAGE_LAYOUT_GENERAL;
+  std::array<VkWriteDescriptorSet, 2> writes{};
+  for (uint32_t i = 0; i < 2; ++i) {
+    writes[i].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+    writes[i].dstSet = easuSet_;
+    writes[i].dstBinding = i;
+    writes[i].descriptorCount = 1;
+    writes[i].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+    writes[i].pImageInfo = &imgInfos[i];
+  }
+  vkUpdateDescriptorSets(device_, static_cast<uint32_t>(writes.size()),
+                         writes.data(), 0, nullptr);
+
+  // Bind pipeline + push constants + dispatch.
+  vkCmdBindPipeline(cmd_, VK_PIPELINE_BIND_POINT_COMPUTE, easuPipeline_);
+  vkCmdBindDescriptorSets(cmd_, VK_PIPELINE_BIND_POINT_COMPUTE,
+                          easuPipelineLayout_, 0, 1, &easuSet_, 0, nullptr);
+  const uint32_t push[5] = {
+      srcW_, srcH_, easuImage_.width, easuImage_.height,
+      static_cast<uint32_t>(std::clamp(presentationScaler_.load(
+          std::memory_order_acquire), 0, 4))};
+  vkCmdPushConstants(cmd_, easuPipelineLayout_, VK_SHADER_STAGE_COMPUTE_BIT, 0,
+                     sizeof(push), push);
+  const uint32_t groupsX = (easuImage_.width + 15u) / 16u;
+  const uint32_t groupsY = (easuImage_.height + 15u) / 16u;
+  vkCmdDispatch(cmd_, groupsX, groupsY, 1);
+
+  easuActive_ = true;
+  if (!frameUploadBatch_) {
+    if (!endUploadCmd())
+      return false;
+  }
+  return true;
+}
+
+bool GpuImageUploader::dispatchPresentationScaler(uint32_t width,
+                                                   uint32_t height) {
+  if (output_.image == VK_NULL_HANDLE || easuPipeline_ == VK_NULL_HANDLE ||
+      width == 0 || height == 0)
+    return false;
+  if (width == output_.width && height == output_.height) {
+    destroyGpuImage(device_, presentation_);
+    return true;
+  }
+  if (presentation_.width != width || presentation_.height != height) {
+    // Reuse the previous target when the window alternates between two
+    // dimensions. The dispatch path is fence-serialized, so the inactive
+    // image is no longer referenced by the queue at this point.
+    bool reused = false;
+    if (presentationRetained_.image != VK_NULL_HANDLE &&
+        presentationRetained_.width == width &&
+        presentationRetained_.height == height) {
+      std::swap(presentation_, presentationRetained_);
+      reused = true;
+    } else {
+      destroyGpuImage(device_, presentationRetained_);
+      std::swap(presentation_, presentationRetained_);
+    }
+    if (!reused &&
+        !createGpuImage(device_, physical_, width, height,
+                        VK_FORMAT_R8G8B8A8_UNORM,
+                        VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
+                        VK_IMAGE_ASPECT_COLOR_BIT, presentation_,
+                        "fsr4_presentation", queueFamily_,
+                        presentationQueueFamily_))
+      return false;
+  }
+  if (!beginUploadCmd())
+    return false;
+  const bool profilePresentation =
+      std::getenv("TFORGE_FSR4_PROFILE_PRESENTATION") != nullptr;
+  const auto presentationStart = std::chrono::steady_clock::now();
+  if (presentation_.layout != VK_IMAGE_LAYOUT_GENERAL) {
+    VkImageMemoryBarrier barrier{};
+    barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+    barrier.dstAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
+    barrier.oldLayout = presentation_.layout;
+    barrier.newLayout = VK_IMAGE_LAYOUT_GENERAL;
+    barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    barrier.image = presentation_.image;
+    barrier.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+    vkCmdPipelineBarrier(cmd_, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
+                         VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 0, nullptr,
+                         0, nullptr, 1, &barrier);
+    presentation_.layout = VK_IMAGE_LAYOUT_GENERAL;
+  }
+  VkDescriptorImageInfo sourceInfo{VK_NULL_HANDLE, output_.view,
+                                   VK_IMAGE_LAYOUT_GENERAL};
+  VkDescriptorImageInfo destinationInfo{VK_NULL_HANDLE, presentation_.view,
+                                        VK_IMAGE_LAYOUT_GENERAL};
+  VkWriteDescriptorSet writes[2]{};
+  for (uint32_t i = 0; i < 2; ++i) {
+    writes[i].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+    writes[i].dstSet = easuSet_;
+    writes[i].dstBinding = i;
+    writes[i].descriptorCount = 1;
+    writes[i].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+  }
+  writes[0].pImageInfo = &sourceInfo;
+  writes[1].pImageInfo = &destinationInfo;
+  vkUpdateDescriptorSets(device_, 2, writes, 0, nullptr);
+  const uint32_t push[5] = {
+      output_.width, output_.height, width, height,
+      static_cast<uint32_t>(std::clamp(presentationScaler_.load(
+          std::memory_order_acquire), 0, 4))};
+  vkCmdBindPipeline(cmd_, VK_PIPELINE_BIND_POINT_COMPUTE, easuPipeline_);
+  vkCmdBindDescriptorSets(cmd_, VK_PIPELINE_BIND_POINT_COMPUTE,
+                          easuPipelineLayout_, 0, 1, &easuSet_, 0, nullptr);
+  vkCmdPushConstants(cmd_, easuPipelineLayout_, VK_SHADER_STAGE_COMPUTE_BIT, 0,
+                     sizeof(push), push);
+  vkCmdDispatch(cmd_, (width + 15u) / 16u, (height + 15u) / 16u, 1);
+  if (!frameUploadBatch_) {
+    const bool ok = endUploadCmd();
+    if (profilePresentation) {
+      const double elapsedMs = std::chrono::duration<double, std::milli>(
+          std::chrono::steady_clock::now() - presentationStart).count();
+      logInfo("GpuImageUploader: presentation scaler {}x{} -> {}x{} "
+              "filter={} CPU/wait={:.3f}ms",
+              output_.width, output_.height, width, height,
+              presentationScaler_.load(std::memory_order_acquire), elapsedMs);
+    }
+    return ok;
+  }
+  return true;
 }
 
 bool GpuImageUploader::transitionOutputToGeneral() {
@@ -1589,6 +2232,112 @@ bool GpuImageUploader::readbackOutput(std::vector<uint8_t> &dst, uint32_t &outW,
   std::memcpy(dst.data(), stagingMapped_, rgba8Size);
   outW = outW_;
   outH = outH_;
+  return true;
+}
+
+bool GpuImageUploader::readbackPresentation(std::vector<uint8_t> &dst,
+                                            uint32_t &outW,
+                                            uint32_t &outH) {
+  if (presentation_.image == VK_NULL_HANDLE)
+    return readbackOutput(dst, outW, outH);
+
+  const uint32_t width = presentation_.width;
+  const uint32_t height = presentation_.height;
+  if (width == 0 || height == 0)
+    return false;
+  const size_t rgba8Size = static_cast<size_t>(width) * height * 4;
+  if (!ensureStaging(std::max(rgba8Size, static_cast<size_t>(4096))))
+    return false;
+  if (!beginUploadCmd())
+    return false;
+
+  const VkImageLayout oldLayout = presentation_.layout;
+  VkImageMemoryBarrier toTransfer{};
+  toTransfer.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+  toTransfer.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
+  toTransfer.dstAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
+  toTransfer.oldLayout = oldLayout;
+  toTransfer.newLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+  toTransfer.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+  toTransfer.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+  toTransfer.image = presentation_.image;
+  toTransfer.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+  vkCmdPipelineBarrier(cmd_, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+                       VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, nullptr, 0,
+                       nullptr, 1, &toTransfer);
+
+  VkBufferImageCopy region{};
+  region.imageSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
+  region.imageExtent = {width, height, 1};
+  vkCmdCopyImageToBuffer(cmd_, presentation_.image,
+                         VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, staging_.buffer,
+                         1, &region);
+
+  VkImageMemoryBarrier backToGeneral = toTransfer;
+  backToGeneral.srcAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
+  backToGeneral.dstAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
+  backToGeneral.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+  backToGeneral.newLayout = oldLayout;
+  vkCmdPipelineBarrier(cmd_, VK_PIPELINE_STAGE_TRANSFER_BIT,
+                       VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 0, nullptr, 0,
+                       nullptr, 1, &backToGeneral);
+  if (!endUploadCmd())
+    return false;
+
+  dst.resize(rgba8Size);
+  std::memcpy(dst.data(), stagingMapped_, rgba8Size);
+  outW = width;
+  outH = height;
+  return true;
+}
+
+bool GpuImageUploader::readbackEasu(std::vector<uint8_t> &dst, uint32_t &outW,
+                                    uint32_t &outH) {
+  if (easuImage_.image == VK_NULL_HANDLE || easuImage_.width == 0)
+    return false;
+  const size_t rgba8Size = static_cast<size_t>(easuImage_.width) *
+                           easuImage_.height * 4;
+  if (!ensureStaging(std::max(rgba8Size, static_cast<size_t>(4096))))
+    return false;
+  if (!beginUploadCmd())
+    return false;
+
+  VkImageMemoryBarrier toTransfer{};
+  toTransfer.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+  toTransfer.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
+  toTransfer.dstAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
+  toTransfer.oldLayout = VK_IMAGE_LAYOUT_GENERAL;
+  toTransfer.newLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+  toTransfer.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+  toTransfer.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+  toTransfer.image = easuImage_.image;
+  toTransfer.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+  vkCmdPipelineBarrier(cmd_, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+                       VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, nullptr, 0,
+                       nullptr, 1, &toTransfer);
+
+  VkBufferImageCopy region{};
+  region.imageSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
+  region.imageExtent = {easuImage_.width, easuImage_.height, 1};
+  vkCmdCopyImageToBuffer(cmd_, easuImage_.image,
+                         VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, staging_.buffer,
+                         1, &region);
+
+  VkImageMemoryBarrier backToGeneral = toTransfer;
+  backToGeneral.srcAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
+  backToGeneral.dstAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
+  backToGeneral.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+  backToGeneral.newLayout = VK_IMAGE_LAYOUT_GENERAL;
+  vkCmdPipelineBarrier(cmd_, VK_PIPELINE_STAGE_TRANSFER_BIT,
+                       VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 0, nullptr, 0,
+                       nullptr, 1, &backToGeneral);
+  if (!endUploadCmd())
+    return false;
+
+  dst.resize(rgba8Size);
+  std::memcpy(dst.data(), stagingMapped_, rgba8Size);
+  outW = easuImage_.width;
+  outH = easuImage_.height;
   return true;
 }
 

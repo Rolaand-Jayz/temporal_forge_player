@@ -1,3 +1,7 @@
+// codec_motion_expand.comp — expand sparse codec motion-vector blocks into the
+// dense RG16F motion image consumed by the FSR4 prepass. C++ uploads the codec
+// vectors and dispatches this pass before neural inference; downstream history
+// reprojection reads the resulting per-pixel motion field.
 #version 450
 
 layout(local_size_x = 16, local_size_y = 16, local_size_z = 1) in;

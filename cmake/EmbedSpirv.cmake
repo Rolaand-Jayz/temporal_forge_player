@@ -1,3 +1,9 @@
+# EmbedSpirv.cmake — convert a compiled SPIR-V binary into a C++ array.
+# Upstream: ShaderCompile.cmake provides SPIRV_FILE, HEADER_FILE, and SYMBOL.
+# Downstream: Fsr4DispatchHarness includes the generated header and creates a
+# Vulkan shader module from the embedded words. The output is generated and
+# must never be hand-edited.
+#
 # cmake/EmbedSpirv.cmake — embed a SPIR-V blob as a C header.
 # Emits a uint32_t array + size constants. SPIR-V is little-endian uint32.
 file(READ "${SPIRV_FILE}" spv_bytes HEX)

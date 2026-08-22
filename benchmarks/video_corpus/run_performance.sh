@@ -1,6 +1,12 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# run_performance.sh — measure player timing over manifest-selected clips.
+#
+# Upstream: prepare_corpus.sh's manifest and a build-fast player. Downstream:
+# performance.csv plus per-clip logs used to compare frame-time behavior. It
+# intentionally reports timings and does not alter quality settings or images.
+
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 repo="$(cd "$root/../.." && pwd)"
 binary="${1:-$repo/build/temporal_forge_player}"
@@ -23,6 +29,9 @@ printf '%s\n' \
     > "$results"
 
 summary() {
+    # summary: reduce sampled pipeline/dispatch/GPU timings to count, mean,
+    # median, and p95. The caller writes these aggregates beside the clip's
+    # metadata so later reviews can distinguish latency from image quality.
     local samples="$1"
     local column="$2"
     local sorted
@@ -67,7 +76,7 @@ while IFS=, read -r \
     fi
 
     sed -n \
-        's/.*pipelineCPU=\([0-9.]*\)ms dispatchCPU=\([0-9.]*\)ms GPU=\([0-9.]*\)ms.*/\1 \2 \3/p' \
+        's/.*pipelineCPU=\([0-9.]*\)ms dispatchCPU[^=]*=\([0-9.]*\)ms GPU[^=]*=\([0-9.]*\)ms.*/\1 \2 \3/p' \
         "$log" > "$samples"
     pipeline="$(summary "$samples" 1)"
     dispatch="$(summary "$samples" 2)"

@@ -1,3 +1,6 @@
+// conv_pw_fp16_direct.comp — direct FP16 implementation of a pointwise
+// convolution. It preserves the descriptor and tensor layout used by the
+// cooperative path so backend selection changes execution strategy only.
 #version 450 core
 #extension GL_KHR_cooperative_matrix : require
 #extension GL_KHR_memory_scope_semantics : require

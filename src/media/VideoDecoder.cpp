@@ -116,7 +116,7 @@ bool VideoDecoder::open(AVFormatContext* fmt, int streamIndex) {
     logInfo("VideoDecoder: opened codec '{}' {}x{} pix_fmt={}",
             codec->name, width_, height_, av_get_pix_fmt_name(static_cast<AVPixelFormat>(pixFmt_)));
     if (!gpuFriendlyFormat()) {
-        logWarn("VideoDecoder: pix_fmt={} is not GPU-friendly for the current upload path",
+        logInfo("VideoDecoder: pix_fmt={} will use the software-to-YUV420 fallback",
                 av_get_pix_fmt_name(static_cast<AVPixelFormat>(pixFmt_)));
     }
     return true;
@@ -171,8 +171,13 @@ bool VideoDecoder::receiveFrame(DecodedVideoFrame& out) {
 
     const AVPixelFormat decodedFmt = static_cast<AVPixelFormat>(frame_->format);
     const bool decodedHwFrame = isHardwarePixelFormat(decodedFmt) || isDrmPrimeFrame(frame_);
-    if (!decodedHwFrame && !isGpuFriendlyPixelFormat(decodedFmt)) {
-        logWarn("VideoDecoder: rejecting unsupported frame format {} on GPU-only path",
+    // Keep software frames even when they are not native 4:2:0. The uploader
+    // normalizes supported libav pixel formats through libswscale before the
+    // GPU YUV conversion pass; rejecting them here made valid videos render
+    // as a permanent black frame.
+    if (!decodedHwFrame &&
+        (!av_pix_fmt_desc_get(decodedFmt) || !frame_->data[0])) {
+        logWarn("VideoDecoder: decoded frame has no usable pixel data (format {})",
                 av_get_pix_fmt_name(decodedFmt));
         av_frame_unref(frame_);
         return false;
@@ -229,6 +234,9 @@ bool VideoDecoder::receiveFrame(DecodedVideoFrame& out) {
     out.colorSpace = sourceFrame->colorspace != AVCOL_SPC_UNSPECIFIED
                          ? sourceFrame->colorspace
                          : codec_->colorspace;
+    out.colorTransfer = sourceFrame->color_trc != AVCOL_TRC_UNSPECIFIED
+                            ? sourceFrame->color_trc
+                            : codec_->color_trc;
     out.hwFrame = drmFrame != nullptr;
     out.hwFrameFormat = out.hwFrame ? AV_PIX_FMT_DRM_PRIME : -1;
     out.drmObjects = 0;

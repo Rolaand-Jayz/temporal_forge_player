@@ -1,3 +1,8 @@
+# ShaderCompile.cmake — define the CMake function that turns maintained GLSL
+# sources into generated SPIR-V and C++ headers.
+# Upstream: CMakeLists.txt supplies the shader source list. Downstream: the
+# temporal_forge_lib target compiles the generated headers into the harness.
+#
 # cmake/ShaderCompile.cmake — compile FSR4 GLSL compute shaders to SPIR-V and
 # embed them as C headers so the binary is self-contained.
 #

@@ -160,7 +160,8 @@ PresentationScaler parsePresentation(std::string_view s) {
     if (s == "Bicubic") return PresentationScaler::Bicubic;
     if (s == "Lanczos") return PresentationScaler::Lanczos;
     if (s == "Easu") return PresentationScaler::Easu;
-    return PresentationScaler::Auto;
+    // Auto and unknown/legacy values now select the quality-first default.
+    return PresentationScaler::Bicubic;
 }
 const char* presentationKey(PresentationScaler p) {
     switch (p) {
@@ -170,7 +171,7 @@ const char* presentationKey(PresentationScaler p) {
         case PresentationScaler::Lanczos: return "Lanczos";
         case PresentationScaler::Easu: return "Easu";
     }
-    return "Auto";
+    return "Bicubic";
 }
 
 } // namespace
@@ -197,6 +198,10 @@ bool SettingsStore::load(Settings& out) {
     out.depthMode = parseDepth(extractString(v, "depthMode"));
     out.reactiveMode = parseReactive(extractString(v, "reactiveMode"));
     out.presentationScaler = parsePresentation(extractString(v, "presentationScaler"));
+    // Older files may explicitly contain Auto. Keep the file readable while
+    // making the new default deterministic after the next save.
+    if (out.presentationScaler == PresentationScaler::Auto)
+        out.presentationScaler = PresentationScaler::Bicubic;
     out.brightness = static_cast<float>(extractDouble(v, "brightness", 0.0));
     out.contrast = static_cast<float>(extractDouble(v, "contrast", 0.0));
     out.saturation = static_cast<float>(extractDouble(v, "saturation", 0.0));

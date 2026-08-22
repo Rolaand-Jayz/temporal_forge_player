@@ -58,13 +58,17 @@ struct GpuImageUploader {
   // dims unchanged since last call. Returns false on allocation failure
   // (caller should fall back to spatial).
   bool allocate(uint32_t sourceW, uint32_t sourceH, uint32_t outputW,
-                uint32_t outputH);
+                uint32_t outputH, uint32_t modelW = 0,
+                uint32_t modelH = 0);
 
   // Upload color (YUV -> sharpened FSR model-color RGB10_A2). Returns false on
   // failure. avFormat is an AVPixelFormat cast to int.
   bool uploadColor(const DecodedVideoFrame &frame);
   void setSharpness(float sharpness) {
     sharpness_.store(sharpness, std::memory_order_release);
+  }
+  void setPresentationScaler(int scaler) {
+    presentationScaler_.store(scaler, std::memory_order_release);
   }
   void setCompareEnabled(bool enabled) {
     compareEnabled_.store(enabled, std::memory_order_release);
@@ -97,9 +101,20 @@ struct GpuImageUploader {
   void completeDeferredFrameUploads();
 
   // --- input image views (bound by the harness prepass) ---
+  // Conversion writes color_ directly at native/model resolution.  When a
+  // prefilter is needed it also writes its result into color_; sourceModel_
+  // is only the prefilter's private source and must never be exposed to FSR.
   VkImageView colorView() const { return color_.view; }
   VkImage colorImage() const { return color_.image; }
   VkImage rawPresentationImage() const { return rawPresentation_.image; }
+
+  // EASU 2x pre-scale output (2x native res). When EASU is active, the FSR4
+  // dispatch / display path reads this instead of the native colorView.
+  VkImageView easuColorView() const { return easuImage_.view; }
+  VkImage easuColorImage() const { return easuImage_.image; }
+  uint32_t easuW() const { return easuImage_.width; }
+  uint32_t easuH() const { return easuImage_.height; }
+  bool easuReady() const { return easuActive_; }
   VkImageView yPlaneView() const { return yPlane_.view; }
   VkImageView uPlaneView() const { return uPlane_.view; }
   VkImageView vPlaneView() const { return vPlane_.view; }
@@ -112,6 +127,18 @@ struct GpuImageUploader {
   // --- output images (written by postpass, read by readback) ---
   VkImageView outputView() const { return output_.view; }
   VkImage outputImage() const { return output_.image; }
+  VkImage presentationImage() const {
+    return presentation_.image != VK_NULL_HANDLE ? presentation_.image
+                                                  : output_.image;
+  }
+  uint32_t presentationW() const {
+    return presentation_.image != VK_NULL_HANDLE ? presentation_.width
+                                                 : output_.width;
+  }
+  uint32_t presentationH() const {
+    return presentation_.image != VK_NULL_HANDLE ? presentation_.height
+                                                 : output_.height;
+  }
   VkImageView historyReadView() const {
     return history_[historyIndex_.load(std::memory_order_acquire)].view;
   }
@@ -147,14 +174,36 @@ struct GpuImageUploader {
   // buffer at output dims. `dst` must be outputW*outputH*4 bytes.
   bool readbackOutput(std::vector<uint8_t> &dst, uint32_t &outW,
                       uint32_t &outH);
+  // Read the image after the optional GPU presentation scaler. When the
+  // presentation target is the same size as the reconstruction output, this
+  // returns the reconstruction image without inserting a second copy.
+  bool readbackPresentation(std::vector<uint8_t> &dst, uint32_t &outW,
+                            uint32_t &outH);
+  // Read the spatial EASU image. It is a separate image from the neural
+  // output, so using readbackOutput() here would legitimately return the
+  // untouched (black) neural target.
+  bool readbackEasu(std::vector<uint8_t> &dst, uint32_t &outW,
+                   uint32_t &outH);
   bool readbackRaw(std::vector<uint8_t> &dst, uint32_t &outW, uint32_t &outH);
 
   // Transition output + history images from UNDEFINED to GENERAL layout.
   // Must be called once after allocate() before the first dispatch.
   bool transitionOutputToGeneral();
 
+  // dispatchEasu: run the FSR1-EASU compute pass to scale the native-res
+  //              uploaded color image to a 2x intermediate. Records into the
+  //              active frame-upload command buffer (must be called between
+  //              beginFrameUploads + uploadColor and endFrameUploads).
+  //              Called by: PlaybackEngine::videoDecodeLoop.
+  //              After this returns, easuColorView() is valid for the next
+  //              pipeline stage (FSR4 dispatch or display).
+  bool dispatchEasu();
+  bool dispatchPresentationScaler(uint32_t width, uint32_t height);
+
   uint32_t sourceW() const { return srcW_; }
   uint32_t sourceH() const { return srcH_; }
+  uint32_t modelW() const { return modelW_; }
+  uint32_t modelH() const { return modelH_; }
   uint32_t outputW() const { return outW_; }
   uint32_t outputH() const { return outH_; }
 
@@ -191,6 +240,7 @@ private:
   bool uploadColorTo(const DecodedVideoFrame &frame, GpuImage &image);
   bool dispatchYuvConvert(const DecodedVideoFrame &frame, bool compareEnabled,
                           float sharpness);
+  bool dispatchBicubicPrefilter(const DecodedVideoFrame &frame);
   bool uploadMotionCpu(const std::vector<MvEntry> &mvs);
   bool importDrmPrimeFrame(const DecodedVideoFrame &frame,
                            ImportedDrmFrame &imported);
@@ -211,12 +261,19 @@ private:
   VkCommandBuffer cmd_ = VK_NULL_HANDLE;
   VkFence fence_ = VK_NULL_HANDLE;
 
-  // Input images (source dims)
+  // Decoded input images remain at source dimensions. The model image is
+  // produced by the GPU bicubic prefilter at modelW_ x modelH_.
   GpuImage yPlane_, uPlane_, vPlane_;
-  GpuImage color_, rawPresentation_, motion_, depth_, reactive_, tcMask_,
+  GpuImage sourceModel_, color_, rawPresentation_, motion_, depth_, reactive_, tcMask_,
       exposure_;
   // Output images (output dims)
   GpuImage output_, history_[2], recurrent_[2];
+  GpuImage presentation_;
+  // Keep one recently used presentation target so a resize oscillating between
+  // two window sizes reuses its VkImage/allocation instead of reallocating on
+  // every frame. The active image is swapped with this cache only after the
+  // synchronous upload/dispatch fence has retired.
+  GpuImage presentationRetained_;
   std::atomic<uint32_t> historyIndex_{0};
 
   // Host-visible staging buffer (reused across uploads; grown as needed).
@@ -226,6 +283,7 @@ private:
   int swsW_ = 0;
   int swsH_ = 0;
   int swsFormat_ = -1;
+  std::vector<uint8_t> yuv420Scratch_;
   std::vector<uint8_t> rgbaScratch_;
   std::vector<uint8_t> rgbaSharpScratch_;
   std::vector<float> lumaScratch_;
@@ -241,7 +299,22 @@ private:
   VkDescriptorPool motionDescPool_ = VK_NULL_HANDLE;
   VkPipelineLayout motionPipelineLayout_ = VK_NULL_HANDLE;
   VkPipeline motionPipeline_ = VK_NULL_HANDLE;
+  VkDescriptorSetLayout prefilterDescLayout_ = VK_NULL_HANDLE;
+  VkDescriptorPool prefilterDescPool_ = VK_NULL_HANDLE;
+  VkPipelineLayout prefilterPipelineLayout_ = VK_NULL_HANDLE;
+  VkPipeline prefilterPipeline_ = VK_NULL_HANDLE;
+  VkDescriptorSet prefilterSet_ = VK_NULL_HANDLE;
+
+  // EASU 2x pre-scale pipeline + intermediate image.
+  GpuImage easuImage_;
+  VkDescriptorSetLayout easuDescLayout_ = VK_NULL_HANDLE;
+  VkDescriptorPool easuDescPool_ = VK_NULL_HANDLE;
+  VkPipelineLayout easuPipelineLayout_ = VK_NULL_HANDLE;
+  VkPipeline easuPipeline_ = VK_NULL_HANDLE;
+  VkDescriptorSet easuSet_ = VK_NULL_HANDLE;
+  bool easuActive_ = false;
   std::atomic<float> sharpness_{0.3f};
+  std::atomic<int> presentationScaler_{2};
   std::atomic<bool> compareEnabled_{false};
   ImportedDrmRuntime drmRt_{};
 
@@ -250,6 +323,7 @@ private:
   void *motionVectorsMapped_ = nullptr;
 
   uint32_t srcW_ = 0, srcH_ = 0;
+  uint32_t modelW_ = 0, modelH_ = 0;
   uint32_t outW_ = 0, outH_ = 0;
   bool frameUploadBatch_ = false;
   bool deferredFrameUploads_ = false;

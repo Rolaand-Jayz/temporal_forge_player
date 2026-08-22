@@ -18,7 +18,12 @@ layout(local_size_x = 32, local_size_y = 8, local_size_z = 1) in;
 layout(set = 0, binding = 0) uniform PostpassCB {
     uvec4 slot0; // (dispatchW, dispatchH, bit0 reset/bit1 recurrent disabled, decoderBase_words)
     vec4  slot1; // (jitterX, jitterY, frameTimeDelta, _)
-    uvec4 slot2; // (sourceW, sourceH, _, _)
+    uvec4 slot2; // (sourceW, sourceH, transfer, HDR output opt-in)
+    uvec4 slot3; // (composition, baseFilter, residualLowpass, sharpenMode)
+    vec4  slot4; // (baseB, baseC, residualRadius, residualSigma)
+    vec4  slot5; // (learnedStrength, residualStrength, sharpenStrength, sharpenLimit)
+    vec4  slot6; // (sharpenThreshold, exposureEV, contrast, contrastPivot)
+    vec4  slot7; // (gamma, enabled, _, _)
 };
 
 // Kept bound for the recovered postpass resource map. The video filter path
@@ -64,22 +69,80 @@ vec3 removeMuLaw(vec3 modelColor) {
     return clamp(applySrgb(linear), vec3(0.0), vec3(1.0));
 }
 
+vec3 srgbToLinear(vec3 srgb) {
+    vec3 lo = srgb / 12.92;
+    vec3 hi = pow(max((srgb + 0.055) / 1.055, vec3(0.0)), vec3(2.4));
+    return mix(hi, lo, lessThan(srgb, vec3(0.04045)));
+}
+
+vec3 linearToSrgb(vec3 linear) {
+    vec3 x = max(linear, vec3(0.0));
+    vec3 lo = x * 12.92;
+    vec3 hi = 1.055 * pow(x, vec3(1.0 / 2.4)) - 0.055;
+    return mix(hi, lo, lessThan(x, vec3(0.0031308)));
+}
+
+vec3 linearToPq(vec3 linear) {
+    const vec3 m1 = vec3(2610.0 / 16384.0);
+    const vec3 m2 = vec3(2523.0 / 32.0);
+    const vec3 c1 = vec3(3424.0 / 4096.0);
+    const vec3 c2 = vec3(2413.0 / 128.0);
+    const vec3 c3 = vec3(2392.0 / 128.0);
+    vec3 lm1 = pow(max(linear, vec3(0.0)), m1);
+    return clamp(pow((c1 + c2 * lm1) / (1.0 + c3 * lm1), m2),
+                 vec3(0.0), vec3(1.0));
+}
+
+vec3 linearToHlg(vec3 linear) {
+    const float a = 0.17883277;
+    const float b = 1.0 - 4.0 * a;
+    const float c = 0.5 - a * log(4.0 * a);
+    vec3 x = clamp(linear, vec3(0.0), vec3(1.0));
+    vec3 low = sqrt(3.0 * x);
+    vec3 high = a * log(12.0 * x - b) + c;
+    return clamp(mix(low, high, greaterThan(x, vec3(1.0 / 12.0))),
+                 vec3(0.0), vec3(1.0));
+}
+
+vec3 encodeOutputTransfer(vec3 srgb, uint transfer, bool preserve) {
+    if (!preserve || transfer == 0u) return srgb;
+    vec3 linear = srgbToLinear(srgb);
+    if (transfer == 1u) return linearToPq(linear);
+    if (transfer == 2u) return linearToHlg(linear);
+    return srgb;
+}
+
 float finiteOrZero(float x) {
     return (isnan(x) || isinf(x)) ? 0.0 : x;
 }
 
-vec3 sampleHistoryLinear(vec2 p) {
+vec3 sampleHistoryBicubic(vec2 p) {
     const ivec2 size = imageSize(u_history);
     p = clamp(p, vec2(0.0), vec2(size - ivec2(1)));
-    const ivec2 a = ivec2(floor(p));
+    const ivec2 base = ivec2(floor(p));
     const vec2 f = fract(p);
-    if (all(equal(f, vec2(0.0)))) return imageLoad(u_history, a).rgb;
-    const ivec2 b = min(a + ivec2(1), size - ivec2(1));
-    const vec3 top = mix(imageLoad(u_history, a).rgb,
-                         imageLoad(u_history, ivec2(b.x, a.y)).rgb, f.x);
-    const vec3 bottom = mix(imageLoad(u_history, ivec2(a.x, b.y)).rgb,
-                            imageLoad(u_history, b).rgb, f.x);
-    return mix(top, bottom, f.y);
+    const vec4 wx = vec4(
+        -0.5 * f.x * f.x * f.x + f.x * f.x - 0.5 * f.x,
+         1.5 * f.x * f.x * f.x - 2.5 * f.x * f.x + 1.0,
+        -1.5 * f.x * f.x * f.x + 2.0 * f.x * f.x + 0.5 * f.x,
+         0.5 * f.x * f.x * f.x - 0.5 * f.x * f.x);
+    const vec4 wy = vec4(
+        -0.5 * f.y * f.y * f.y + f.y * f.y - 0.5 * f.y,
+         1.5 * f.y * f.y * f.y - 2.5 * f.y * f.y + 1.0,
+        -1.5 * f.y * f.y * f.y + 2.0 * f.y * f.y + 0.5 * f.y,
+         0.5 * f.y * f.y * f.y - 0.5 * f.y * f.y);
+    vec3 result = vec3(0.0);
+    float total = 0.0;
+    for (int y = 0; y < 4; ++y) {
+        const int sy = clamp(base.y + y - 1, 0, size.y - 1);
+        for (int x = 0; x < 4; ++x) {
+            const int sx = clamp(base.x + x - 1, 0, size.x - 1);
+            const float weight = wx[x] * wy[y];
+            result += imageLoad(u_history, ivec2(sx, sy)).rgb * weight;
+            total += weight;
+        }
+    }
+    return clamp(result / max(abs(total), 1.0e-5), vec3(0.0), vec3(1.0));
 }
 
 float filterWeightGaussian(float distance, float upscaleFactor) {
@@ -106,17 +169,303 @@ vec4 sampleCurrentModel(vec2 sourcePos, vec2 upscaleFactor, ivec2 tileBase) {
                 max(max(weights.x, weights.y), max(weights.z, weights.w)));
 }
 
-vec3 sampleSourceLinear(vec2 p, ivec2 tileBase) {
+// Catmull-Rom cubic weights for one axis. The four taps cover the complete
+// cubic footprint around the source-space position, including fractional
+// positions between source pixels.
+vec4 catmullRomWeights(float f) {
+    const float f2 = f * f;
+    const float f3 = f2 * f;
+    return vec4(
+        -0.5 * f3 + f2 - 0.5 * f,
+         1.5 * f3 - 2.5 * f2 + 1.0,
+        -1.5 * f3 + 2.0 * f2 + 0.5 * f,
+         0.5 * f3 - 0.5 * f2);
+}
+
+vec3 sampleSourceBicubic(vec2 p, ivec2 tileBase) {
+    const ivec2 size = imageSize(u_sourceColor);
+    p = clamp(p, vec2(0.0), vec2(size - ivec2(1)));
+    const ivec2 base = ivec2(floor(p));
+    const vec2 f = fract(p);
+    const vec4 wx = catmullRomWeights(f.x);
+    const vec4 wy = catmullRomWeights(f.y);
+
+    vec3 result = vec3(0.0);
+    for (int y = 0; y < 4; ++y) {
+        const int sy = clamp(base.y + y - 1, 0, size.y - 1);
+        const float rowWeight = wy[y];
+        for (int x = 0; x < 4; ++x) {
+            const int sx = clamp(base.x + x - 1, 0, size.x - 1);
+            result += loadSourceCached(ivec2(sx, sy), tileBase) *
+                      (wx[x] * rowWeight);
+        }
+    }
+    // Catmull-Rom is intentionally sharper than bilinear and can overshoot
+    // near strong edges. Keep the reconstructed model-space color valid.
+    return clamp(result, vec3(0.0), vec3(1.0));
+}
+
+vec3 sampleSourceBilinear(vec2 p, ivec2 tileBase) {
     const ivec2 size = imageSize(u_sourceColor);
     p = clamp(p, vec2(0.0), vec2(size - ivec2(1)));
     const ivec2 a = ivec2(floor(p));
     const ivec2 b = min(a + ivec2(1), size - ivec2(1));
     const vec2 f = fract(p);
     const vec3 top = mix(loadSourceCached(a, tileBase),
-                         loadSourceCached(ivec2(b.x, a.y), tileBase), f.x);
+                          loadSourceCached(ivec2(b.x, a.y), tileBase), f.x);
     const vec3 bottom = mix(loadSourceCached(ivec2(a.x, b.y), tileBase),
-                            loadSourceCached(b, tileBase), f.x);
+                             loadSourceCached(b, tileBase), f.x);
     return mix(top, bottom, f.y);
+}
+
+float mitchellNetravali(float x, float b, float c) {
+    x = abs(x);
+    if (x < 1.0) {
+        return ((12.0 - 9.0 * b - 6.0 * c) * x * x * x +
+                (-18.0 + 12.0 * b + 6.0 * c) * x * x +
+                (6.0 - 2.0 * b)) / 6.0;
+    }
+    if (x < 2.0) {
+        return ((-b - 6.0 * c) * x * x * x +
+                (6.0 * b + 30.0 * c) * x * x +
+                (-12.0 * b - 48.0 * c) * x +
+                (8.0 * b + 24.0 * c)) / 6.0;
+    }
+    return 0.0;
+}
+
+float sincQuality(float x) {
+    x = abs(x);
+    if (x < 1.0e-4) return 1.0;
+    return sin(3.14159265359 * x) / (3.14159265359 * x);
+}
+
+float lanczos2Quality(float x) {
+    x = abs(x);
+    return x < 2.0 ? sincQuality(x) * sincQuality(x * 0.5) : 0.0;
+}
+
+vec3 sampleSourceCubicBC(vec2 p, ivec2 tileBase, float b, float c) {
+    const ivec2 size = imageSize(u_sourceColor);
+    p = clamp(p, vec2(0.0), vec2(size - ivec2(1)));
+    const ivec2 base = ivec2(floor(p));
+    const vec2 f = fract(p);
+    vec3 result = vec3(0.0);
+    float total = 0.0;
+    for (int y = 0; y < 4; ++y) {
+        const int sy = clamp(base.y + y - 1, 0, size.y - 1);
+        const float wy = mitchellNetravali(float(y) - 1.0 - f.y, b, c);
+        for (int x = 0; x < 4; ++x) {
+            const int sx = clamp(base.x + x - 1, 0, size.x - 1);
+            const float weight =
+                mitchellNetravali(float(x) - 1.0 - f.x, b, c) * wy;
+            result += loadSourceCached(ivec2(sx, sy), tileBase) * weight;
+            total += weight;
+        }
+    }
+    return clamp(result / max(abs(total), 1.0e-5), vec3(0.0), vec3(1.0));
+}
+
+vec3 sampleSourceLanczos2(vec2 p, ivec2 tileBase) {
+    const ivec2 size = imageSize(u_sourceColor);
+    p = clamp(p, vec2(0.0), vec2(size - ivec2(1)));
+    const ivec2 base = ivec2(floor(p));
+    const vec2 f = fract(p);
+    vec3 result = vec3(0.0);
+    float total = 0.0;
+    for (int y = 0; y < 4; ++y) {
+        const int sy = clamp(base.y + y - 1, 0, size.y - 1);
+        const float wy = lanczos2Quality(float(y) - 1.0 - f.y);
+        for (int x = 0; x < 4; ++x) {
+            const int sx = clamp(base.x + x - 1, 0, size.x - 1);
+            const float weight = lanczos2Quality(float(x) - 1.0 - f.x) * wy;
+            result += loadSourceCached(ivec2(sx, sy), tileBase) * weight;
+            total += weight;
+        }
+    }
+    return clamp(result / max(abs(total), 1.0e-5), vec3(0.0), vec3(1.0));
+}
+
+vec3 sampleSourceBase(vec2 p, ivec2 tileBase, uint mode, float b, float c) {
+    if (mode == 0u) return sampleSourceBilinear(p, tileBase);
+    if (mode == 1u) return sampleSourceCubicBC(p, tileBase, b, c);
+    if (mode == 3u) return sampleSourceLanczos2(p, tileBase);
+    return sampleSourceBicubic(p, tileBase);
+}
+
+vec3 applyLegacyEdgeAwareRcas(vec3 color, vec2 sourcePos, vec2 sourceStep,
+                              ivec2 tileBase) {
+    // A restrained RCAS-style unsharp response. Detail is measured in linear
+    // light and is gated by local edge strength, avoiding halos in flat dark
+    // regions. The 0.08 default is intentionally conservative for compressed
+    // screen recordings; the neural reconstruction remains the main sharpener.
+    // The source image is model-space RGB10, not encoded display sRGB.
+    // Decode it first; applying an sRGB EOTF directly to model values makes
+    // the RCAS response too weak in shadows and unstable near edges.
+    vec3 center = srgbToLinear(removeMuLaw(sampleSourceBicubic(sourcePos, tileBase)));
+    vec3 left = srgbToLinear(removeMuLaw(sampleSourceBicubic(sourcePos - vec2(sourceStep.x, 0.0), tileBase)));
+    vec3 right = srgbToLinear(removeMuLaw(sampleSourceBicubic(sourcePos + vec2(sourceStep.x, 0.0), tileBase)));
+    vec3 up = srgbToLinear(removeMuLaw(sampleSourceBicubic(sourcePos - vec2(0.0, sourceStep.y), tileBase)));
+    vec3 down = srgbToLinear(removeMuLaw(sampleSourceBicubic(sourcePos + vec2(0.0, sourceStep.y), tileBase)));
+    vec3 detail = center - (left + right + up + down) * 0.25;
+    float edge = clamp(length(detail) * 8.0, 0.0, 1.0);
+    return clamp(linearToSrgb(srgbToLinear(color) + detail * (0.08 * edge)),
+                 vec3(0.0), vec3(1.0));
+}
+
+vec3 applyAdaptiveSharpen(vec3 color, vec2 sourcePos, vec2 sourceStep,
+                          ivec2 tileBase, uint baseMode, float baseB,
+                          float baseC, float strength, float limit,
+                          float threshold) {
+    const vec3 center = srgbToLinear(removeMuLaw(
+        sampleSourceBase(sourcePos, tileBase, baseMode, baseB, baseC)));
+    const vec3 left = srgbToLinear(removeMuLaw(sampleSourceBase(
+        sourcePos - vec2(sourceStep.x, 0.0), tileBase, baseMode, baseB, baseC)));
+    const vec3 right = srgbToLinear(removeMuLaw(sampleSourceBase(
+        sourcePos + vec2(sourceStep.x, 0.0), tileBase, baseMode, baseB, baseC)));
+    const vec3 up = srgbToLinear(removeMuLaw(sampleSourceBase(
+        sourcePos - vec2(0.0, sourceStep.y), tileBase, baseMode, baseB, baseC)));
+    const vec3 down = srgbToLinear(removeMuLaw(sampleSourceBase(
+        sourcePos + vec2(0.0, sourceStep.y), tileBase, baseMode, baseB, baseC)));
+    const vec3 detail = center - (left + right + up + down) * 0.25;
+    const float edge = length(detail);
+    const float gate = smoothstep(threshold, threshold + 0.1, edge);
+    const vec3 limited = clamp(detail * strength * gate,
+                               vec3(-limit), vec3(limit));
+    return clamp(linearToSrgb(clamp(srgbToLinear(color) + limited,
+                                    vec3(0.0), vec3(1.0))),
+                 vec3(0.0), vec3(1.0));
+}
+
+// Contrast-adaptive sharpen applied to the resolved color of every FSR
+// dispatch. The postpass is the boundary between one chained FSR pass and
+// the next, so this runs once per pass without changing the neural graph.
+vec3 applyCas(vec3 color, vec2 sourcePos, vec2 sourceStep,
+              ivec2 tileBase, float strength) {
+    const vec3 center = srgbToLinear(removeMuLaw(
+        sampleSourceBicubic(sourcePos, tileBase)));
+    const vec3 left = srgbToLinear(removeMuLaw(sampleSourceBicubic(
+        sourcePos - vec2(sourceStep.x, 0.0), tileBase)));
+    const vec3 right = srgbToLinear(removeMuLaw(sampleSourceBicubic(
+        sourcePos + vec2(sourceStep.x, 0.0), tileBase)));
+    const vec3 up = srgbToLinear(removeMuLaw(sampleSourceBicubic(
+        sourcePos - vec2(0.0, sourceStep.y), tileBase)));
+    const vec3 down = srgbToLinear(removeMuLaw(sampleSourceBicubic(
+        sourcePos + vec2(0.0, sourceStep.y), tileBase)));
+    const vec3 low = min(center, min(min(left, right), min(up, down)));
+    const vec3 high = max(center, max(max(left, right), max(up, down)));
+    const vec3 range = high - low;
+    const vec3 detail = center - (left + right + up + down) * 0.25;
+    const vec3 adaptive = detail * strength /
+                         max(high + vec3(1.0e-4), vec3(1.0e-4));
+    return clamp(linearToSrgb(clamp(center + adaptive *
+                                    smoothstep(vec3(0.002), vec3(0.08), range),
+                                    vec3(0.0), vec3(1.0))),
+                 vec3(0.0), vec3(1.0));
+}
+
+vec3 applyQualityTone(vec3 color, float exposureEV, float contrast,
+                      float contrastPivot, float gamma) {
+    vec3 linear = srgbToLinear(color) * exp2(exposureEV);
+    linear = (linear - vec3(contrastPivot)) * (1.0 + contrast) +
+             vec3(contrastPivot);
+    linear = pow(max(linear, vec3(0.0)), vec3(1.0 / max(gamma, 0.1)));
+    return linearToSrgb(clamp(linear, vec3(0.0), vec3(1.0)));
+}
+
+vec3 learnedColorAt(ivec2 targetCoord, vec2 invScale, vec2 scale,
+                    ivec2 tileBase) {
+    const uint dispatchW = slot0.x;
+    const uint dispatchH = slot0.y;
+    const uint srcW = slot2.x;
+    const uint srcH = slot2.y;
+    const ivec2 coord = clamp(targetCoord, ivec2(0),
+                              ivec2(int(dispatchW) - 1, int(dispatchH) - 1));
+    const vec2 sourcePos = (-vec2(0.5) + invScale * 0.5 +
+                            vec2(coord) * invScale) + slot1.xy;
+    const ivec2 sourceCoord = clamp(ivec2(round(sourcePos)), ivec2(0),
+                                    ivec2(int(srcW) - 1, int(srcH) - 1));
+    const uint decoderOffset = slot0.w +
+                               (uint(coord.y) * dispatchW +
+                                uint(coord.x)) * 8u;
+    const vec4 params = vec4(
+        finiteOrZero(decoderChannels[decoderOffset + 0u]),
+        finiteOrZero(decoderChannels[decoderOffset + 1u]),
+        finiteOrZero(decoderChannels[decoderOffset + 2u]),
+        finiteOrZero(decoderChannels[decoderOffset + 3u]));
+    const vec3 filterLogits = clamp(params.xyz, vec3(-16.0), vec3(16.0));
+    const float correlation = tanh(filterLogits.x);
+    const float scaleX = 2.0 / (1.0 + exp(-filterLogits.y));
+    const float scaleY = 2.0 / (1.0 + exp(-filterLogits.z));
+    const float scaleX2 = scaleX * scaleX;
+    const float scaleY2 = scaleY * scaleY;
+    const float scaleXY = scaleX * scaleY;
+
+    vec3 reconstructed = vec3(0.0);
+    float totalWeight = 0.0;
+    for (int dy = -1; dy <= 1; ++dy) {
+        for (int dx = -1; dx <= 1; ++dx) {
+            const ivec2 q = clamp(sourceCoord + ivec2(dx, dy), ivec2(0),
+                                  ivec2(int(srcW) - 1, int(srcH) - 1));
+            const float xDist = (float(q.x) - sourcePos.x) * scale.x;
+            const float yDist = (float(q.y) - sourcePos.y) * scale.y;
+            const float exponent = -0.5 / (0.47 * 0.47) *
+                (xDist * xDist * scaleX2 +
+                 2.0 * correlation * xDist * yDist * scaleXY +
+                 yDist * yDist * scaleY2);
+            const float weight = exp(clamp(exponent, -80.0, 0.0));
+            reconstructed += loadSourceCached(q, tileBase) * weight;
+            totalWeight += weight;
+        }
+    }
+    const vec3 upscaledColor = reconstructed / max(totalWeight, 1.0e-35);
+
+    const vec4 current = sampleCurrentModel(sourcePos, scale, tileBase);
+    vec3 reprojectedColor = current.rgb;
+    if ((slot0.z & 1u) == 0u) {
+        const ivec2 motionCoord = clamp(sourceCoord, ivec2(0),
+                                        imageSize(u_motion) - ivec2(1));
+        const vec2 motion = imageLoad(u_motion, motionCoord).xy * scale;
+        const vec2 historyPos = vec2(coord) + motion;
+        const ivec2 historySize = imageSize(u_history);
+        const bool onscreen = historyPos.x >= 0.0 && historyPos.y >= 0.0 &&
+                              historyPos.x <= float(historySize.x - 1) &&
+                              historyPos.y <= float(historySize.y - 1);
+        reprojectedColor = onscreen ? sampleHistoryBicubic(historyPos)
+                                    : vec3(0.0);
+        const float temporalSampleWeight = current.a * 0.1;
+        reprojectedColor = max(temporalSampleWeight * current.rgb +
+                                   (1.0 - temporalSampleWeight) *
+                                       reprojectedColor,
+                               vec3(0.0));
+    }
+    const float historyBlend =
+        1.0 / (1.0 + exp(-clamp(params.w, -16.0, 16.0)));
+    const vec3 modelColor = mix(upscaledColor, reprojectedColor, historyBlend);
+    return removeMuLaw(modelColor);
+}
+
+vec3 learnedLowpass3x3(ivec2 coord, vec2 invScale, vec2 scale,
+                       ivec2 tileBase) {
+    vec3 result = vec3(0.0);
+    float total = 0.0;
+    const bool gaussian = slot3.z == 1u;
+    const float sigma = max(slot4.w, 0.1);
+    const float radius = max(slot4.z, 0.25);
+    for (int y = -1; y <= 1; ++y) {
+        for (int x = -1; x <= 1; ++x) {
+            const float dx = float(x) * radius;
+            const float dy = float(y) * radius;
+            const float weight = gaussian
+                ? exp(-0.5 * (dx * dx + dy * dy) / (sigma * sigma))
+                : 1.0;
+            result += srgbToLinear(learnedColorAt(coord + ivec2(x, y),
+                                                  invScale, scale, tileBase)) *
+                      weight;
+            total += weight;
+        }
+    }
+    return result / max(total, 1.0e-5);
 }
 
 void main() {
@@ -221,7 +570,7 @@ void main() {
         const bool onscreen = historyPos.x >= 0.0 && historyPos.y >= 0.0 &&
                               historyPos.x <= float(historySize.x - 1) &&
                               historyPos.y <= float(historySize.y - 1);
-        reprojectedColor = onscreen ? sampleHistoryLinear(historyPos) : vec3(0.0);
+        reprojectedColor = onscreen ? sampleHistoryBicubic(historyPos) : vec3(0.0);
         const float temporalSampleWeight = current.a * 0.1;
         reprojectedColor = max(temporalSampleWeight * current.rgb +
                                    (1.0 - temporalSampleWeight) * reprojectedColor,
@@ -231,11 +580,68 @@ void main() {
         (1.0 + exp(-clamp(params.w, -16.0, 16.0)));
     const vec3 modelColor = mix(upscaledColor, reprojectedColor, historyBlend);
     const vec3 learnedColor = removeMuLaw(modelColor);
-    const vec3 stableColor = removeMuLaw(sampleSourceLinear(sourcePos,
-                                                            sourceTileBase));
-    const vec3 finalColor = mix(stableColor, learnedColor,
-                                clamp(slot1.w, 0.0, 1.0));
-    imageStore(u_output, coord, vec4(finalColor, 1.0));
+    const bool qualityEnabled = slot7.y > 0.5;
+    const bool experimentalComposition = qualityEnabled && slot3.x != 0u;
+    const vec3 currentBaseColor = removeMuLaw(
+        sampleSourceBicubic(sourcePos, sourceTileBase));
+    vec3 finalColor;
+    if (!experimentalComposition) {
+        // This is the preserved control path. Keep its Catmull-Rom base,
+        // resolution-aware strength, sRGB blend, and fixed source-derived
+        // sharpen exactly as they were before the Quality Lab.
+        const vec3 blendedColor = mix(currentBaseColor, learnedColor,
+                                      clamp(slot1.w, 0.0, 1.0));
+        finalColor = applyLegacyEdgeAwareRcas(
+            blendedColor, sourcePos, invScale, sourceTileBase);
+    } else {
+        // A base-only resolve has no temporal accumulator to consume
+        // sub-pixel jitter. Sampling it at the jittered position therefore
+        // turns the anti-aliasing sequence into visible frame-to-frame
+        // shimmer. Keep the learned/recurrent path jittered, but make the
+        // stable spatial control sample the unjittered source coordinate.
+        const vec2 baseSourcePos = slot3.x == 1u
+            ? sourcePos - slot1.xy
+            : sourcePos;
+        const vec3 baseColor = removeMuLaw(sampleSourceBase(
+            baseSourcePos, sourceTileBase, slot3.y, slot4.x, slot4.y));
+        vec3 composedColor = baseColor;
+        if (slot3.x == 2u) {
+            composedColor = learnedColor;
+        } else if (slot3.x == 3u) {
+            const vec3 baseLinear = srgbToLinear(baseColor);
+            const vec3 learnedLinear = srgbToLinear(learnedColor);
+            composedColor = linearToSrgb(mix(
+                baseLinear, learnedLinear, clamp(slot5.x, 0.0, 1.0)));
+        } else if (slot3.x == 4u) {
+            const vec3 baseLinear = srgbToLinear(baseColor);
+            const vec3 learnedLinear = srgbToLinear(learnedColor);
+            const vec3 lowLearned = learnedLowpass3x3(
+                coord, invScale, scale, sourceTileBase);
+            composedColor = linearToSrgb(clamp(
+                baseLinear + (learnedLinear - lowLearned) * slot5.y,
+                vec3(0.0), vec3(1.0)));
+        }
+        composedColor = applyQualityTone(
+            composedColor, slot6.y, slot6.z, slot6.w, slot7.x);
+        if (slot3.w == 1u) {
+            composedColor = applyAdaptiveSharpen(
+                composedColor, baseSourcePos, invScale, sourceTileBase, slot3.y,
+                slot4.x, slot4.y, slot5.z, slot5.w, slot6.x);
+        }
+        finalColor = composedColor;
+    }
+    // CAS is deliberately after either composition branch and therefore
+    // after each FSR pass, including intermediate chained passes.
+    if (slot7.w > 0.5) {
+        finalColor = applyCas(finalColor, sourcePos, invScale, sourceTileBase,
+                              slot7.z);
+    }
+    // slot2.z carries the input transfer and slot2.w is the explicit HDR
+    // output opt-in. SDR remains the default because Qt's normal RGBA8 path
+    // is an sRGB presentation target.
+    const vec3 encodedOutput = encodeOutputTransfer(
+        finalColor, slot2.z, slot2.w != 0u);
+    imageStore(u_output, coord, vec4(encodedOutput, 1.0));
     imageStore(u_historyOut, coord, vec4(modelColor, 1.0));
     if ((slot0.z & 2u) == 0u) {
         const vec4 recurrentLogits = vec4(

@@ -36,7 +36,10 @@ struct Settings {
     MotionMode motionMode = MotionMode::AutoCheap;
     DepthMode depthMode = DepthMode::Flat;
     ReactiveMode reactiveMode = ReactiveMode::CheapAuto;
-    PresentationScaler presentationScaler = PresentationScaler::Auto;
+    // Bicubic is the quality-first default. Auto remains in the enum for
+    // compatibility with older settings files and is normalized to Bicubic
+    // when loaded.
+    PresentationScaler presentationScaler = PresentationScaler::Bicubic;
     // Color adjustments (applied at YUV→RGBA conversion in VideoSurfaceItem).
     // All normalized: brightness/contrast/saturation/hue in [-1, 1], gamma in [0.1, 3.0].
     float brightness = 0.0f;

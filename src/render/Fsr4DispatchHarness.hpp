@@ -20,8 +20,10 @@
 #include "backend/GpuCapabilityProbe.hpp"
 #include "backend/UpscaleTypes.hpp"
 #include "backend/WeightBlob.hpp"
+#include "config/QualityLabConfig.hpp"
 
 #include <array>
+#include <chrono>
 #include <cstdint>
 #include <memory>
 #include <string>
@@ -35,6 +37,9 @@ struct Fsr4DispatchResources {
   uint32_t sourceHeight = 0;
   uint32_t outputWidth = 0;
   uint32_t outputHeight = 0;
+  // The user-selected multiplier. Zero preserves the standalone harness
+  // compatibility path, which infers a tier from output/source dimensions.
+  float requestedScale = 0.0f;
   // Recovered universal buffers (spec §3.1):
   //   weight blob (SRV 0:18), shared scratch (UAV 0:11),
   //   accumulation (UAV 1:0), feature/history (UAV 2:1), prepass out (UAV 2:3)
@@ -70,6 +75,7 @@ struct FrameDispatchInput {
   // submitted immediately before the FSR command buffer under the same fence.
   VkCommandBuffer prefixCommandBuffer = VK_NULL_HANDLE;
   VkImageView colorView = VK_NULL_HANDLE;    // rgb10_a2, source dims
+  VkImage colorImage = VK_NULL_HANDLE;       // matching image for barriers
   VkImageView motionView = VK_NULL_HANDLE;   // rg16f,   source dims
   VkImageView depthView = VK_NULL_HANDLE;    // r32f,    source dims
   VkImageView reactiveView = VK_NULL_HANDLE; // r8,      source dims
@@ -88,8 +94,12 @@ struct FrameDispatchInput {
   float jitterX = 0.0f;
   float jitterY = 0.0f;
   float frameTimeMs = 16.6667f;
+  float historyConfidence = 1.0f;
   bool reset = false;
   bool hdr = false; // false = SDR (Rec.709 EOTF in prepass)
+  // 0 = SDR/sRGB, 1 = PQ, 2 = HLG. The postpass keeps SDR output by
+  // default; TFORGE_FSR4_HDR_OUTPUT opts into encoding the selected transfer.
+  uint32_t transfer = 0;
 };
 
 class Fsr4DispatchHarness {
@@ -107,6 +117,12 @@ public:
   // Allocate per-source/preset resources. Called when the source dims,
   // preset, or output dims change (NOT on window resize — spec 02/08).
   bool allocateResources(const Fsr4DispatchResources &r);
+
+  // Resolve all quality-lab values once before dispatch. The default disabled
+  // config leaves the recovered current postpass path unchanged.
+  void setQualityLabConfig(const QualityLabConfig &config) {
+    qualityLabConfig_ = config;
+  }
 
   // Upload the weight blob to GPU memory (one-shot per backend create).
   bool uploadWeights(const Fsr4BlobView &blob);
@@ -127,6 +143,16 @@ public:
   // SPD pipeline on the provided input images, writing to outputView. This
   // closes gaps #4 (prepass never dispatched) and #5 (output images unbound).
   Fsr4DispatchResult dispatchFrame(const FrameDispatchInput &in);
+
+  // Submit a real frame without blocking the caller on the GPU fence. The
+  // caller must keep every image/buffer referenced by `in` alive until
+  // waitForFrame() returns successfully, then call waitForFrame() before
+  // reusing this harness or its frame resources. This is the safe boundary
+  // used by the in-flight slot integration; it is deliberately separate from
+  // dispatchFrame() so existing synchronous callers retain their semantics.
+  Fsr4DispatchResult dispatchFrameAsync(const FrameDispatchInput &in);
+  Fsr4DispatchResult waitForFrame();
+  [[nodiscard]] bool frameInFlight() const { return frameInFlight_; }
 
   // Seed the scratch buffer directly with color data, bypassing the prepass.
   // Writes the uploaded color image's RGBA values into the scratch FP16
@@ -161,6 +187,9 @@ public:
   void destroy();
 
   [[nodiscard]] bool initialized() const { return device_ != VK_NULL_HANDLE; }
+  // Native fixed-shape INT8 graphs carry their own initializer and do not
+  // require the legacy RE weight blob used by the generic fallback.
+  [[nodiscard]] bool usesNativeInt8() const { return nativeInt8Active_; }
   [[nodiscard]] const GpuCapability &capability() const { return cap_; }
   [[nodiscard]] const Fsr4DispatchResources &resources() const { return res_; }
 
@@ -199,6 +228,12 @@ private:
     UltraPerformance2160,
     Performance2160,
     Performance4320,
+    QualityFourThree1440,
+    UltraPerformanceFourThree1440,
+    PerformanceFourThree1440,
+    QualityFourThree2880,
+    UltraPerformanceFourThree2880,
+    PerformanceFourThree2880,
   };
   bool createDescriptorLayout();
   bool createPrepassPipeline();
@@ -209,6 +244,7 @@ private:
   bool createDownscalePipeline();
   bool createNativeInt8Pipelines();
   bool ensureNativeInt8Pipelines(NativeInt8Graph graph);
+  void persistGenericPipelineCache();
   void persistNativeInt8PipelineCache();
   bool createCommandBuffer();
   bool prepareNativeInt8Resources();
@@ -285,7 +321,14 @@ private:
   std::array<VkPipeline, 14> nativeInt8UltraPipelines2160_{};
   std::array<VkPipeline, 14> nativeInt8PerformancePipelines2160_{};
   std::array<VkPipeline, 14> nativeInt8PerformancePipelines4320_{};
+  std::array<VkPipeline, 14> nativeInt8QualityFourThreePipelines1440_{};
+  std::array<VkPipeline, 14> nativeInt8UltraFourThreePipelines1440_{};
+  std::array<VkPipeline, 14> nativeInt8PerformanceFourThreePipelines1440_{};
+  std::array<VkPipeline, 14> nativeInt8QualityFourThreePipelines2880_{};
+  std::array<VkPipeline, 14> nativeInt8UltraFourThreePipelines2880_{};
+  std::array<VkPipeline, 14> nativeInt8PerformanceFourThreePipelines2880_{};
   VkDescriptorSet nativeInt8Set_ = VK_NULL_HANDLE;
+  VkPipelineCache genericPipelineCache_ = VK_NULL_HANDLE;
   VkPipelineCache nativeInt8PipelineCache_ = VK_NULL_HANDLE;
   VkBuffer nativeInt8Initializer_ = VK_NULL_HANDLE;
   VkDeviceMemory nativeInt8InitializerMemory_ = VK_NULL_HANDLE;
@@ -298,19 +341,41 @@ private:
   bool nativeInt8UltraPipelines2160Available_ = false;
   bool nativeInt8PerformancePipelines2160Available_ = false;
   bool nativeInt8PerformancePipelines4320Available_ = false;
+  bool nativeInt8QualityFourThreePipelines1440Available_ = false;
+  bool nativeInt8UltraFourThreePipelines1440Available_ = false;
+  bool nativeInt8PerformanceFourThreePipelines1440Available_ = false;
+  bool nativeInt8QualityFourThreePipelines2880Available_ = false;
+  bool nativeInt8UltraFourThreePipelines2880Available_ = false;
+  bool nativeInt8PerformanceFourThreePipelines2880Available_ = false;
   bool nativeInt8Active_ = false;
   NativeInt8Graph nativeInt8Graph_ = NativeInt8Graph::None;
   VkCommandPool cmdPool_ = VK_NULL_HANDLE;
   VkCommandBuffer cmd_ = VK_NULL_HANDLE;
   VkCommandBuffer nativeInt8Cmd_ = VK_NULL_HANDLE;
   VkFence fence_ = VK_NULL_HANDLE;
+  bool frameInFlight_ = false;
+  bool asyncDispatchRequested_ = false;
+  std::chrono::steady_clock::time_point pendingDispatchStart_{};
+  Fsr4DispatchResult pendingDispatchResult_{};
   VkQueryPool timestampPool_ = VK_NULL_HANDLE;
   float timestampPeriodNs_ = 0.0f;
   static constexpr uint32_t kTimestampQueryCount =
       42; // start, prepass, 39 ops, postpass
 
+  static constexpr uint32_t kMaxPasses = 64;
+  // Fourteen neural passes plus the postpass use the same mapped ring. The
+  // postpass Quality Lab constants occupy eight vec4 slots; keep every slot
+  // uniformly aligned so descriptor offsets remain valid on Vulkan devices.
+  static constexpr uint32_t kCbSize = 128;
+
   Fsr4DispatchResources res_;
   VkDescriptorSet prepassSet_ = VK_NULL_HANDLE;
+  // These bindings are stable for a target allocation. Reuse the descriptor
+  // objects across frames; only the per-frame uniform contents and temporal
+  // image bindings are rewritten while recording.
+  std::array<VkDescriptorSet, kMaxPasses> convDescriptorSets_{};
+  std::array<VkDescriptorSet, kMaxPasses> residualDescriptorSets_{};
+  VkDescriptorSet postpassSet_ = VK_NULL_HANDLE;
 
   bool weightsUploaded_ = false;
   uint32_t passCounter_ = 0;
@@ -323,13 +388,13 @@ private:
   size_t finalAccumFloatCount_ = 0;
   bool finalOutputInScratch_ = false;
   bool diagnoseEnabled_ = false;
+  QualityLabConfig qualityLabConfig_{};
   // Pre-allocated uniform buffer for all pass constants (avoids per-pass
   // vkAllocateMemory/vkFreeMemory which dominate dispatch latency).
   VkBuffer cbRingBuffer_ = VK_NULL_HANDLE;
   VkDeviceMemory cbRingMemory_ = VK_NULL_HANDLE;
   void *cbRingMapped_ = nullptr;
-  static constexpr uint32_t kMaxPasses = 64;
-  static constexpr uint32_t kCbSize = 64; // padded uniform slot
+  // padded uniform slot
 };
 
 } // namespace temporal_forge
