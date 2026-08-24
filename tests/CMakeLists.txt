@@ -47,6 +47,7 @@ tforge_add_test(backend_tests
             ../src/backend/Fsr4Int8Backend.cpp
             ../src/backend/Fsr3FallbackBackend.cpp
             ../src/backend/BackendSelector.cpp
+            ../src/backend/Fsr4PostpassParams.cpp
             ../src/render/Fsr4DispatchHarness.cpp
             ../src/render/fsr4/Fsr4ConvSteps.cpp
             ../src/render/fsr4/Fsr4Memory.cpp
@@ -65,6 +66,44 @@ tforge_add_test(fsr4_weight_tests
             ../src/backend/WeightBlob.cpp
             ../src/util/Log.cpp)
 set_tests_properties(fsr4_weight_tests PROPERTIES
+    WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
+
+# M1 postpass contract test. This stays CPU-only: it validates the recovered
+# byte region, host decode rules, and source-level shader consumption evidence.
+tforge_add_test(fsr4_postpass_contract_tests
+    SOURCES fsr4_postpass_contract_tests.cpp
+            ../src/backend/Fsr4PostpassParams.cpp)
+set_tests_properties(fsr4_postpass_contract_tests PROPERTIES
+    WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
+
+# M2 temporal resource-graph contract test. Runtime GPU validation is a later
+# part of the milestone because the existing live harness test is disabled.
+tforge_add_test(fsr4_temporal_contract_tests
+    SOURCES fsr4_temporal_contract_tests.cpp)
+set_tests_properties(fsr4_temporal_contract_tests PROPERTIES
+    WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
+
+# M3 causal codec-motion boundary test.
+tforge_add_test(fsr4_motion_contract_tests
+    SOURCES fsr4_motion_contract_tests.cpp)
+set_tests_properties(fsr4_motion_contract_tests PROPERTIES
+    WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
+
+# M4 decode-to-upload color contract test. It runs before implementation work
+# is accepted and keeps metadata, chroma phase, and high-bit-depth handling
+# from regressing behind a passing shader compile.
+tforge_add_test(color_metadata_contract_tests
+    SOURCES color_metadata_contract_tests.cpp)
+set_tests_properties(color_metadata_contract_tests PROPERTIES
+    WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
+
+# M5 decoded-video jitter policy test. This runs the public side-buffer policy
+# boundary without starting the disabled live GPU harness.
+tforge_add_test(jitter_policy_tests
+    SOURCES jitter_policy_tests.cpp
+            ../src/render/SideBufferSynth.cpp
+            ../src/util/Log.cpp)
+set_tests_properties(jitter_policy_tests PROPERTIES
     WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
 
 # FSR4 tensor-map parser test (no GPU needed).
@@ -95,6 +134,7 @@ set_tests_properties(cm_dump PROPERTIES DISABLED ON)
 tforge_add_test(fsr4_harness_tests
     SOURCES fsr4_harness_tests.cpp
             ../src/backend/GpuCapabilityProbe.cpp
+            ../src/backend/Fsr4PostpassParams.cpp
             ../src/backend/WeightBlob.cpp
             ../src/backend/Fsr4ProofRunner.cpp
             ../src/render/Fsr4DispatchHarness.cpp

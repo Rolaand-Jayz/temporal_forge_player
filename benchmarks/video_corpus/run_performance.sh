@@ -25,11 +25,11 @@ fi
 
 mkdir -p "$logs" "$(dirname "$results")"
 printf '%s\n' \
-    'clip_id,width,height,quality,crf,input_mbps,frames,pipeline_mean_ms,pipeline_p50_ms,pipeline_p95_ms,dispatch_mean_ms,gpu_mean_ms,gpu_p50_ms,gpu_p95_ms' \
+    'clip_id,width,height,quality,crf,input_mbps,frames,decode_mean_ms,decode_p50_ms,decode_p95_ms,upload_mean_ms,upload_p50_ms,upload_p95_ms,presentation_mean_ms,presentation_p50_ms,presentation_p95_ms,pipeline_mean_ms,pipeline_p50_ms,pipeline_p95_ms,dispatch_mean_ms,gpu_mean_ms,gpu_p50_ms,gpu_p95_ms' \
     > "$results"
 
 summary() {
-    # summary: reduce sampled pipeline/dispatch/GPU timings to count, mean,
+    # summary: reduce sampled stage/pipeline/dispatch/GPU timings to count, mean,
     # median, and p95. The caller writes these aggregates beside the clip's
     # metadata so later reviews can distinguish latency from image quality.
     local samples="$1"
@@ -67,6 +67,8 @@ while IFS=, read -r \
     timeout 12s env \
         TFORGE_HEADLESS_BENCHMARK=1 \
         TFORGE_FSR4_LOG_INTERVAL=1 \
+        TFORGE_FSR4_PROFILE_TIMINGS=1 \
+        TFORGE_FSR4_DISABLE_INFLIGHT=1 \
         "$binary" "$path" > "$log" 2>&1
     status=$?
     set -e
@@ -76,21 +78,30 @@ while IFS=, read -r \
     fi
 
     sed -n \
-        's/.*pipelineCPU=\([0-9.]*\)ms dispatchCPU[^=]*=\([0-9.]*\)ms GPU[^=]*=\([0-9.]*\)ms.*/\1 \2 \3/p' \
+        's/.*stage-timing decodeCPU=\([0-9.]*\)ms uploadCPU=\([0-9.]*\)ms presentationCPU=\([0-9.]*\)ms pipelineCPU=\([0-9.]*\)ms dispatchCPU=\([0-9.]*\)ms GPU=\([0-9.]*\)ms.*/\1 \2 \3 \4 \5 \6/p' \
         "$log" > "$samples"
-    pipeline="$(summary "$samples" 1)"
-    dispatch="$(summary "$samples" 2)"
-    gpu="$(summary "$samples" 3)"
-    frames="${pipeline%%,*}"
-    pipeline_values="${pipeline#*,}"
-    dispatch_mean="$(cut -d, -f2 <<< "$dispatch")"
-    gpu_values="$(cut -d, -f2-4 <<< "$gpu")"
+    decode="$(summary "$samples" 1)"
+    upload="$(summary "$samples" 2)"
+    presentation="$(summary "$samples" 3)"
+    pipeline="$(summary "$samples" 4)"
+    dispatch="$(summary "$samples" 5)"
+    gpu="$(summary "$samples" 6)"
+    IFS=, read -r _decode_count decode_mean decode_p50 decode_p95 <<< "$decode"
+    IFS=, read -r _upload_count upload_mean upload_p50 upload_p95 <<< "$upload"
+    IFS=, read -r _presentation_count presentation_mean presentation_p50 presentation_p95 <<< "$presentation"
+    IFS=, read -r frames pipeline_mean pipeline_p50 pipeline_p95 <<< "$pipeline"
+    IFS=, read -r _dispatch_count dispatch_mean _dispatch_p50 _dispatch_p95 <<< "$dispatch"
+    IFS=, read -r _gpu_count gpu_mean gpu_p50 gpu_p95 <<< "$gpu"
     bitrate="$(ffprobe -v error -show_entries format=bit_rate -of csv=p=0 "$path")"
     input_mbps="$(awk -v bits="${bitrate:-0}" 'BEGIN { printf "%.3f", bits / 1000000.0 }')"
 
-    printf '%s,%s,%s,%s,%s,%s,%s,%s,%s,%s\n' \
+    printf '%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s\n' \
         "$clip_id" "$width" "$height" "$quality" "$crf" "$input_mbps" \
-        "$frames" "$pipeline_values" "$dispatch_mean" "$gpu_values" >> "$results"
+        "$frames" "$decode_mean" "$decode_p50" "$decode_p95" \
+        "$upload_mean" "$upload_p50" "$upload_p95" \
+        "$presentation_mean" "$presentation_p50" "$presentation_p95" \
+        "$pipeline_mean" "$pipeline_p50" "$pipeline_p95" \
+        "$dispatch_mean" "$gpu_mean" "$gpu_p50" "$gpu_p95" >> "$results"
 done
 exec 3<&-
 

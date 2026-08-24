@@ -18,6 +18,7 @@
 // Current shaders use (32,1,1) thread groups based on the RE notes.
 #pragma once
 #include "backend/GpuCapabilityProbe.hpp"
+#include "backend/Fsr4PostpassParams.hpp"
 #include "backend/UpscaleTypes.hpp"
 #include "backend/WeightBlob.hpp"
 #include "config/QualityLabConfig.hpp"
@@ -76,6 +77,11 @@ struct FrameDispatchInput {
   VkCommandBuffer prefixCommandBuffer = VK_NULL_HANDLE;
   VkImageView colorView = VK_NULL_HANDLE;    // rgb10_a2, source dims
   VkImage colorImage = VK_NULL_HANDLE;       // matching image for barriers
+  // Display-space source is kept separate from the nonlinear model source.
+  // Spatial base filters consume this RGBA8 image so their advertised filter
+  // kernels operate in the same domain as standalone display-RGB controls.
+  VkImageView sourceDisplayView = VK_NULL_HANDLE; // rgba8, source dims
+  VkImage sourceDisplayImage = VK_NULL_HANDLE;
   VkImageView motionView = VK_NULL_HANDLE;   // rg16f,   source dims
   VkImageView depthView = VK_NULL_HANDLE;    // r32f,    source dims
   VkImageView reactiveView = VK_NULL_HANDLE; // r8,      source dims
@@ -84,11 +90,13 @@ struct FrameDispatchInput {
   VkImageView outputView = VK_NULL_HANDLE;   // rgba8, output dims
   VkImageView historyReadView = VK_NULL_HANDLE;
   VkImageView historyWriteView = VK_NULL_HANDLE;
+  VkImageView reprojectedColorView = VK_NULL_HANDLE;
   VkImageView recurrentReadView = VK_NULL_HANDLE;  // rgba16f, output dims
   VkImageView recurrentWriteView = VK_NULL_HANDLE; // rgba16f, output dims
   VkImage outputImage = VK_NULL_HANDLE; // raw image for layout transitions
   VkImage historyReadImage = VK_NULL_HANDLE;
   VkImage historyWriteImage = VK_NULL_HANDLE;
+  VkImage reprojectedColorImage = VK_NULL_HANDLE;
   VkImage recurrentReadImage = VK_NULL_HANDLE;
   VkImage recurrentWriteImage = VK_NULL_HANDLE;
   float jitterX = 0.0f;
@@ -378,6 +386,11 @@ private:
   VkDescriptorSet postpassSet_ = VK_NULL_HANDLE;
 
   bool weightsUploaded_ = false;
+  // Host-side copy of the validated v4.1 postpass region. Keeping this beside
+  // the raw upload makes the typed contract auditable without repacking the
+  // model blob used by the neural passes.
+  Fsr4PostpassParams postpassParams_{};
+  bool postpassParamsValid_ = false;
   uint32_t passCounter_ = 0;
   uint32_t residualOpCounter_ = 0;
   // Ping-pong slot size (FP16 words) and the byte offset where the last

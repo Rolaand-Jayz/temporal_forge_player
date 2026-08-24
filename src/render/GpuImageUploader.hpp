@@ -11,7 +11,8 @@
 //
 // Also owns the output + history images written by the postpass:
 //   u_output     (rgba8 outputW×outputH) — native display image
-//   u_historyOut (rgb10_a2 outputW×outputH) — temporal model history
+//   u_historyOut (rgba16f outputW×outputH) — temporal model history
+//   u_reprojectedColor (rgba16f outputW×outputH) — one shared causal resolve
 //
 // All images are device-local. Uploads go through a host-visible staging buffer
 // + vkCmdCopyBufferToImage. One VkFence serializes uploads (synchronous path —
@@ -106,6 +107,7 @@ struct GpuImageUploader {
   // is only the prefilter's private source and must never be exposed to FSR.
   VkImageView colorView() const { return color_.view; }
   VkImage colorImage() const { return color_.image; }
+  VkImageView rawPresentationView() const { return rawPresentation_.view; }
   VkImage rawPresentationImage() const { return rawPresentation_.image; }
 
   // EASU 2x pre-scale output (2x native res). When EASU is active, the FSR4
@@ -163,6 +165,8 @@ struct GpuImageUploader {
   VkImage recurrentWriteImage() const {
     return recurrent_[historyIndex_.load(std::memory_order_acquire) ^ 1u].image;
   }
+  VkImageView reprojectedColorView() const { return reprojectedColor_.view; }
+  VkImage reprojectedColorImage() const { return reprojectedColor_.image; }
   // The decoder thread publishes a completed history image while the Qt
   // render thread reads the published handle.  Make that hand-off explicit;
   // a plain uint32 here was a data race during playback/toggle operations.
@@ -267,7 +271,7 @@ private:
   GpuImage sourceModel_, color_, rawPresentation_, motion_, depth_, reactive_, tcMask_,
       exposure_;
   // Output images (output dims)
-  GpuImage output_, history_[2], recurrent_[2];
+  GpuImage output_, history_[2], recurrent_[2], reprojectedColor_;
   GpuImage presentation_;
   // Keep one recently used presentation target so a resize oscillating between
   // two window sizes reuses its VkImage/allocation instead of reallocating on

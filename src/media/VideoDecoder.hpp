@@ -51,6 +51,9 @@ struct DecodedVideoFrame {
     int colorRange = 0;         // AVColorRange
     int colorSpace = 0;         // AVColorSpace
     int colorTransfer = 0;      // AVColorTransferCharacteristic
+    int colorPrimaries = 0;     // AVColorPrimaries
+    int chromaLocation = 0;     // AVChromaLocation
+    int bitDepth = 8;            // decoded component depth, not container depth
     bool hwFrame = false;       // true when backed by GPU hardware surfaces
     int hwFrameFormat = -1;     // AVPixelFormat for the hardware frame, if any
     // Retains mapped DRM PRIME descriptors and their DMA-BUF file descriptors

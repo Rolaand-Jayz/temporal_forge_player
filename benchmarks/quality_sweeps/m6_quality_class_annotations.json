@@ -1,0 +1,93 @@
+{
+  "schemaVersion": 1,
+  "annotationSetId": "m6-visually-verified-quality-classes",
+  "evidenceBasis": "visual-inspection-of-existing-stills",
+  "corpus": {
+    "manifestPath": "benchmarks/video_corpus/manifest.csv",
+    "syntheticFamiliesExcluded": true
+  },
+  "temporalEvidence": {
+    "available": false,
+    "missingEvidence": [
+      "adjacent real-world frames for each annotated scene",
+      "candidate-attributed temporal captures",
+      "verified motion sidecars",
+      "verified static masks or event boundaries"
+    ],
+    "note": "These annotations ground spatial review only. A single inspected still does not establish temporal motion, occlusion, or scene-cut evidence."
+  },
+  "annotations": [
+    {
+      "scene": "tos_daylight",
+      "frame": 48,
+      "candidateId": "current",
+      "inputResolution": "426x240",
+      "outputResolution": "1920x1080",
+      "qualityClass": "faces-hair-skin",
+      "assetPath": "benchmarks/video_corpus/results/quality_frames/tos_daylight_426x240_high_crf12_f48_m6-6-1-current-20260822.png",
+      "staticRegion": {
+        "x": 250,
+        "y": 100,
+        "width": 800,
+        "height": 700,
+        "imageWidth": 1920,
+        "imageHeight": 1080
+      },
+      "evidenceNote": "The inspected frame visibly contains two large faces with hair and skin boundaries in this region."
+    },
+    {
+      "scene": "tos_daylight",
+      "frame": 48,
+      "candidateId": "current",
+      "inputResolution": "426x240",
+      "outputResolution": "1920x1080",
+      "qualityClass": "fine-fabric-texture",
+      "assetPath": "benchmarks/video_corpus/results/quality_frames/tos_daylight_426x240_high_crf12_f48_m6-6-1-current-20260822.png",
+      "staticRegion": {
+        "x": 850,
+        "y": 400,
+        "width": 600,
+        "height": 500,
+        "imageWidth": 1920,
+        "imageHeight": 1080
+      },
+      "evidenceNote": "The inspected frame visibly contains the red patterned garment and repeated fine surface detail in this region."
+    },
+    {
+      "scene": "sintel_rooftop",
+      "frame": 48,
+      "candidateId": "current",
+      "inputResolution": "426x240",
+      "outputResolution": "1920x1080",
+      "qualityClass": "high-contrast-architecture",
+      "assetPath": "benchmarks/video_corpus/results/quality_frames/sintel_rooftop_426x240_high_crf12_f48_m6-6-1-spatial-20260823T035431Z-01-current.png",
+      "staticRegion": {
+        "x": 900,
+        "y": 100,
+        "width": 700,
+        "height": 700,
+        "imageWidth": 1920,
+        "imageHeight": 1080
+      },
+      "evidenceNote": "The inspected frame visibly contains repeated building, bridge, and scaffold edges against bright openings in this region."
+    },
+    {
+      "scene": "sintel_cave",
+      "frame": 48,
+      "candidateId": "current",
+      "inputResolution": "426x240",
+      "outputResolution": "1920x1080",
+      "qualityClass": "low-light-shadow-detail",
+      "assetPath": "benchmarks/video_corpus/results/quality_frames/sintel_cave_426x240_high_crf12_f48_m6-6-1-spatial-20260823T035431Z-01-current.png",
+      "staticRegion": {
+        "x": 0,
+        "y": 100,
+        "width": 700,
+        "height": 800,
+        "imageWidth": 1920,
+        "imageHeight": 1080
+      },
+      "evidenceNote": "The inspected frame visibly contains near-black cave structure with faint texture and bright highlights in this region."
+    }
+  ]
+}

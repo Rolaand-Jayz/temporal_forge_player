@@ -1,0 +1,128 @@
+{
+  "schema": "temporal_forge.m6_temporal_baseline.v1",
+  "sliceId": "m6-high-contrast-architecture-event-baseline-20260823",
+  "rowCount": 1,
+  "rows": [
+    {
+      "candidateId": "base_only_bilinear",
+      "configId": "stage_a/base_only_bilinear.json",
+      "configPath": "benchmarks/quality_sweeps/stage_a/base_only_bilinear.json",
+      "scene": "sintel_rooftop",
+      "qualityClass": "high-contrast-architecture",
+      "identity": {
+        "candidateId": "base_only_bilinear",
+        "configId": "stage_a/base_only_bilinear.json",
+        "scene": "sintel_rooftop",
+        "qualityClass": "high-contrast-architecture",
+        "inputResolution": "426x240",
+        "outputResolution": "1920x1080",
+        "startFrame": 42,
+        "endFrame": 59,
+        "frames": 18
+      },
+      "corpusSelection": {
+        "manifestPath": "benchmarks/video_corpus/manifest.csv",
+        "sourcePath": "benchmarks/video_corpus/clips/sintel_rooftop_426x240_high_crf12.mp4",
+        "sourceSha256": "d40c78deb25b10ab24471eb6ae88e15391dd48054e6c1d7850f807ee84e3b389",
+        "referencePath": "benchmarks/video_corpus/references/sintel_rooftop_2160p_lossless.mkv",
+        "referenceSha256": "471bdeebb2e4103b226d0ddcc5aa8487244412d688673d8af07b4ab5f6798895",
+        "selectedSourceFrames": [42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59],
+        "selectionRationale": "The real rooftop corpus and the existing grounded architecture mask were inspected across the selected window. The central scaffold, bridge, and building edges remain visible before and after the metadata event, with no independent foreground object crossing the measured rectangle."
+      },
+      "derivedCapture": {
+        "inputPath": "/tmp/tforge-m6-rooftop-event-baseline-20260823/input/sintel_rooftop_frames42-59_pts-gap-at-51.mp4",
+        "inputSha256": "a222a3d9c41b8e159bc5fc8b7713d0251b58c262010ceb09a1c00ae78812f330",
+        "referencePath": "/tmp/tforge-m6-rooftop-event-baseline-20260823/reference/sintel_rooftop_frames42-59_lossless.mkv",
+        "referenceSha256": "7c87f498a2194534165d552f37442e322d1e90edb6d20bb6bd18cc40ca36d535",
+        "construction": "Real corpus frames 42-59, with a 12-frame PTS offset introduced at captured frame 9 solely to exercise the runtime PTS-gap detector; pixels are derived from the real corpus and are not synthesized.",
+        "ptsTrace": [0.0, 0.041667, 0.083333, 0.125, 0.166667, 0.208333, 0.25, 0.291667, 0.333333, 0.875, 0.916667, 0.958333, 1.0, 1.041667, 1.083333, 1.125, 1.166667, 1.208333]
+      },
+      "staticMask": {
+        "path": "/tmp/tforge-m6-rooftop-event-baseline-20260823/static_mask.json",
+        "sha256": "1a106b2f8a1073635fdd653946d4ddad3572a3313b06cd99469c7ee02f09cc26",
+        "sourcePath": "/tmp/tforge-m6-3-bilinear-rooftop-retry-p-only-20260823/artifacts/static_mask.json",
+        "schema": "temporal_forge.static_mask.v1",
+        "rectangle": {"x": 1080, "y": 90, "width": 450, "height": 360},
+        "analysisFrameIndices": [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17],
+        "annotationSource": "existing grounded sintel_rooftop high-contrast-architecture mask, copied without modification"
+      },
+      "causalMotion": {
+        "path": "/tmp/tforge-m6-rooftop-event-baseline-20260823/causal_motion.json",
+        "sha256": "d7b25d6116db5bbc0df53e7045f63f1bdf970be927abfb42927a0632cf9197c5",
+        "schema": "temporal_forge.codec_motion.v1",
+        "sourceResolution": "426x240",
+        "targetResolution": "1920x1080",
+        "frames": 18,
+        "resetFramesObserved": [0, 1, 8, 9]
+      },
+      "event": {
+        "tracePath": "/tmp/tforge-m6-rooftop-event-baseline-20260823/events.json",
+        "traceSha256": "1a453f0005ce22972da53c95aabb7d856361822fdb4908d3572a7f61f3259e3a",
+        "authoritativeCause": "pts_gap",
+        "signals": ["pts_gap"],
+        "authoritativeEventIndex": 9,
+        "eventFrameIndex": 9,
+        "eventTransitionIndex": 8,
+        "preEventFrames": 9,
+        "postEventFrames": 8,
+        "rawRuntimeLabels": {
+          "detectorSceneCut": true,
+          "resetCause": "detector_scene_cut",
+          "ghostCause": "detector_scene_cut"
+        },
+        "ptsProvenance": {
+          "ptsUs": 875000,
+          "ptsDeltaMs": 541.666992,
+          "expectedFrameIntervalMs": 29.7092056,
+          "ptsGapMultiplierGreaterThan": 2.5,
+          "triggerComparison": "541.666992 > 29.7092056 * 2.5",
+          "triggerThresholdMs": 74.273014
+        },
+        "detectorInputs": {
+          "histogramDelta": 0.0649496317,
+          "histogramDeltaGreaterThan": 0.65,
+          "motionConfidence": 0.747394443,
+          "motionConfidenceLessThan": 0.15,
+          "ptsGapMs": 541.666992,
+          "expectedFrameIntervalMs": 29.7092056
+        },
+        "thresholdProvenance": {
+          "contract": "side_buffer_scene_cut.v1",
+          "implementation": "SideBufferSynth::shouldReset",
+          "metricContract": "m6.event_metrics.v1",
+          "metricThresholdSource": "explicit_capture_arguments",
+          "ghostThreshold": 0.02,
+          "resetThreshold": 0.02,
+          "ghostMetricStart": "first_measured_transition_after_event_transition"
+        },
+        "source": "fresh runtime event trace from this rooftop capture",
+        "reusedCaveFabricFaceEventMetadata": false
+      },
+      "metrics": {
+        "static_flicker": 0.013971707,
+        "edge_variance": 0.000135720,
+        "motion_compensated_error": 0.020432654,
+        "ghost_duration_frames": 1,
+        "reset_recovery_frames": 0
+      },
+      "metricSource": {
+        "temporalCsv": "/tmp/tforge-m6-rooftop-event-baseline-20260823/baseline_temporal_metrics.csv",
+        "temporalCsvSha256": "06a9162040374de029cc121c8829041295b360d4e35db901d51d805fcc967046",
+        "allRequiredMetricsNonNull": true
+      },
+      "executionProvenance": {
+        "binaryPath": "/home/rolaandjayz/ZCodeProject/temporal_forge_player/build/temporal_forge_player",
+        "binarySha256": "5f80bbdbd9651ed82a677ddbf36c4ec905ba23537d19c811c31b96b08c1cc0f1",
+        "configSha256": "91800f566018a55bea418d840d4e6ddfcab7d96d7cf9862e789e1cb6e7ebed8c",
+        "gitHeadObserved": "7fdf43ce09015626940e37f9baea48c0210def0c",
+        "gitCommitAuthoritative": false,
+        "decode": "software",
+        "gpuDisplayAccess": "escalated",
+        "artifactCopyStatus": "failed_after_metric_write_no_space_left_on_device",
+        "artifactDirectory": "/tmp/tforge-m6-rooftop-event-baseline-20260823/artifacts",
+        "failureArtifactDirectory": "/tmp/tforge-m6-rooftop-event-baseline-20260823/failure-retained",
+        "failureLog": "/tmp/tforge-m6-rooftop-event-baseline-20260823/wrapper.log"
+      }
+    }
+  ]
+}

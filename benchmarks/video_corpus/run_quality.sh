@@ -6,6 +6,7 @@ repo="$(cd "$root/../.." && pwd)"
 binary="${1:-$repo/build/temporal_forge_player}"
 selector="${2:-1280x720}"
 results="${3:-$root/results/quality.csv}"
+asset_manifest="${TFORGE_QUALITY_ASSET_MANIFEST:-${results%.csv}.assets.csv}"
 frame_index="${TFORGE_QUALITY_FRAME:-48}"
 tag="${TFORGE_QUALITY_TAG:-}"
 preset="${TFORGE_BENCHMARK_PRESET:-saved}"
@@ -13,10 +14,31 @@ clip_filter="${TFORGE_QUALITY_CLIP:-}"
 quality_filter="${TFORGE_QUALITY_QUALITY:-}"
 corpus_manifest="${TFORGE_QUALITY_MANIFEST:-$root/manifest.csv}"
 review_pipeline_config="${TFORGE_REVIEW_PIPELINE_CONFIG:-$root/review_pipeline.env}"
+spatial_input="${TFORGE_QUALITY_SPATIAL_INPUT:-}"
 if [[ -f "$review_pipeline_config" ]]; then
     # shellcheck disable=SC1090
     source "$review_pipeline_config"
 fi
+
+# Quality captures must not inherit the interactive user's persisted settings.
+# Upstream: the checked-in neutral benchmark settings below. Downstream: every
+# player process in this run reads the temporary XDG config tree instead of
+# ~/.config/temporal-forge-player/settings.json. This is capture isolation only;
+# it does not change the player's normal interactive defaults.
+benchmark_config_home="$(mktemp -d "${TMPDIR:-/tmp}/tforge-quality-config.XXXXXX")"
+spatial_map=""
+cleanup() {
+    rm -rf "$benchmark_config_home"
+    if [[ -n "$spatial_map" ]]; then
+        rm -f "$spatial_map"
+    fi
+}
+trap cleanup EXIT
+mkdir -p "$benchmark_config_home/temporal-forge-player"
+cp "$root/benchmark_settings.json" \
+    "$benchmark_config_home/temporal-forge-player/settings.json"
+export XDG_CONFIG_HOME="$benchmark_config_home"
+
 if [[ -n "$tag" && ! "$tag" =~ ^[A-Za-z0-9_.-]+$ ]]; then
     printf 'TFORGE_QUALITY_TAG contains unsupported filename characters: %s\n' "$tag" >&2
     exit 1
@@ -34,10 +56,26 @@ fi
 # working directory.
 binary="$(realpath "$binary")"
 
-mkdir -p "$frames" "$logs" "$(dirname "$results")"
+mkdir -p "$frames" "$logs" "$(dirname "$results")" "$(dirname "$asset_manifest")"
+if [[ -n "$spatial_input" ]]; then
+    if [[ ! -s "$spatial_input" ]]; then
+        printf 'Spatial capture input does not exist or is empty: %s\n' "$spatial_input" >&2
+        exit 1
+    fi
+    spatial_map="$(mktemp "${TMPDIR:-/tmp}/tforge-spatial-map.XXXXXX.tsv")"
+    if ! python3 "$repo/benchmarks/quality_sweeps/spatial_capture.py" \
+        --input "$spatial_input" --output "$spatial_map"; then
+        printf 'Spatial capture input validation failed: %s\n' "$spatial_input" >&2
+        exit 1
+    fi
+fi
 printf '%s\n' \
-    'clip_id,preset,width,height,output_width,output_height,scale,quality,crf,frame,fsr_psnr_db,fsr_ssim,fsr_edge_ssim,lanczos_psnr_db,lanczos_ssim,lanczos_edge_ssim,bicubic_psnr_db,bicubic_ssim,bicubic_edge_ssim,fsr_vs_lanczos_ssim_delta,fsr_vs_lanczos_edge_ssim_delta,fsr_vs_bicubic_ssim_delta,fsr_vs_bicubic_edge_ssim_delta,fsr_lowfreq_luma_mae,fsr_lowfreq_luma_bias,output_path,difference_path' \
+    'clip_id,preset,width,height,output_width,output_height,scale,quality,crf,frame,fsr_psnr_db,fsr_ssim,fsr_edge_ssim,lanczos_psnr_db,lanczos_ssim,lanczos_edge_ssim,bicubic_psnr_db,bicubic_ssim,bicubic_edge_ssim,fsr_vs_lanczos_ssim_delta,fsr_vs_lanczos_edge_ssim_delta,fsr_vs_bicubic_ssim_delta,fsr_vs_bicubic_edge_ssim_delta,fsr_lowfreq_luma_mae,fsr_lowfreq_luma_bias,class,output_path,full_output_path,difference_path,control_source_path,control_source_sha256' \
     > "$results"
+printf '%s\n' 'scene,frame,path,width,height' > "$asset_manifest"
+selected_clips=0
+captured_rows=0
+failed_captures=0
 
 metric_value() {
     # metric_value: extract the last scalar emitted by a tagged ffmpeg/player
@@ -73,10 +111,13 @@ while IFS=, read -r \
     if [[ -n "$quality_filter" && "$quality" != "$quality_filter" ]]; then
         continue
     fi
+    selected_clips=$((selected_clips + 1))
 
     stem="$(basename "${path%.*}")"
     output_ppm="$frames/${stem}_f${frame_index}${tag_suffix}.ppm"
     output_png="$frames/${stem}_f${frame_index}${tag_suffix}.png"
+    source_raw_ppm="$frames/${stem}_f${frame_index}${tag_suffix}_gpu_raw.ppm"
+    source_raw_png="$frames/${stem}_f${frame_index}${tag_suffix}_gpu_raw.png"
     lanczos_png="$frames/${stem}_f${frame_index}${tag_suffix}_lanczos.png"
     bicubic_png="$frames/${stem}_f${frame_index}${tag_suffix}_bicubic.png"
     difference_png="$frames/${stem}_f${frame_index}${tag_suffix}_difference.png"
@@ -84,7 +125,8 @@ while IFS=, read -r \
 
     printf 'Capturing %s %sx%s %s frame %s...\n' \
         "$clip_id" "$width" "$height" "$quality" "$frame_index"
-    rm -f "$output_ppm" "$output_png" "$lanczos_png" "$bicubic_png" "$difference_png"
+    rm -f "$output_ppm" "$output_png" "$source_raw_ppm" "$source_raw_png" \
+        "$lanczos_png" "$bicubic_png" "$difference_png"
     set +e
     benchmark_env=()
     if [[ "$preset" != "saved" ]]; then
@@ -101,6 +143,12 @@ while IFS=, read -r \
         TFORGE_FSR4_FORCE_SCALE \
         TFORGE_FSR4_DISABLE_FUSED_INT8 \
         TFORGE_FSR4_ENABLE_FUSED_INT8 \
+        TFORGE_FSR4_ENABLE_COLOR_HISTORY \
+        TFORGE_FSR4_ENABLE_RECURRENT \
+        TFORGE_FSR4_CAS_STRENGTH \
+        TFORGE_DISABLE_HW_DECODE \
+        TFORGE_FSR4_JITTER_MODE \
+        TFORGE_FSR4_CONTROLLED_JITTER \
         TFORGE_QUALITY_LAB_CONFIG; do
         if [[ -n "${!name:-}" ]]; then
             benchmark_env+=("$name=${!name}")
@@ -110,7 +158,7 @@ while IFS=, read -r \
     # rounds to 1278x720. Request a one-pixel-wider 16:9 envelope; the
     # existing even-dimension fit then resolves to the intended 1280x720
     # output without changing the normal player path.
-    if [[ "$selector" == "1280x720" ]]; then
+    if [[ "$selector" == "1280x720" && -z "${TFORGE_FSR4_FORCE_VIEWPORT:-}" ]]; then
         benchmark_env+=("TFORGE_FSR4_FORCE_VIEWPORT=1281x720")
     fi
     if [[ -n "${TFORGE_REVIEW_FSR_CAS:-}" ]]; then
@@ -120,6 +168,8 @@ while IFS=, read -r \
         "${benchmark_env[@]}" \
         TFORGE_HEADLESS_BENCHMARK=1 \
         TFORGE_FSR4_DUMP_OUTPUT=1 \
+        TFORGE_FSR4_DUMP_RAW=1 \
+        TFORGE_FSR4_DUMP_RAW_PATH="$source_raw_ppm" \
         TFORGE_FSR4_DUMP_OUTPUT_FRAME="$frame_index" \
         TFORGE_FSR4_DUMP_OUTPUT_PATH="$output_ppm" \
         "$binary" "$path" < /dev/null > "$log" 2>&1 &
@@ -128,11 +178,23 @@ while IFS=, read -r \
     output_width=0
     output_height=0
     expected_output_bytes=0
+    source_width=0
+    source_height=0
+    expected_source_bytes=0
     for ((attempt = 0; attempt < 120; ++attempt)); do
         output_bytes=0
+        source_bytes=0
+        output_magic=""
+        output_max_value=""
+        source_magic=""
+        source_max_value=""
+        output_complete=0
+        source_complete=0
         if [[ -f "$output_ppm" ]]; then
             output_bytes="$(stat -c %s "$output_ppm")"
+            output_magic="$(sed -n '1p' "$output_ppm" 2>/dev/null || true)"
             dimensions="$(sed -n '2p' "$output_ppm" 2>/dev/null || true)"
+            output_max_value="$(sed -n '3p' "$output_ppm" 2>/dev/null || true)"
             if [[ "$dimensions" =~ ^([0-9]+)[[:space:]]+([0-9]+)$ ]]; then
                 output_width="${BASH_REMATCH[1]}"
                 output_height="${BASH_REMATCH[2]}"
@@ -140,7 +202,27 @@ while IFS=, read -r \
                 expected_output_bytes=$((header_bytes + output_width * output_height * 3))
             fi
         fi
-        if (( expected_output_bytes > 0 && output_bytes >= expected_output_bytes )); then
+        if [[ "$output_magic" == "P6" && "$output_max_value" == "255" ]] &&
+           (( expected_output_bytes > 0 && output_bytes == expected_output_bytes )); then
+            output_complete=1
+        fi
+        if [[ -f "$source_raw_ppm" ]]; then
+            source_bytes="$(stat -c %s "$source_raw_ppm")"
+            source_magic="$(sed -n '1p' "$source_raw_ppm" 2>/dev/null || true)"
+            source_dimensions="$(sed -n '2p' "$source_raw_ppm" 2>/dev/null || true)"
+            source_max_value="$(sed -n '3p' "$source_raw_ppm" 2>/dev/null || true)"
+            if [[ "$source_dimensions" =~ ^([0-9]+)[[:space:]]+([0-9]+)$ ]]; then
+                source_width="${BASH_REMATCH[1]}"
+                source_height="${BASH_REMATCH[2]}"
+                source_header_bytes="$(printf 'P6\n%s\n255\n' "$source_dimensions" | wc -c)"
+                expected_source_bytes=$((source_header_bytes + source_width * source_height * 3))
+            fi
+        fi
+        if [[ "$source_magic" == "P6" && "$source_max_value" == "255" ]] &&
+           (( expected_source_bytes > 0 && source_bytes == expected_source_bytes )); then
+            source_complete=1
+        fi
+        if (( output_complete && source_complete )); then
             status=0
             break
         fi
@@ -158,117 +240,200 @@ while IFS=, read -r \
     set -e
     if (( status != 0 )); then
         printf 'Player failed for %s (status %s); see %s\n' "$path" "$status" "$log" >&2
+        failed_captures=$((failed_captures + 1))
         continue
     fi
-    if [[ ! -s "$output_ppm" ]]; then
-        printf 'No captured output for %s; see %s\n' "$path" "$log" >&2
+    if [[ ! -s "$output_ppm" || ! -s "$source_raw_ppm" ]]; then
+        printf 'Missing captured output or matched GPU source for %s; see %s\n' "$path" "$log" >&2
+        failed_captures=$((failed_captures + 1))
         continue
     fi
 
     magick "$output_ppm" "$output_png"
+    magick "$source_raw_ppm" "$source_raw_png"
     actual_dimensions="$(identify -format '%w %h' "$output_png")"
     if [[ "$actual_dimensions" != "$output_width $output_height" ]]; then
         printf 'Captured output dimensions changed for %s: expected %sx%s, got %s\n' \
             "$path" "$output_width" "$output_height" "$actual_dimensions" >&2
+        failed_captures=$((failed_captures + 1))
         continue
     fi
-    reference_png="$frames/${clip_id}_reference_${output_width}x${output_height}_f${frame_index}.png"
+    source_actual_dimensions="$(identify -format '%w %h' "$source_raw_png")"
+    if [[ "$source_actual_dimensions" != "$width $height" ]]; then
+        printf 'GPU source dimensions do not match manifest for %s: expected %sx%s, got %s\n' \
+            "$path" "$width" "$height" "$source_actual_dimensions" >&2
+        failed_captures=$((failed_captures + 1))
+        continue
+    fi
+    # PNG encoders may add run-specific metadata, so hashing the container
+    # would falsely make identical source pixels look different across
+    # candidates. Hash canonical 8-bit RGB bytes instead; the CSV path still
+    # identifies the lossless image used by the controls.
+    control_source_sha256="$(magick "$source_raw_png" -alpha off -depth 8 RGB:- | sha256sum | cut -d' ' -f1)"
+    if [[ -n "${TFORGE_QUALITY_OUTPUT_DIMENSIONS:-}" ]]; then
+        expected_spatial_dimensions="${TFORGE_QUALITY_OUTPUT_DIMENSIONS/x/ }"
+        if [[ "$actual_dimensions" != "$expected_spatial_dimensions" ]]; then
+            printf 'Spatial capture output dimensions do not match input contract for %s: expected %s, got %s\n' \
+                "$path" "$expected_spatial_dimensions" "$actual_dimensions" >&2
+            failed_captures=$((failed_captures + 1))
+            continue
+        fi
+    fi
+    # Record the complete display image independently of class crops. A scene
+    # with no selected metric region is still a valid human-review asset.
+    printf '%s,%s,%s,%s,%s\n' \
+        "$clip_id" "$frame_index" "$output_png" "$output_width" "$output_height" \
+        >> "$asset_manifest"
+    # Parallel candidate captures must not share this generated reference
+    # image. Upstream: the immutable corpus reference video. Downstream: all
+    # spatial metrics and difference images for this candidate. The tag keeps
+    # one worker from reading another worker's partially written PNG.
+    reference_png="$frames/${clip_id}_reference_${output_width}x${output_height}_f${frame_index}${tag_suffix}.png"
     if [[ ! -s "$reference_png" ]]; then
         ffmpeg -hide_banner -loglevel error -i "$reference" \
             -vf "select=eq(n\\,${frame_index}),scale=${output_width}:${output_height}:flags=lanczos" \
             -frames:v 1 "$reference_png"
     fi
-    ffmpeg -hide_banner -loglevel error -i "$path" \
-        -vf "select=eq(n\\,${frame_index}),scale=${output_width}:${output_height}:flags=lanczos" \
+    # Both spatial controls begin with the exact display-RGB source pixels
+    # captured from the player's GPU decode at the measured frame. Decoding
+    # the compressed clip a second time through FFmpeg would compare scaler
+    # quality and decoder/chroma differences at once.
+    ffmpeg -hide_banner -loglevel error -i "$source_raw_ppm" \
+        -vf "scale=${output_width}:${output_height}:flags=lanczos" \
         -frames:v 1 "$lanczos_png"
-    ffmpeg -hide_banner -loglevel error -i "$path" \
-        -vf "select=eq(n\\,${frame_index}),scale=${output_width}:${output_height}:flags=bicubic" \
+    ffmpeg -hide_banner -loglevel error -i "$source_raw_ppm" \
+        -vf "scale=${output_width}:${output_height}:flags=bicubic" \
         -frames:v 1 "$bicubic_png"
     magick "$output_png" "$reference_png" -compose difference -composite \
         -auto-level "$difference_png"
 
-    metric_log="$logs/${stem}${tag_suffix}_metrics.log"
-    ffmpeg -hide_banner -i "$output_png" -i "$reference_png" \
-        -lavfi '[0:v][1:v]psnr' -f null - > /dev/null 2> "$metric_log"
-    ffmpeg -hide_banner -i "$output_png" -i "$reference_png" \
-        -lavfi '[0:v][1:v]ssim' -f null - > /dev/null 2>> "$metric_log"
-    edge_log="$logs/${stem}${tag_suffix}_edge_metrics.log"
-    ffmpeg -hide_banner -i "$output_png" -i "$reference_png" \
-        -filter_complex \
-        '[0:v]format=gray,edgedetect=low=0.05:high=0.15[dist];[1:v]format=gray,edgedetect=low=0.05:high=0.15[ref];[dist][ref]ssim' \
-        -f null - > /dev/null 2> "$edge_log"
+    if [[ -n "$spatial_input" ]]; then
+        mapfile -t class_specs < <(awk -F '\t' -v scene="$clip_id" '$1 == scene { print }' "$spatial_map")
+        if (( ${#class_specs[@]} == 0 )); then
+            # A selected real scene may intentionally have no selected class.
+            # It contributes no spatial row and is never expanded to a whole-scene row.
+            continue
+        fi
+    else
+        class_specs=("$clip_id"$'\t'"__whole_scene__"$'\t0\t0\t'"$output_width"$'\t'"$output_height")
+    fi
 
-    lanczos_log="$logs/${stem}${tag_suffix}_lanczos_metrics.log"
-    ffmpeg -hide_banner -i "$lanczos_png" -i "$reference_png" \
-        -lavfi '[0:v][1:v]psnr' -f null - > /dev/null 2> "$lanczos_log"
-    ffmpeg -hide_banner -i "$lanczos_png" -i "$reference_png" \
-        -lavfi '[0:v][1:v]ssim' -f null - > /dev/null 2>> "$lanczos_log"
-    lanczos_edge_log="$logs/${stem}${tag_suffix}_lanczos_edge_metrics.log"
-    ffmpeg -hide_banner -i "$lanczos_png" -i "$reference_png" \
-        -filter_complex \
-        '[0:v]format=gray,edgedetect=low=0.05:high=0.15[dist];[1:v]format=gray,edgedetect=low=0.05:high=0.15[ref];[dist][ref]ssim' \
-        -f null - > /dev/null 2> "$lanczos_edge_log"
+    for class_spec in "${class_specs[@]}"; do
+        IFS=$'\t' read -r _mapped_scene quality_class region_x region_y region_width region_height <<< "$class_spec"
+        if [[ -n "$spatial_input" ]]; then
+            class_suffix="${quality_class//[^A-Za-z0-9_.-]/_}"
+            metric_output_png="$frames/${stem}_f${frame_index}${tag_suffix}_${class_suffix}.png"
+            metric_reference_png="$frames/${clip_id}_reference_${output_width}x${output_height}_f${frame_index}${tag_suffix}_${class_suffix}.png"
+            metric_lanczos_png="$frames/${stem}_f${frame_index}${tag_suffix}_${class_suffix}_lanczos.png"
+            metric_bicubic_png="$frames/${stem}_f${frame_index}${tag_suffix}_${class_suffix}_bicubic.png"
+            metric_difference_png="$frames/${stem}_f${frame_index}${tag_suffix}_${class_suffix}_difference.png"
+            magick "$output_png" -crop "${region_width}x${region_height}+${region_x}+${region_y}" +repage "$metric_output_png"
+            magick "$reference_png" -crop "${region_width}x${region_height}+${region_x}+${region_y}" +repage "$metric_reference_png"
+            magick "$lanczos_png" -crop "${region_width}x${region_height}+${region_x}+${region_y}" +repage "$metric_lanczos_png"
+            magick "$bicubic_png" -crop "${region_width}x${region_height}+${region_x}+${region_y}" +repage "$metric_bicubic_png"
+            magick "$metric_output_png" "$metric_reference_png" -compose difference -composite \
+                -auto-level "$metric_difference_png"
+        else
+            quality_class="__whole_scene__"
+            metric_output_png="$output_png"
+            metric_reference_png="$reference_png"
+            metric_lanczos_png="$lanczos_png"
+            metric_bicubic_png="$bicubic_png"
+            metric_difference_png="$difference_png"
+        fi
+        metric_log="$logs/${stem}${tag_suffix}_${quality_class}_metrics.log"
+        ffmpeg -hide_banner -i "$metric_output_png" -i "$metric_reference_png" \
+            -lavfi '[0:v][1:v]psnr' -f null - > /dev/null 2> "$metric_log"
+        ffmpeg -hide_banner -i "$metric_output_png" -i "$metric_reference_png" \
+            -lavfi '[0:v][1:v]ssim' -f null - > /dev/null 2>> "$metric_log"
+        edge_log="$logs/${stem}${tag_suffix}_${quality_class}_edge_metrics.log"
+        ffmpeg -hide_banner -i "$metric_output_png" -i "$metric_reference_png" \
+            -filter_complex \
+            '[0:v]format=gray,edgedetect=low=0.05:high=0.15[dist];[1:v]format=gray,edgedetect=low=0.05:high=0.15[ref];[dist][ref]ssim' \
+            -f null - > /dev/null 2> "$edge_log"
 
-    bicubic_log="$logs/${stem}${tag_suffix}_bicubic_metrics.log"
-    ffmpeg -hide_banner -i "$bicubic_png" -i "$reference_png" \
-        -lavfi '[0:v][1:v]psnr' -f null - > /dev/null 2> "$bicubic_log"
-    ffmpeg -hide_banner -i "$bicubic_png" -i "$reference_png" \
-        -lavfi '[0:v][1:v]ssim' -f null - > /dev/null 2>> "$bicubic_log"
-    bicubic_edge_log="$logs/${stem}${tag_suffix}_bicubic_edge_metrics.log"
-    ffmpeg -hide_banner -i "$bicubic_png" -i "$reference_png" \
-        -filter_complex \
-        '[0:v]format=gray,edgedetect=low=0.05:high=0.15[dist];[1:v]format=gray,edgedetect=low=0.05:high=0.15[ref];[dist][ref]ssim' \
-        -f null - > /dev/null 2> "$bicubic_edge_log"
+        lanczos_log="$logs/${stem}${tag_suffix}_${quality_class}_lanczos_metrics.log"
+        ffmpeg -hide_banner -i "$metric_lanczos_png" -i "$metric_reference_png" \
+            -lavfi '[0:v][1:v]psnr' -f null - > /dev/null 2> "$lanczos_log"
+        ffmpeg -hide_banner -i "$metric_lanczos_png" -i "$metric_reference_png" \
+            -lavfi '[0:v][1:v]ssim' -f null - > /dev/null 2>> "$lanczos_log"
+        lanczos_edge_log="$logs/${stem}${tag_suffix}_${quality_class}_lanczos_edge_metrics.log"
+        ffmpeg -hide_banner -i "$metric_lanczos_png" -i "$metric_reference_png" \
+            -filter_complex \
+            '[0:v]format=gray,edgedetect=low=0.05:high=0.15[dist];[1:v]format=gray,edgedetect=low=0.05:high=0.15[ref];[dist][ref]ssim' \
+            -f null - > /dev/null 2> "$lanczos_edge_log"
 
-    # Measure low-frequency luminance separately from structural similarity.
-    # The blur suppresses texture so an exposure/transfer mismatch is not
-    # mistaken for recovered detail. The bias is signed output-minus-reference
-    # in normalized luma; the MAE is unsigned and normalized to 0..1.
-    luma_output_log="$logs/${stem}${tag_suffix}_luma_output.log"
-    luma_reference_log="$logs/${stem}${tag_suffix}_luma_reference.log"
-    luma_difference_log="$logs/${stem}${tag_suffix}_luma_difference.log"
-    ffmpeg -hide_banner -i "$output_png" \
-        -vf 'format=gray,boxblur=lr=4:lp=1,signalstats,metadata=print' \
-        -frames:v 1 -f null - > /dev/null 2> "$luma_output_log"
-    ffmpeg -hide_banner -i "$reference_png" \
-        -vf 'format=gray,boxblur=lr=4:lp=1,signalstats,metadata=print' \
-        -frames:v 1 -f null - > /dev/null 2> "$luma_reference_log"
-    ffmpeg -hide_banner -i "$output_png" -i "$reference_png" \
-        -lavfi '[0:v]format=gray,boxblur=lr=4:lp=1[a];[1:v]format=gray,boxblur=lr=4:lp=1[b];[a][b]blend=all_mode=difference,signalstats,metadata=print' \
-        -frames:v 1 -f null - > /dev/null 2> "$luma_difference_log"
+        bicubic_log="$logs/${stem}${tag_suffix}_${quality_class}_bicubic_metrics.log"
+        ffmpeg -hide_banner -i "$metric_bicubic_png" -i "$metric_reference_png" \
+            -lavfi '[0:v][1:v]psnr' -f null - > /dev/null 2> "$bicubic_log"
+        ffmpeg -hide_banner -i "$metric_bicubic_png" -i "$metric_reference_png" \
+            -lavfi '[0:v][1:v]ssim' -f null - > /dev/null 2>> "$bicubic_log"
+        bicubic_edge_log="$logs/${stem}${tag_suffix}_${quality_class}_bicubic_edge_metrics.log"
+        ffmpeg -hide_banner -i "$metric_bicubic_png" -i "$metric_reference_png" \
+            -filter_complex \
+            '[0:v]format=gray,edgedetect=low=0.05:high=0.15[dist];[1:v]format=gray,edgedetect=low=0.05:high=0.15[ref];[dist][ref]ssim' \
+            -f null - > /dev/null 2> "$bicubic_edge_log"
 
-    psnr="$(metric_value 'average' "$metric_log")"
-    ssim="$(metric_value 'All' "$metric_log")"
-    edge_ssim="$(metric_value 'All' "$edge_log")"
-    lanczos_psnr="$(metric_value 'average' "$lanczos_log")"
-    lanczos_ssim="$(metric_value 'All' "$lanczos_log")"
-    lanczos_edge_ssim="$(metric_value 'All' "$lanczos_edge_log")"
-    bicubic_psnr="$(metric_value 'average' "$bicubic_log")"
-    bicubic_ssim="$(metric_value 'All' "$bicubic_log")"
-    bicubic_edge_ssim="$(metric_value 'All' "$bicubic_edge_log")"
-    luma_output_avg="$(signalstats_value 'YAVG' "$luma_output_log")"
-    luma_reference_avg="$(signalstats_value 'YAVG' "$luma_reference_log")"
-    luma_difference_avg="$(signalstats_value 'YAVG' "$luma_difference_log")"
-    luma_mae="$(awk -v value="$luma_difference_avg" 'BEGIN { printf "%.6f", value / 255.0 }')"
-    luma_bias="$(awk -v output="$luma_output_avg" -v reference="$luma_reference_avg" \
-        'BEGIN { printf "%.6f", (output - reference) / 255.0 }')"
-    ssim_delta="$(awk -v fsr="$ssim" -v base="$lanczos_ssim" 'BEGIN { printf "%.6f", fsr - base }')"
-    edge_ssim_delta="$(awk -v fsr="$edge_ssim" -v base="$lanczos_edge_ssim" 'BEGIN { printf "%.6f", fsr - base }')"
-    bicubic_ssim_delta="$(awk -v fsr="$ssim" -v base="$bicubic_ssim" 'BEGIN { printf "%.6f", fsr - base }')"
-    bicubic_edge_ssim_delta="$(awk -v fsr="$edge_ssim" -v base="$bicubic_edge_ssim" 'BEGIN { printf "%.6f", fsr - base }')"
-    scale="$(awk -v source="$width" -v output="$output_width" \
-        'BEGIN { printf "%.3f", output / source }')"
-    printf '%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s\n' \
-        "$clip_id" "$preset" "$width" "$height" "$output_width" "$output_height" "$scale" \
-        "$quality" "$crf" "$frame_index" \
-        "$psnr" "$ssim" "$edge_ssim" \
-        "$lanczos_psnr" "$lanczos_ssim" "$lanczos_edge_ssim" \
-        "$bicubic_psnr" "$bicubic_ssim" "$bicubic_edge_ssim" \
-        "$ssim_delta" "$edge_ssim_delta" "$bicubic_ssim_delta" "$bicubic_edge_ssim_delta" \
-        "$luma_mae" "$luma_bias" \
-        "$output_png" "$difference_png" \
-        >> "$results"
+        # Measure low-frequency luminance separately from structural similarity.
+        luma_output_log="$logs/${stem}${tag_suffix}_${quality_class}_luma_output.log"
+        luma_reference_log="$logs/${stem}${tag_suffix}_${quality_class}_luma_reference.log"
+        luma_difference_log="$logs/${stem}${tag_suffix}_${quality_class}_luma_difference.log"
+        ffmpeg -hide_banner -i "$metric_output_png" \
+            -vf 'format=gray,boxblur=lr=4:lp=1,signalstats,metadata=print' \
+            -frames:v 1 -f null - > /dev/null 2> "$luma_output_log"
+        ffmpeg -hide_banner -i "$metric_reference_png" \
+            -vf 'format=gray,boxblur=lr=4:lp=1,signalstats,metadata=print' \
+            -frames:v 1 -f null - > /dev/null 2> "$luma_reference_log"
+        ffmpeg -hide_banner -i "$metric_output_png" -i "$metric_reference_png" \
+            -lavfi '[0:v]format=gray,boxblur=lr=4:lp=1[a];[1:v]format=gray,boxblur=lr=4:lp=1[b];[a][b]blend=all_mode=difference,signalstats,metadata=print' \
+            -frames:v 1 -f null - > /dev/null 2> "$luma_difference_log"
+
+        psnr="$(metric_value 'average' "$metric_log")"
+        ssim="$(metric_value 'All' "$metric_log")"
+        edge_ssim="$(metric_value 'All' "$edge_log")"
+        lanczos_psnr="$(metric_value 'average' "$lanczos_log")"
+        lanczos_ssim="$(metric_value 'All' "$lanczos_log")"
+        lanczos_edge_ssim="$(metric_value 'All' "$lanczos_edge_log")"
+        bicubic_psnr="$(metric_value 'average' "$bicubic_log")"
+        bicubic_ssim="$(metric_value 'All' "$bicubic_log")"
+        bicubic_edge_ssim="$(metric_value 'All' "$bicubic_edge_log")"
+        luma_output_avg="$(signalstats_value 'YAVG' "$luma_output_log")"
+        luma_reference_avg="$(signalstats_value 'YAVG' "$luma_reference_log")"
+        luma_difference_avg="$(signalstats_value 'YAVG' "$luma_difference_log")"
+        luma_mae="$(awk -v value="$luma_difference_avg" 'BEGIN { printf "%.6f", value / 255.0 }')"
+        luma_bias="$(awk -v output="$luma_output_avg" -v reference="$luma_reference_avg" \
+            'BEGIN { printf "%.6f", (output - reference) / 255.0 }')"
+        ssim_delta="$(awk -v fsr="$ssim" -v base="$lanczos_ssim" 'BEGIN { printf "%.6f", fsr - base }')"
+        edge_ssim_delta="$(awk -v fsr="$edge_ssim" -v base="$lanczos_edge_ssim" 'BEGIN { printf "%.6f", fsr - base }')"
+        bicubic_ssim_delta="$(awk -v fsr="$ssim" -v base="$bicubic_ssim" 'BEGIN { printf "%.6f", fsr - base }')"
+        bicubic_edge_ssim_delta="$(awk -v fsr="$edge_ssim" -v base="$bicubic_edge_ssim" 'BEGIN { printf "%.6f", fsr - base }')"
+        scale="$(awk -v source="$width" -v output="$output_width" \
+            'BEGIN { printf "%.3f", output / source }')"
+        printf '%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s\n' \
+            "$clip_id" "$preset" "$width" "$height" "$output_width" "$output_height" "$scale" \
+            "$quality" "$crf" "$frame_index" \
+            "$psnr" "$ssim" "$edge_ssim" \
+            "$lanczos_psnr" "$lanczos_ssim" "$lanczos_edge_ssim" \
+            "$bicubic_psnr" "$bicubic_ssim" "$bicubic_edge_ssim" \
+            "$ssim_delta" "$edge_ssim_delta" "$bicubic_ssim_delta" "$bicubic_edge_ssim_delta" \
+            "$luma_mae" "$luma_bias" "$quality_class" \
+            "$metric_output_png" "$output_png" "$metric_difference_png" \
+            "$source_raw_png" "$control_source_sha256" \
+            >> "$results"
+        captured_rows=$((captured_rows + 1))
+    done
 done
 exec 3<&-
+
+if (( selected_clips == 0 )); then
+    printf 'No corpus clips matched selector=%s clip_filter=%s quality_filter=%s\n' \
+        "$selector" "${clip_filter:-<none>}" "${quality_filter:-<none>}" >&2
+    exit 1
+fi
+if (( failed_captures != 0 || captured_rows == 0 )); then
+    printf 'Quality capture incomplete: selected=%s captured=%s failed=%s; see %s\n' \
+        "$selected_clips" "$captured_rows" "$failed_captures" "$logs" >&2
+    exit 2
+fi
 
 printf 'Quality results: %s\n' "$results"

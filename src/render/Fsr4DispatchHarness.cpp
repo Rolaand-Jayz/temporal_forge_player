@@ -185,7 +185,7 @@ bool Fsr4DispatchHarness::createDescriptorLayout() {
   // RE §3.1 binding map (prepass subset):
   //   b0 uniform, b1 color SRV, b2 motion SRV, b3 depth SRV,
   //   b4 weight blob SRV, b5 prepass output UAV.
-  std::array<VkDescriptorSetLayoutBinding, 9> b{};
+  std::array<VkDescriptorSetLayoutBinding, 10> b{};
   b[0] = {0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1, VK_SHADER_STAGE_COMPUTE_BIT,
           nullptr};
   b[1] = {1, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1, VK_SHADER_STAGE_COMPUTE_BIT,
@@ -203,6 +203,8 @@ bool Fsr4DispatchHarness::createDescriptorLayout() {
   b[7] = {7, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1, VK_SHADER_STAGE_COMPUTE_BIT,
           nullptr};
   b[8] = {8, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1, VK_SHADER_STAGE_COMPUTE_BIT,
+          nullptr};
+  b[9] = {9, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1, VK_SHADER_STAGE_COMPUTE_BIT,
           nullptr};
 
   VkDescriptorSetLayoutCreateInfo ci{};
@@ -449,8 +451,10 @@ bool Fsr4DispatchHarness::createPostpassPipeline() {
   // Postpass bindings:
   //   b0 uniform (UB), b1 weight SSBO, b2 decoder SSBO,
   //   b3 history image (readonly), b4 output image (writeonly),
-  //   b5 history-out image (writeonly), b9 recurrent-out image (writeonly)
-  std::array<VkDescriptorSetLayoutBinding, 10> b{};
+  //   b5 history-out image (writeonly), b9 recurrent-out image (writeonly),
+  //   b10 source display image (readonly). Model and display source colors
+  //   must remain separate because the spatial kernels operate in display RGB.
+  std::array<VkDescriptorSetLayoutBinding, 11> b{};
   b[0] = {0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1, VK_SHADER_STAGE_COMPUTE_BIT,
           nullptr};
   b[1] = {1, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1, VK_SHADER_STAGE_COMPUTE_BIT,
@@ -471,6 +475,8 @@ bool Fsr4DispatchHarness::createPostpassPipeline() {
           nullptr};
   b[9] = {9, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1, VK_SHADER_STAGE_COMPUTE_BIT,
           nullptr};
+  b[10] = {10, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1,
+           VK_SHADER_STAGE_COMPUTE_BIT, nullptr};
   VkDescriptorSetLayoutCreateInfo ci{};
   ci.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
   ci.bindingCount = static_cast<uint32_t>(b.size());
@@ -1412,6 +1418,15 @@ void Fsr4DispatchHarness::recordNativeInt8Graph(VkCommandBuffer cmd) {
 bool Fsr4DispatchHarness::uploadWeights(const Fsr4BlobView &blob) {
   if (!blob.bytes || physical_ == VK_NULL_HANDLE)
     return false;
+  const auto decodedPostpass = decodeFsr4PostpassParams(
+      blob.bytes, kFsr4BlobSize);
+  if (!decodedPostpass) {
+    logError("Fsr4Harness: v4.1 postpass parameter region is invalid");
+    postpassParamsValid_ = false;
+    return false;
+  }
+  postpassParams_ = *decodedPostpass;
+  postpassParamsValid_ = true;
   freeGpuBuffer(res_.weightBuffer, res_.weightMemory);
 
   // Upload the raw 131072-byte v4.1 blob verbatim. The recovered layout has
@@ -2502,10 +2517,13 @@ void Fsr4DispatchHarness::recordPrepass(VkCommandBuffer cmd,
                                     VK_IMAGE_LAYOUT_GENERAL};
   VkDescriptorImageInfo recurrentInfo{VK_NULL_HANDLE, in.recurrentReadView,
                                       VK_IMAGE_LAYOUT_GENERAL};
+  VkDescriptorImageInfo reprojectedInfo{VK_NULL_HANDLE,
+                                        in.reprojectedColorView,
+                                        VK_IMAGE_LAYOUT_GENERAL};
   VkDescriptorBufferInfo wInfo{res_.weightBuffer, 0, VK_WHOLE_SIZE};
   VkDescriptorBufferInfo pOutInfo{res_.finalTensorBuffer, 0, VK_WHOLE_SIZE};
 
-  VkWriteDescriptorSet w[8]{};
+  VkWriteDescriptorSet w[9]{};
   w[0].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
   w[0].dstSet = set;
   w[0].dstBinding = 0;
@@ -2554,7 +2572,13 @@ void Fsr4DispatchHarness::recordPrepass(VkCommandBuffer cmd,
   w[7].descriptorCount = 1;
   w[7].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
   w[7].pImageInfo = &recurrentInfo;
-  vkUpdateDescriptorSets(device_, 8, w, 0, nullptr);
+  w[8].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+  w[8].dstSet = set;
+  w[8].dstBinding = 9;
+  w[8].descriptorCount = 1;
+  w[8].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+  w[8].pImageInfo = &reprojectedInfo;
+  vkUpdateDescriptorSets(device_, 9, w, 0, nullptr);
 
   vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, prepassPipeline_);
   vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, prepassLayout_,
@@ -2776,12 +2800,16 @@ Fsr4DispatchHarness::dispatchFrame(const FrameDispatchInput &in) {
     r.failReason = "weights not uploaded";
     return r;
   }
-  if (in.colorView == VK_NULL_HANDLE || in.outputView == VK_NULL_HANDLE) {
+  if (in.colorView == VK_NULL_HANDLE ||
+      in.sourceDisplayView == VK_NULL_HANDLE ||
+      in.outputView == VK_NULL_HANDLE) {
     r.error = UpscaleError::InvalidResource;
     r.failReason = "missing input/output image views";
     return r;
   }
   auto t0 = std::chrono::steady_clock::now();
+  const bool dispatchTrace =
+      std::getenv("TFORGE_FSR4_DISPATCH_TRACE") != nullptr;
 
   // One-shot diagnostic: run the prepass alone and read back scratch to
   // isolate where the conv chain loses data. Disabled after first frame.
@@ -2810,29 +2838,41 @@ Fsr4DispatchHarness::dispatchFrame(const FrameDispatchInput &in) {
                       0);
 
   // The uploader prefix is ordered before this command buffer in the same
-  // queue submission. Establish visibility for the exact color image bound
-  // below; command-buffer ordering alone is not a shader memory dependency.
-  if (in.colorImage != VK_NULL_HANDLE) {
-    VkImageMemoryBarrier inputBarrier{};
-    inputBarrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
-    inputBarrier.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
-    inputBarrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
-    inputBarrier.oldLayout = VK_IMAGE_LAYOUT_GENERAL;
-    inputBarrier.newLayout = VK_IMAGE_LAYOUT_GENERAL;
-    inputBarrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-    inputBarrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-    inputBarrier.image = in.colorImage;
-    inputBarrier.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+  // queue submission. Establish visibility for both independently bound
+  // source images; command-buffer ordering alone is not a memory dependency.
+  {
+    std::array<VkImageMemoryBarrier, 2> inputBarriers{};
+    uint32_t inputBarrierCount = 0;
+    auto addInputBarrier = [&](VkImage image) {
+      if (image == VK_NULL_HANDLE)
+        return;
+      auto &inputBarrier = inputBarriers[inputBarrierCount++];
+      inputBarrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+      inputBarrier.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
+      inputBarrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+      inputBarrier.oldLayout = VK_IMAGE_LAYOUT_GENERAL;
+      inputBarrier.newLayout = VK_IMAGE_LAYOUT_GENERAL;
+      inputBarrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+      inputBarrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+      inputBarrier.image = image;
+      inputBarrier.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+    };
+    addInputBarrier(in.colorImage);
+    if (in.sourceDisplayImage != in.colorImage)
+      addInputBarrier(in.sourceDisplayImage);
+    if (inputBarrierCount != 0) {
     vkCmdPipelineBarrier(cmd_, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
                          VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 0, nullptr,
-                         0, nullptr, 1, &inputBarrier);
+                           0, nullptr, inputBarrierCount,
+                           inputBarriers.data());
+    }
   }
 
   // The prepass consumes the previous display/recurrent history before the
   // conv chain begins. Make the prior frame's shader writes visible here;
   // the later postpass barrier cannot retroactively protect this read.
   {
-    std::array<VkImageMemoryBarrier, 2> barriers{};
+    std::array<VkImageMemoryBarrier, 3> barriers{};
     uint32_t barrierCount = 0;
     auto addHistoryReadBarrier = [&](VkImage image) {
       if (image == VK_NULL_HANDLE)
@@ -2850,6 +2890,18 @@ Fsr4DispatchHarness::dispatchFrame(const FrameDispatchInput &in) {
     };
     addHistoryReadBarrier(in.historyReadImage);
     addHistoryReadBarrier(in.recurrentReadImage);
+    if (in.reprojectedColorImage != VK_NULL_HANDLE) {
+      auto &b = barriers[barrierCount++];
+      b.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+      b.srcAccessMask = VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT;
+      b.dstAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
+      b.oldLayout = VK_IMAGE_LAYOUT_GENERAL;
+      b.newLayout = VK_IMAGE_LAYOUT_GENERAL;
+      b.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+      b.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+      b.image = in.reprojectedColorImage;
+      b.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+    }
     if (barrierCount != 0) {
       vkCmdPipelineBarrier(cmd_, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
                            VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 0, nullptr,
@@ -2858,8 +2910,12 @@ Fsr4DispatchHarness::dispatchFrame(const FrameDispatchInput &in) {
   }
 
   // --- 1. Prepass (gap #4 closed): dispatches on real input images ---
+  if (dispatchTrace)
+    logInfo("Fsr4Harness dispatch trace: prepass begin");
   if (std::getenv("TFORGE_FSR4_DISABLE_PREPASS") == nullptr)
     recordPrepass(cmd_, in);
+  if (dispatchTrace)
+    logInfo("Fsr4Harness dispatch trace: prepass recorded");
   if (profileStages)
     vkCmdWriteTimestamp(cmd_, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
                         timestampPool_, 1);
@@ -2943,6 +2999,9 @@ Fsr4DispatchHarness::dispatchFrame(const FrameDispatchInput &in) {
                             timestampPool_, static_cast<uint32_t>(si) + 2u);
     }
 
+  if (dispatchTrace)
+    logInfo("Fsr4Harness dispatch trace: native graph complete");
+
   // Record the byte offset of the final conv output for direct-accum
   // readback (postpass is disabled). The last conv step ran with
   // passCounter_ (pre-increment) = stepCount-1; its output landed in the
@@ -2961,7 +3020,7 @@ Fsr4DispatchHarness::dispatchFrame(const FrameDispatchInput &in) {
   // explicitly; synchronizing only output leaves temporal reads racing the
   // prior frame.
   {
-    std::array<VkImageMemoryBarrier, 5> barriers{};
+    std::array<VkImageMemoryBarrier, 6> barriers{};
     uint32_t barrierCount = 0;
     auto addBarrier = [&](VkImage image, VkAccessFlags srcAccess,
                           VkAccessFlags dstAccess) {
@@ -2990,6 +3049,8 @@ Fsr4DispatchHarness::dispatchFrame(const FrameDispatchInput &in) {
     addBarrier(in.recurrentWriteImage,
                VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT,
                VK_ACCESS_SHADER_WRITE_BIT);
+    addBarrier(in.reprojectedColorImage, VK_ACCESS_SHADER_WRITE_BIT,
+               VK_ACCESS_SHADER_READ_BIT);
     if (barrierCount != 0) {
       // historyWrite may still be sampled by Qt's fragment shader from
       // the previous published frame. Include that read in the source
@@ -3040,6 +3101,19 @@ Fsr4DispatchHarness::dispatchFrame(const FrameDispatchInput &in) {
       pp.slot0[2] = in.reset ? 1u : 0u;
       if (!std::getenv("TFORGE_FSR4_ENABLE_RECURRENT"))
         pp.slot0[2] |= 2u;
+      if (std::getenv("TFORGE_FSR4_USE_DISPLAY_BASE") ||
+          std::getenv("TFORGE_FSR4_DISPLAY_BASE_STRENGTH"))
+        pp.slot0[2] |= 4u;
+      if (const char *baseFilter =
+              std::getenv("TFORGE_FSR4_CURRENT_BASE_FILTER")) {
+        if (std::strcmp(baseFilter, "bilinear") == 0 ||
+            std::strcmp(baseFilter, "linear") == 0)
+          pp.slot0[2] |= 8u;
+      }
+      if (std::getenv("TFORGE_FSR4_CURRENT_BLEND_LINEAR"))
+        pp.slot0[2] |= 16u;
+      if (std::getenv("TFORGE_FSR4_CURRENT_BASE_JITTERED"))
+        pp.slot0[2] |= 32u;
       // The final transpose convolution writes its FP16 decoder tensor
       // through the dedicated edge/final-tensor binding at offset 0.
       pp.slot0[3] = 0;
@@ -3074,7 +3148,9 @@ Fsr4DispatchHarness::dispatchFrame(const FrameDispatchInput &in) {
       // reconstruction is trusted. A reset handles hard discontinuities;
       // this continuous weighting prevents moderate vector uncertainty from
       // becoming a soft ghost trail.
-      pp.slot1[3] = experimentalComposition
+      const bool disableLearnedConfidenceGate =
+          std::getenv("TFORGE_FSR4_DISABLE_LEARNED_CONFIDENCE_GATE") != nullptr;
+      pp.slot1[3] = experimentalComposition || disableLearnedConfidenceGate
                         ? learnedStrength
                         : learnedStrength *
                               std::clamp(in.historyConfidence, 0.0f, 1.0f);
@@ -3091,6 +3167,27 @@ Fsr4DispatchHarness::dispatchFrame(const FrameDispatchInput &in) {
       pp.slot4[1] = qualityLabConfig_.baseC;
       pp.slot4[2] = qualityLabConfig_.residualRadius;
       pp.slot4[3] = qualityLabConfig_.residualSigma;
+      // The current composition retains its legacy edge-aware RCAS response
+      // independently of the newer optional CAS pass. Keep its strength
+      // benchmark-controllable without exposing the control in normal UI.
+      if (!experimentalComposition) {
+        float legacyRcasStrength = 0.08f;
+        if (const char *value =
+                std::getenv("TFORGE_FSR4_LEGACY_RCAS_STRENGTH")) {
+          legacyRcasStrength = std::clamp(std::strtof(value, nullptr), 0.0f,
+                                          1.0f);
+        }
+        pp.slot4[3] = legacyRcasStrength;
+        float displayBaseStrength = 0.0f;
+        if (const char *value =
+                std::getenv("TFORGE_FSR4_DISPLAY_BASE_STRENGTH")) {
+          displayBaseStrength = std::clamp(std::strtof(value, nullptr), 0.0f,
+                                           1.0f);
+        } else if (std::getenv("TFORGE_FSR4_USE_DISPLAY_BASE")) {
+          displayBaseStrength = 1.0f;
+        }
+        pp.slot4[2] = displayBaseStrength;
+      }
       pp.slot5[0] = qualityLabConfig_.learnedStrength;
       pp.slot5[1] = qualityLabConfig_.residualStrength;
       pp.slot5[2] = qualityLabConfig_.sharpenStrength;
@@ -3101,11 +3198,20 @@ Fsr4DispatchHarness::dispatchFrame(const FrameDispatchInput &in) {
       pp.slot6[3] = qualityLabConfig_.toneContrastPivot;
       pp.slot7[0] = qualityLabConfig_.toneGamma;
       pp.slot7[1] = qualityLabConfig_.enabled ? 1.0f : 0.0f;
+      // The trace mode exposes the recovered parameter checksum through the
+      // output alpha channel only; normal playback never enters this branch.
+      if (std::getenv("TFORGE_FSR4_POSTPASS_TRACE"))
+        pp.slot7[1] = 2.0f;
       const char *casStrengthEnv = std::getenv("TFORGE_FSR4_CAS_STRENGTH");
+      // Keep the promoted path neutral by default.  CAS remains available
+      // through TFORGE_FSR4_CAS_STRENGTH for controlled experiments, but the
+      // matched real-video campaign showed that the previous implicit 0.04
+      // sharpening pass reduced SSIM on both representative scenes while
+      // adding work after reconstruction.
       const float casStrength = casStrengthEnv && *casStrengthEnv
                                     ? std::clamp(std::strtof(casStrengthEnv,
                                                              nullptr), 0.0f, 1.0f)
-                                    : 0.04f;
+                                    : 0.0f;
       pp.slot7[2] = casStrength;
       pp.slot7[3] = std::getenv("TFORGE_FSR4_DISABLE_CAS") ? 0.0f : 1.0f;
       if (cbRingMapped_)
@@ -3125,12 +3231,16 @@ Fsr4DispatchHarness::dispatchFrame(const FrameDispatchInput &in) {
                                         VK_IMAGE_LAYOUT_GENERAL};
       VkDescriptorImageInfo colorInfo{VK_NULL_HANDLE, in.colorView,
                                       VK_IMAGE_LAYOUT_GENERAL};
+      VkDescriptorImageInfo sourceDisplayInfo{
+          VK_NULL_HANDLE, in.sourceDisplayView, VK_IMAGE_LAYOUT_GENERAL};
       VkDescriptorImageInfo motionInfo{VK_NULL_HANDLE, in.motionView,
                                        VK_IMAGE_LAYOUT_GENERAL};
       VkDescriptorImageInfo recurrentOutInfo{
           VK_NULL_HANDLE, in.recurrentWriteView, VK_IMAGE_LAYOUT_GENERAL};
+      VkDescriptorImageInfo reprojectedInfo{
+          VK_NULL_HANDLE, in.reprojectedColorView, VK_IMAGE_LAYOUT_GENERAL};
 
-      VkWriteDescriptorSet w[9]{};
+      VkWriteDescriptorSet w[11]{};
       w[0].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
       w[0].dstSet = set;
       w[0].dstBinding = 0;
@@ -3175,17 +3285,29 @@ Fsr4DispatchHarness::dispatchFrame(const FrameDispatchInput &in) {
       w[6].pImageInfo = &colorInfo;
       w[7].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
       w[7].dstSet = set;
-      w[7].dstBinding = 8;
+      w[7].dstBinding = 7;
       w[7].descriptorCount = 1;
       w[7].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
-      w[7].pImageInfo = &motionInfo;
+      w[7].pImageInfo = &reprojectedInfo;
       w[8].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
       w[8].dstSet = set;
-      w[8].dstBinding = 9;
+      w[8].dstBinding = 8;
       w[8].descriptorCount = 1;
       w[8].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
-      w[8].pImageInfo = &recurrentOutInfo;
-      vkUpdateDescriptorSets(device_, 9, w, 0, nullptr);
+      w[8].pImageInfo = &motionInfo;
+      w[9].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+      w[9].dstSet = set;
+      w[9].dstBinding = 9;
+      w[9].descriptorCount = 1;
+      w[9].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+      w[9].pImageInfo = &recurrentOutInfo;
+      w[10].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+      w[10].dstSet = set;
+      w[10].dstBinding = 10;
+      w[10].descriptorCount = 1;
+      w[10].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+      w[10].pImageInfo = &sourceDisplayInfo;
+      vkUpdateDescriptorSets(device_, 11, w, 0, nullptr);
 
       vkCmdBindPipeline(cmd_, VK_PIPELINE_BIND_POINT_COMPUTE,
                         postpassPipeline_);
@@ -3294,6 +3416,8 @@ Fsr4DispatchHarness::dispatchFrame(const FrameDispatchInput &in) {
     r.failReason = "queue submit";
     return r;
   }
+  if (dispatchTrace)
+    logInfo("Fsr4Harness dispatch trace: queue submitted");
 
   // The asynchronous entry point returns here. The command buffer, fence,
   // timestamp pool, descriptor sets, and every image named by `in` remain
@@ -3309,7 +3433,34 @@ Fsr4DispatchHarness::dispatchFrame(const FrameDispatchInput &in) {
             .count();
     return pendingDispatchResult_;
   }
-  vkWaitForFences(device_, 1, &fence_, VK_TRUE, UINT64_MAX);
+  // Normal playback keeps the historical blocking wait. Capture diagnostics
+  // can opt into a finite wait so a broken temporal submission is reported as
+  // a failed frame instead of hanging the entire campaign indefinitely.
+  uint64_t fenceTimeoutNs = UINT64_MAX;
+  if (const char *timeoutEnv = std::getenv("TFORGE_FSR4_FENCE_TIMEOUT_MS")) {
+    char *end = nullptr;
+    const unsigned long long timeoutMs = std::strtoull(timeoutEnv, &end, 10);
+    if (end != timeoutEnv && *end == '\0' && timeoutMs > 0) {
+      constexpr unsigned long long kNsPerMs = 1000000ull;
+      fenceTimeoutNs = timeoutMs > (UINT64_MAX / kNsPerMs)
+                           ? UINT64_MAX
+                           : static_cast<uint64_t>(timeoutMs * kNsPerMs);
+    }
+  }
+  const VkResult fenceResult =
+      vkWaitForFences(device_, 1, &fence_, VK_TRUE, fenceTimeoutNs);
+  if (fenceResult == VK_TIMEOUT) {
+    logError("Fsr4Harness: temporal fence timeout after {} ms",
+             fenceTimeoutNs / 1000000ull);
+    r.error = UpscaleError::DispatchFailed;
+    r.failReason = "temporal fence timeout";
+    return r;
+  }
+  if (fenceResult != VK_SUCCESS) {
+    r.error = UpscaleError::DispatchFailed;
+    r.failReason = "temporal fence wait";
+    return r;
+  }
   vkResetFences(device_, 1, &fence_);
   vkResetCommandBuffer(cmd_, 0);
   // Cached descriptor sets remain valid until allocateResources() replaces

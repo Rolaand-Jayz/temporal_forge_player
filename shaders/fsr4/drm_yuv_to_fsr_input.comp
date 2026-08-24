@@ -15,13 +15,14 @@ layout(push_constant) uniform Push {
     vec4 params; // width, height, sharpness, compareEnabled
     vec4 range;  // yOffset, yScale, chromaOffset, chromaScale
     vec4 matrix; // rV, gU, gV, bU
+    vec4 chroma; // chromaPhase x/y, source bit depth, reserved
 } pc;
 
 const int Y_TILE_WIDTH = 18;
-// The cubic footprint reaches one texel beyond the bilinear footprint at
-// both edges of a 16x16 luma tile.  With the chroma tile starting at -1,
-// eleven samples cover the complete [base-1, base+2] range.
-const int UV_TILE_WIDTH = 11;
+// Centered chroma puts the first luma pixel at UV -0.25, so the four-tap
+// cubic footprint reaches two texels before the workgroup and nine after its
+// origin. A 12x12 tile covers that complete [-2,+9] range.
+const int UV_TILE_WIDTH = 12;
 shared float yTile[Y_TILE_WIDTH * Y_TILE_WIDTH];
 shared vec2 uvTile[UV_TILE_WIDTH * UV_TILE_WIDTH];
 
@@ -48,7 +49,7 @@ vec2 loadUvBicubic(ivec2 p, ivec2 uvSize, ivec2 tileBase) {
     // Keep the DRM PRIME path identical in reconstruction quality to the
     // regular YUV path.  Bilinear chroma creates a soft 2x2 lattice which
     // becomes visible after neural upscaling, especially around text.
-    vec2 uvPos = (vec2(p) + vec2(0.5)) * 0.5 - vec2(0.5);
+    vec2 uvPos = (vec2(p) + vec2(0.5)) * 0.5 - pc.chroma.xy;
     ivec2 base = ivec2(floor(uvPos));
     vec2 f = fract(uvPos);
     vec4 wx = catmullRomWeights(f.x);
@@ -86,7 +87,7 @@ void main() {
     ivec2 uvSize = max((size + ivec2(1)) / 2, ivec2(1));
     ivec2 groupCoord = ivec2(gl_WorkGroupID.xy) * 16;
     ivec2 yTileBase = groupCoord - ivec2(1);
-    ivec2 uvTileBase = groupCoord / 2 - ivec2(1);
+    ivec2 uvTileBase = groupCoord / 2 - ivec2(2);
     uint localIndex = gl_LocalInvocationID.y * 16u + gl_LocalInvocationID.x;
 
     for (uint i = localIndex; i < uint(Y_TILE_WIDTH * Y_TILE_WIDTH); i += 256u) {

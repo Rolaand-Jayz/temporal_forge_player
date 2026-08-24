@@ -47,6 +47,17 @@ YuvPushConstants yuvPushConstants(const DecodedVideoFrame &frame,
   const float yScale = fullRange ? 1.0f : 255.0f / 219.0f;
   const float chromaScale = fullRange ? 1.0f : 255.0f / 224.0f;
   const float kg = 1.0f - kr - kb;
+  // FFmpeg's chroma location describes the 4:2:0 sample's phase relative to
+  // the luma grid. CENTER preserves the existing centered reconstruction;
+  // LEFT/TOP variants keep edge-aligned sources from shifting half a texel.
+  float chromaPhaseX = 0.5f;
+  float chromaPhaseY = 0.5f;
+  if (frame.chromaLocation == AVCHROMA_LOC_LEFT)
+    chromaPhaseX = 0.25f;
+  else if (frame.chromaLocation == AVCHROMA_LOC_TOPLEFT)
+    chromaPhaseX = chromaPhaseY = 0.25f;
+  else if (frame.chromaLocation == AVCHROMA_LOC_TOP)
+    chromaPhaseY = 0.25f;
 
   return {static_cast<float>(frame.width),
           static_cast<float>(frame.height),
@@ -59,7 +70,9 @@ YuvPushConstants yuvPushConstants(const DecodedVideoFrame &frame,
           2.0f * (1.0f - kr) * chromaScale,
           -2.0f * kb * (1.0f - kb) / kg * chromaScale,
           -2.0f * kr * (1.0f - kr) / kg * chromaScale,
-          2.0f * (1.0f - kb) * chromaScale};
+          2.0f * (1.0f - kb) * chromaScale,
+          chromaPhaseX, chromaPhaseY,
+          static_cast<float>(frame.bitDepth), 0.0f};
 }
 
 } // namespace temporal_forge

@@ -32,29 +32,49 @@ layout(set = 0, binding = 1, std430) readonly buffer WeightBlob {
     float weightParams[];
 };
 
+// The v4.1 postpass region is 222 FP32 values at byte offset 130088. Keep
+// these constants in the shader beside the binding so host tests can prove
+// that the typed contract and shader address map agree.
+const uint TFORGE_POSTPASS_PARAM_OFFSET = 130088u;
+const uint TFORGE_POSTPASS_PARAM_COUNT = 222u;
+
 layout(set = 0, binding = 2, std430) readonly buffer DecoderOut {
     float16_t decoderChannels[];
 };
 
 // History is model-space RGB10 at target resolution. It is never presented;
 // only u_output is exposed to Qt Quick.
-layout(set = 0, binding = 3, rgb10_a2) readonly uniform image2D u_history;
+layout(set = 0, binding = 3, rgba16f) readonly uniform image2D u_history;
 layout(set = 0, binding = 4, rgba8) writeonly uniform image2D u_output;
-layout(set = 0, binding = 5, rgb10_a2) writeonly uniform image2D u_historyOut;
+layout(set = 0, binding = 5, rgba16f) writeonly uniform image2D u_historyOut;
 // Source-resolution color is preconverted to FSR model space by the uploader.
 layout(set = 0, binding = 6, rgb10_a2) readonly uniform image2D u_sourceColor;
+layout(set = 0, binding = 7, rgba16f) readonly uniform image2D u_reprojectedColor;
 layout(set = 0, binding = 8, rg16f) readonly uniform image2D u_motion;
 layout(set = 0, binding = 9, rgba16f) writeonly uniform image2D u_recurrentOut;
+// The YUV upload pass preserves decoded display RGB separately from the
+// nonlinear model input. Spatial controls and composition bases sample this
+// image so filtering happens before, rather than inside, the model transform.
+layout(set = 0, binding = 10, rgba8) readonly uniform image2D u_sourceDisplay;
 
 // A horizontally wide group matches contiguous output/history writes on RDNA
 // while retaining 256 threads. Cache the exact source footprint needed by the
 // learned 3x3 and both 2x2 resolves in LDS.
-const ivec2 SOURCE_TILE_SIZE = ivec2(36, 12);
+// The tile covers a 32x8 target group at scales down to 1:1, the four-tap
+// cubic footprint, and the half-pixel separation between jittered learned
+// samples and the stable base resolve.
+const ivec2 SOURCE_TILE_SIZE = ivec2(38, 14);
 shared vec4 sourceTile[SOURCE_TILE_SIZE.x * SOURCE_TILE_SIZE.y];
+shared vec4 displaySourceTile[SOURCE_TILE_SIZE.x * SOURCE_TILE_SIZE.y];
 
 vec3 loadSourceCached(ivec2 p, ivec2 tileBase) {
     const ivec2 local = p - tileBase;
     return sourceTile[local.y * SOURCE_TILE_SIZE.x + local.x].rgb;
+}
+
+vec3 loadDisplaySourceCached(ivec2 p, ivec2 tileBase) {
+    const ivec2 local = p - tileBase;
+    return displaySourceTile[local.y * SOURCE_TILE_SIZE.x + local.x].rgb;
 }
 
 vec3 applySrgb(vec3 x) {
@@ -116,33 +136,17 @@ float finiteOrZero(float x) {
     return (isnan(x) || isinf(x)) ? 0.0 : x;
 }
 
-vec3 sampleHistoryBicubic(vec2 p) {
-    const ivec2 size = imageSize(u_history);
-    p = clamp(p, vec2(0.0), vec2(size - ivec2(1)));
-    const ivec2 base = ivec2(floor(p));
-    const vec2 f = fract(p);
-    const vec4 wx = vec4(
-        -0.5 * f.x * f.x * f.x + f.x * f.x - 0.5 * f.x,
-         1.5 * f.x * f.x * f.x - 2.5 * f.x * f.x + 1.0,
-        -1.5 * f.x * f.x * f.x + 2.0 * f.x * f.x + 0.5 * f.x,
-         0.5 * f.x * f.x * f.x - 0.5 * f.x * f.x);
-    const vec4 wy = vec4(
-        -0.5 * f.y * f.y * f.y + f.y * f.y - 0.5 * f.y,
-         1.5 * f.y * f.y * f.y - 2.5 * f.y * f.y + 1.0,
-        -1.5 * f.y * f.y * f.y + 2.0 * f.y * f.y + 0.5 * f.y,
-         0.5 * f.y * f.y * f.y - 0.5 * f.y * f.y);
-    vec3 result = vec3(0.0);
-    float total = 0.0;
-    for (int y = 0; y < 4; ++y) {
-        const int sy = clamp(base.y + y - 1, 0, size.y - 1);
-        for (int x = 0; x < 4; ++x) {
-            const int sx = clamp(base.x + x - 1, 0, size.x - 1);
-            const float weight = wx[x] * wy[y];
-            result += imageLoad(u_history, ivec2(sx, sy)).rgb * weight;
-            total += weight;
-        }
+
+// Diagnostic-only checksum of the recovered parameter region. The host enables
+// this by setting slot7.y above the normal Quality Lab range; default playback
+// keeps the value at zero and therefore preserves the production composition.
+float postpassParameterTrace() {
+    const uint firstFloat = TFORGE_POSTPASS_PARAM_OFFSET / 4u;
+    float checksum = 0.0;
+    for (uint index = 0u; index < TFORGE_POSTPASS_PARAM_COUNT; ++index) {
+        checksum += finiteOrZero(weightParams[firstFloat + index]);
     }
-    return clamp(result / max(abs(total), 1.0e-5), vec3(0.0), vec3(1.0));
+    return checksum;
 }
 
 float filterWeightGaussian(float distance, float upscaleFactor) {
@@ -205,6 +209,31 @@ vec3 sampleSourceBicubic(vec2 p, ivec2 tileBase) {
     return clamp(result, vec3(0.0), vec3(1.0));
 }
 
+// The uploader keeps decoded display RGB beside the nonlinear model input.
+// This diagnostic path lets the current composition use that display-space
+// image for its stable base instead of filtering model-space values and then
+// applying an inverse Mu-law transform. It is opt-in until matched captures
+// establish that the space change improves real video rather than merely
+// changing tone.
+vec3 sampleDisplaySourceBicubic(vec2 p, ivec2 tileBase) {
+    const ivec2 size = imageSize(u_sourceDisplay);
+    p = clamp(p, vec2(0.0), vec2(size - ivec2(1)));
+    const ivec2 base = ivec2(floor(p));
+    const vec2 f = fract(p);
+    const vec4 wx = catmullRomWeights(f.x);
+    const vec4 wy = catmullRomWeights(f.y);
+    vec3 result = vec3(0.0);
+    for (int y = 0; y < 4; ++y) {
+        const int sy = clamp(base.y + y - 1, 0, size.y - 1);
+        for (int x = 0; x < 4; ++x) {
+            const int sx = clamp(base.x + x - 1, 0, size.x - 1);
+            result += loadDisplaySourceCached(ivec2(sx, sy), tileBase) *
+                      (wx[x] * wy[y]);
+        }
+    }
+    return clamp(result, vec3(0.0), vec3(1.0));
+}
+
 vec3 sampleSourceBilinear(vec2 p, ivec2 tileBase) {
     const ivec2 size = imageSize(u_sourceColor);
     p = clamp(p, vec2(0.0), vec2(size - ivec2(1)));
@@ -212,9 +241,9 @@ vec3 sampleSourceBilinear(vec2 p, ivec2 tileBase) {
     const ivec2 b = min(a + ivec2(1), size - ivec2(1));
     const vec2 f = fract(p);
     const vec3 top = mix(loadSourceCached(a, tileBase),
-                          loadSourceCached(ivec2(b.x, a.y), tileBase), f.x);
+                         loadSourceCached(ivec2(b.x, a.y), tileBase), f.x);
     const vec3 bottom = mix(loadSourceCached(ivec2(a.x, b.y), tileBase),
-                             loadSourceCached(b, tileBase), f.x);
+                            loadSourceCached(b, tileBase), f.x);
     return mix(top, bottom, f.y);
 }
 
@@ -294,14 +323,11 @@ vec3 sampleSourceBase(vec2 p, ivec2 tileBase, uint mode, float b, float c) {
 }
 
 vec3 applyLegacyEdgeAwareRcas(vec3 color, vec2 sourcePos, vec2 sourceStep,
-                              ivec2 tileBase) {
+                              ivec2 tileBase, float strength) {
     // A restrained RCAS-style unsharp response. Detail is measured in linear
     // light and is gated by local edge strength, avoiding halos in flat dark
     // regions. The 0.08 default is intentionally conservative for compressed
     // screen recordings; the neural reconstruction remains the main sharpener.
-    // The source image is model-space RGB10, not encoded display sRGB.
-    // Decode it first; applying an sRGB EOTF directly to model values makes
-    // the RCAS response too weak in shadows and unstable near edges.
     vec3 center = srgbToLinear(removeMuLaw(sampleSourceBicubic(sourcePos, tileBase)));
     vec3 left = srgbToLinear(removeMuLaw(sampleSourceBicubic(sourcePos - vec2(sourceStep.x, 0.0), tileBase)));
     vec3 right = srgbToLinear(removeMuLaw(sampleSourceBicubic(sourcePos + vec2(sourceStep.x, 0.0), tileBase)));
@@ -309,7 +335,7 @@ vec3 applyLegacyEdgeAwareRcas(vec3 color, vec2 sourcePos, vec2 sourceStep,
     vec3 down = srgbToLinear(removeMuLaw(sampleSourceBicubic(sourcePos + vec2(0.0, sourceStep.y), tileBase)));
     vec3 detail = center - (left + right + up + down) * 0.25;
     float edge = clamp(length(detail) * 8.0, 0.0, 1.0);
-    return clamp(linearToSrgb(srgbToLinear(color) + detail * (0.08 * edge)),
+    return clamp(linearToSrgb(srgbToLinear(color) + detail * (strength * edge)),
                  vec3(0.0), vec3(1.0));
 }
 
@@ -342,7 +368,11 @@ vec3 applyAdaptiveSharpen(vec3 color, vec2 sourcePos, vec2 sourceStep,
 // the next, so this runs once per pass without changing the neural graph.
 vec3 applyCas(vec3 color, vec2 sourcePos, vec2 sourceStep,
               ivec2 tileBase, float strength) {
-    const vec3 center = srgbToLinear(removeMuLaw(
+    // The source resolve supplies the local edge neighborhood used to gate
+    // the CAS response, but the incoming composition is the pixel being
+    // sharpened. Keeping those roles separate is what lets CAS remain a
+    // postpass for base-only, learned-only, blend, and residual outputs.
+    const vec3 sourceCenter = srgbToLinear(removeMuLaw(
         sampleSourceBicubic(sourcePos, tileBase)));
     const vec3 left = srgbToLinear(removeMuLaw(sampleSourceBicubic(
         sourcePos - vec2(sourceStep.x, 0.0), tileBase)));
@@ -352,13 +382,14 @@ vec3 applyCas(vec3 color, vec2 sourcePos, vec2 sourceStep,
         sourcePos - vec2(0.0, sourceStep.y), tileBase)));
     const vec3 down = srgbToLinear(removeMuLaw(sampleSourceBicubic(
         sourcePos + vec2(0.0, sourceStep.y), tileBase)));
-    const vec3 low = min(center, min(min(left, right), min(up, down)));
-    const vec3 high = max(center, max(max(left, right), max(up, down)));
+    const vec3 low = min(sourceCenter, min(min(left, right), min(up, down)));
+    const vec3 high = max(sourceCenter, max(max(left, right), max(up, down)));
     const vec3 range = high - low;
-    const vec3 detail = center - (left + right + up + down) * 0.25;
+    const vec3 detail = sourceCenter - (left + right + up + down) * 0.25;
     const vec3 adaptive = detail * strength /
                          max(high + vec3(1.0e-4), vec3(1.0e-4));
-    return clamp(linearToSrgb(clamp(center + adaptive *
+    const vec3 composed = srgbToLinear(color);
+    return clamp(linearToSrgb(clamp(composed + adaptive *
                                     smoothstep(vec3(0.002), vec3(0.08), range),
                                     vec3(0.0), vec3(1.0))),
                  vec3(0.0), vec3(1.0));
@@ -421,24 +452,11 @@ vec3 learnedColorAt(ivec2 targetCoord, vec2 invScale, vec2 scale,
     const vec3 upscaledColor = reconstructed / max(totalWeight, 1.0e-35);
 
     const vec4 current = sampleCurrentModel(sourcePos, scale, tileBase);
-    vec3 reprojectedColor = current.rgb;
-    if ((slot0.z & 1u) == 0u) {
-        const ivec2 motionCoord = clamp(sourceCoord, ivec2(0),
-                                        imageSize(u_motion) - ivec2(1));
-        const vec2 motion = imageLoad(u_motion, motionCoord).xy * scale;
-        const vec2 historyPos = vec2(coord) + motion;
-        const ivec2 historySize = imageSize(u_history);
-        const bool onscreen = historyPos.x >= 0.0 && historyPos.y >= 0.0 &&
-                              historyPos.x <= float(historySize.x - 1) &&
-                              historyPos.y <= float(historySize.y - 1);
-        reprojectedColor = onscreen ? sampleHistoryBicubic(historyPos)
-                                    : vec3(0.0);
-        const float temporalSampleWeight = current.a * 0.1;
-        reprojectedColor = max(temporalSampleWeight * current.rgb +
-                                   (1.0 - temporalSampleWeight) *
-                                       reprojectedColor,
-                               vec3(0.0));
-    }
+    // The prepass already published the exact causal target-grid resolve.
+    // Reusing it here prevents network conditioning and final composition from
+    // sampling different history coordinates or filters.
+    const vec3 reprojectedColor =
+        imageLoad(u_reprojectedColor, coord).rgb;
     const float historyBlend =
         1.0 / (1.0 + exp(-clamp(params.w, -16.0, 16.0)));
     const vec3 modelColor = mix(upscaledColor, reprojectedColor, historyBlend);
@@ -483,12 +501,12 @@ void main() {
     const ivec2 groupCoord = ivec2(gl_WorkGroupID.xy) * ivec2(32, 8);
     const vec2 groupSourcePos = (-vec2(0.5) + invScale * 0.5 +
                                  vec2(groupCoord) * invScale) + slot1.xy;
-    const ivec2 sourceTileBase = ivec2(floor(groupSourcePos)) - ivec2(2);
+    const ivec2 sourceTileBase = ivec2(floor(groupSourcePos)) - ivec2(3);
     const ivec2 groupLastCoord = min(groupCoord + ivec2(31, 7),
                                      ivec2(dispatchW, dispatchH) - ivec2(1));
     const vec2 groupLastSourcePos = (-vec2(0.5) + invScale * 0.5 +
                                      vec2(groupLastCoord) * invScale) + slot1.xy;
-    const ivec2 sourceTileEnd = ivec2(ceil(groupLastSourcePos)) + ivec2(1);
+    const ivec2 sourceTileEnd = ivec2(ceil(groupLastSourcePos)) + ivec2(2);
     const ivec2 sourceTileExtent = clamp(sourceTileEnd - sourceTileBase + ivec2(1),
                                          ivec2(1), SOURCE_TILE_SIZE);
     const ivec2 sourceSize = ivec2(srcW, srcH);
@@ -502,6 +520,8 @@ void main() {
                                         sourceSize - ivec2(1));
         sourceTile[tileCoord.y * SOURCE_TILE_SIZE.x + tileCoord.x] =
             imageLoad(u_sourceColor, sourceCoord);
+        displaySourceTile[tileCoord.y * SOURCE_TILE_SIZE.x + tileCoord.x] =
+            imageLoad(u_sourceDisplay, sourceCoord);
     }
     barrier();
 
@@ -560,39 +580,53 @@ void main() {
     const vec3 upscaledColor = reconstructed / max(totalWeight, 1e-35);
 
     const vec4 current = sampleCurrentModel(sourcePos, scale, sourceTileBase);
-    vec3 reprojectedColor = current.rgb;
-    if ((slot0.z & 1u) == 0u) {
-        const ivec2 motionCoord = clamp(sourceCoord, ivec2(0),
-                                         imageSize(u_motion) - ivec2(1));
-        const vec2 motion = imageLoad(u_motion, motionCoord).xy * scale;
-        const vec2 historyPos = vec2(coord) + motion;
-        const ivec2 historySize = imageSize(u_history);
-        const bool onscreen = historyPos.x >= 0.0 && historyPos.y >= 0.0 &&
-                              historyPos.x <= float(historySize.x - 1) &&
-                              historyPos.y <= float(historySize.y - 1);
-        reprojectedColor = onscreen ? sampleHistoryBicubic(historyPos) : vec3(0.0);
-        const float temporalSampleWeight = current.a * 0.1;
-        reprojectedColor = max(temporalSampleWeight * current.rgb +
-                                   (1.0 - temporalSampleWeight) * reprojectedColor,
-                               vec3(0.0));
-    }
+    // Consume the same prepass-published resolve used by the model features.
+    const vec3 reprojectedColor = imageLoad(u_reprojectedColor, coord).rgb;
     const float historyBlend = 1.0 /
         (1.0 + exp(-clamp(params.w, -16.0, 16.0)));
     const vec3 modelColor = mix(upscaledColor, reprojectedColor, historyBlend);
     const vec3 learnedColor = removeMuLaw(modelColor);
     const bool qualityEnabled = slot7.y > 0.5;
     const bool experimentalComposition = qualityEnabled && slot3.x != 0u;
-    const vec3 currentBaseColor = removeMuLaw(
-        sampleSourceBicubic(sourcePos, sourceTileBase));
+    // Jitter belongs to the learned temporal reconstruction. The current
+    // composition's base resolve has no accumulator of its own, so keep that
+    // component on the stable source grid—especially when confidence gating
+    // reduces the learned contribution at severe upscale ratios.
+    // The promoted current path keeps its stable base on the unjittered
+    // source grid.  This opt-in diagnostic restores the original recovered
+    // postpass sampling phase so quality comparisons can distinguish a
+    // filter change from a phase change without changing normal playback.
+    const vec2 currentBaseSourcePos = (slot0.z & 32u) != 0u
+        ? sourcePos
+        : sourcePos - slot1.xy;
+    const vec3 modelBaseColor = (slot0.z & 8u) != 0u
+        ? removeMuLaw(sampleSourceBilinear(currentBaseSourcePos,
+                                           sourceTileBase))
+        : removeMuLaw(sampleSourceBicubic(currentBaseSourcePos,
+                                          sourceTileBase));
+    const float displayBaseStrength = (slot0.z & 4u) != 0u
+        ? clamp(slot4.z, 0.0, 1.0)
+        : 0.0;
+    vec3 currentBaseColor = modelBaseColor;
+    if (displayBaseStrength > 0.0) {
+        currentBaseColor = mix(
+            modelBaseColor,
+            sampleDisplaySourceBicubic(currentBaseSourcePos, sourceTileBase),
+            displayBaseStrength);
+    }
     vec3 finalColor;
     if (!experimentalComposition) {
         // This is the preserved control path. Keep its Catmull-Rom base,
         // resolution-aware strength, sRGB blend, and fixed source-derived
         // sharpen exactly as they were before the Quality Lab.
-        const vec3 blendedColor = mix(currentBaseColor, learnedColor,
-                                      clamp(slot1.w, 0.0, 1.0));
+        const float learnedBlend = clamp(slot1.w, 0.0, 1.0);
+        const vec3 blendedColor = (slot0.z & 16u) != 0u
+            ? linearToSrgb(mix(srgbToLinear(currentBaseColor),
+                               srgbToLinear(learnedColor), learnedBlend))
+            : mix(currentBaseColor, learnedColor, learnedBlend);
         finalColor = applyLegacyEdgeAwareRcas(
-            blendedColor, sourcePos, invScale, sourceTileBase);
+            blendedColor, currentBaseSourcePos, invScale, sourceTileBase,
+            clamp(slot4.w, 0.0, 1.0));
     } else {
         // A base-only resolve has no temporal accumulator to consume
         // sub-pixel jitter. Sampling it at the jittered position therefore
@@ -641,7 +675,10 @@ void main() {
     // is an sRGB presentation target.
     const vec3 encodedOutput = encodeOutputTransfer(
         finalColor, slot2.z, slot2.w != 0u);
-    imageStore(u_output, coord, vec4(encodedOutput, 1.0));
+    const float parameterTrace = slot7.y > 1.5
+        ? postpassParameterTrace()
+        : 0.0;
+    imageStore(u_output, coord, vec4(encodedOutput, parameterTrace));
     imageStore(u_historyOut, coord, vec4(modelColor, 1.0));
     if ((slot0.z & 2u) == 0u) {
         const vec4 recurrentLogits = vec4(

@@ -14,6 +14,7 @@
 // GPU in the full path (Phase 3+).
 #pragma once
 #include "util/Jitter.hpp"
+#include <algorithm>
 #include <cstdint>
 #include <array>
 #include <vector>
@@ -22,6 +23,10 @@ namespace temporal_forge {
 
 enum class DepthSynthMode { Flat, EdgeLite };
 enum class ReactiveSynthMode { Off, CheapAuto, Aggressive };
+// JitterMode makes decoded-video jitter an explicit diagnostic choice instead
+// of an unnamed scalar. Current preserves playback behavior; the other modes
+// are for controlled sequence comparisons and are recorded by the caller.
+enum class JitterMode { Off, Current, Reduced, Controlled };
 
 // Cheap analysis buffer: a small luminance image used for scene-cut and
 // reactive-mask heuristics. Quarter-resolution is plenty (spec 03 block
@@ -42,6 +47,7 @@ struct SideBufferInputs {
     float histogramDelta = 0.0f; // [0,1]
     float avgLumaDelta = 0.0f;   // [0,1]
     float motionConfidence = 1.0f;
+    float expectedFrameIntervalMs = 0.0f;
 
     // Reactive mask statistics
     float reactiveAverage = 0.0f; // mean of the reactive map
@@ -66,6 +72,10 @@ public:
         renderHeight_ = height;
     }
     void setJitterStrength(float v) { jitterStrength_ = v; }
+    void setJitterMode(JitterMode mode) { jitterMode_ = mode; }
+    void setControlledJitterStrength(float v) {
+        controlledJitterStrength_ = std::clamp(v, 0.0f, 1.5f);
+    }
 
     // Reactive mask value per spec 03 section 5:
     //   reactive = clamp(lumaDiff*0.60 + motionUncertainty*0.30 + edgeChange*0.10, 0, cap)
@@ -100,6 +110,8 @@ private:
     uint32_t renderWidth_ = 0;
     uint32_t renderHeight_ = 0;
     float jitterStrength_ = 1.0f;
+    JitterMode jitterMode_ = JitterMode::Current;
+    float controlledJitterStrength_ = 1.0f;
 };
 
 // Compute a 64-bin luminance histogram + average over a luma buffer.

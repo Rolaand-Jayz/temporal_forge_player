@@ -237,6 +237,17 @@ bool VideoDecoder::receiveFrame(DecodedVideoFrame& out) {
     out.colorTransfer = sourceFrame->color_trc != AVCOL_TRC_UNSPECIFIED
                             ? sourceFrame->color_trc
                             : codec_->color_trc;
+    out.colorPrimaries = sourceFrame->color_primaries != AVCOL_PRI_UNSPECIFIED
+                             ? sourceFrame->color_primaries
+                             : codec_->color_primaries;
+    out.chromaLocation = sourceFrame->chroma_location != AVCHROMA_LOC_UNSPECIFIED
+                             ? sourceFrame->chroma_location
+                             : codec_->chroma_sample_location;
+    const AVPixFmtDescriptor *sourceDesc =
+        av_pix_fmt_desc_get(static_cast<AVPixelFormat>(sourceFrame->format));
+    out.bitDepth = sourceDesc && sourceDesc->comp[0].depth > 0
+                       ? sourceDesc->comp[0].depth
+                       : 8;
     out.hwFrame = drmFrame != nullptr;
     out.hwFrameFormat = out.hwFrame ? AV_PIX_FMT_DRM_PRIME : -1;
     out.drmObjects = 0;
@@ -265,7 +276,7 @@ bool VideoDecoder::receiveFrame(DecodedVideoFrame& out) {
     if (!decodedHwFrame || !out.hwFrame) {
         // Copy each plane into owned host memory so the frame can outlive the
         // AVFrame reuse. This is the CPU-decode fallback path.
-        const AVPixFmtDescriptor* desc = av_pix_fmt_desc_get(static_cast<AVPixelFormat>(sourceFrame->format));
+        const AVPixFmtDescriptor* desc = sourceDesc;
         out.planes = 0;
         if (desc) {
             int nb = av_pix_fmt_count_planes(static_cast<AVPixelFormat>(sourceFrame->format));

@@ -306,6 +306,9 @@ private:
     bool fsr4DumpedOutput_ = false;
     bool fsr4DumpedRaw_ = false;
     uint32_t fsr4SequenceDumpCount_ = 0;
+    // Startup frames can be excluded from an opt-in temporal capture so the
+    // benchmark measures steady-state output rather than resource warm-up.
+    uint32_t fsr4SequenceFramesSeen_ = 0;
     bool fsr4DumpedPresentation_ = false;
     // Initializes fsr4Harness_ + fsr4Uploader_ for the current source dims.
     bool initFsr4Path(int decodedW, int decodedH, int modelW, int modelH);

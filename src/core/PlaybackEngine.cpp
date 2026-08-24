@@ -13,10 +13,12 @@ extern "C" {
 #include <chrono>
 #include <cmath>
 #include <cstdio>
+#include <cstring>
 #include <cstdlib>
 #include <QFileInfo>
 #include <filesystem>
 #include <fstream>
+#include <iomanip>
 #include <limits>
 #include <utility>
 namespace temporal_forge {
@@ -141,6 +143,140 @@ std::vector<MvEntry> pastReferenceMotion(const std::vector<MvEntry> &mvs) {
       past.push_back(mv);
   }
   return past;
+}
+
+bool dumpCausalMotionFrame(const std::filesystem::path &path,
+                           const DecodedVideoFrame &frame, bool reset,
+                           float histogramDelta, float avgLumaDelta,
+                           float motionConfidence,
+                           const std::vector<MvEntry> &causalMotion,
+                           uint32_t targetW, uint32_t targetH,
+                           uint32_t frameIndex) {
+  // This is a diagnostic artifact only. It records the sparse source-space
+  // vectors after the same causal filtering used by the FSR path, before the
+  // existing model-coordinate scaling/upload. The Python assembler later
+  // validates and expands the records for metric extraction.
+  std::error_code directoryError;
+  if (!path.parent_path().empty())
+    std::filesystem::create_directories(path.parent_path(), directoryError);
+  if (directoryError) {
+    logWarn("PlaybackEngine: cannot create motion sidecar directory {}: {}",
+            path.parent_path().string(), directoryError.message());
+    return false;
+  }
+
+  std::ofstream output(path, std::ios::trunc);
+  if (!output) {
+    logWarn("PlaybackEngine: cannot write motion sidecar frame {}", path.string());
+    return false;
+  }
+  output << std::setprecision(9);
+  output << "{\n"
+         << "  \"frameIndex\": " << frameIndex << ",\n"
+         << "  \"ptsUs\": " << frame.ptsUs << ",\n"
+         << "  \"reset\": " << (reset ? "true" : "false") << ",\n"
+         << "  \"histogramDelta\": " << histogramDelta << ",\n"
+         << "  \"avgLumaDelta\": " << avgLumaDelta << ",\n"
+         << "  \"motionConfidence\": " << motionConfidence << ",\n"
+         << "  \"motionAvailable\": "
+         << (!causalMotion.empty() ? "true" : "false") << ",\n"
+         << "  \"vectors\": [";
+  for (size_t index = 0; index < causalMotion.size(); ++index) {
+    const MvEntry &motion = causalMotion[index];
+    if (index != 0) output << ',';
+    output << "\n    {\"dstX\": " << static_cast<int>(motion.dstX)
+           << ", \"dstY\": " << static_cast<int>(motion.dstY)
+           << ", \"mvX\": " << motion.mvX
+           << ", \"mvY\": " << motion.mvY
+           << ", \"w\": " << static_cast<int>(motion.w)
+           << ", \"h\": " << static_cast<int>(motion.h)
+           << ", \"source\": " << static_cast<int>(motion.source) << '}';
+  }
+  if (!causalMotion.empty()) output << '\n';
+  output << "  ],\n"
+         << "  \"sourceWidth\": " << frame.width << ",\n"
+         << "  \"sourceHeight\": " << frame.height << ",\n"
+         << "  \"targetWidth\": " << targetW << ",\n"
+         << "  \"targetHeight\": " << targetH << "\n"
+         << "}\n";
+  if (!output.good()) {
+    logWarn("PlaybackEngine: motion sidecar frame write failed: {}", path.string());
+    return false;
+  }
+  return true;
+}
+
+bool dumpEventTraceFrame(const std::filesystem::path &path,
+                         const DecodedVideoFrame &frame,
+                         uint32_t eventIndex,
+                         bool forcedReset,
+                         const SideBufferInputs &sideInputs,
+                         float ptsDeltaMs) {
+  // Authoritative runtime evidence for an event-spanning capture. This records
+  // the detector decision and its inputs, not a conclusion derived from image
+  // error. The capture assembler adds candidate/scene/config identity and the
+  // explicit metric thresholds after the player exits successfully.
+  std::error_code directoryError;
+  if (!path.parent_path().empty())
+    std::filesystem::create_directories(path.parent_path(), directoryError);
+  if (directoryError) {
+    logWarn("PlaybackEngine: cannot create event trace directory {}: {}",
+            path.parent_path().string(), directoryError.message());
+    return false;
+  }
+
+  const bool detectorSceneCut = sideInputs.reset && !forcedReset;
+  const bool event = forcedReset || detectorSceneCut;
+  const char *cause = forcedReset && detectorSceneCut
+                          ? "forced_reset_and_detector_scene_cut"
+                      : forcedReset ? "forced_reset"
+                      : detectorSceneCut ? "detector_scene_cut"
+                                         : "none";
+  std::ofstream output(path, std::ios::trunc);
+  if (!output) {
+    logWarn("PlaybackEngine: cannot write event trace frame {}", path.string());
+    return false;
+  }
+  output << std::setprecision(9);
+  output << "{\n"
+         << "  \"schema\": \"temporal_forge.event_trace.v1\",\n"
+         << "  \"eventIndex\": " << eventIndex << ",\n"
+         << "  \"eventFrameIndex\": " << eventIndex << ",\n"
+         << "  \"transitionIndex\": "
+         << (eventIndex == 0 ? "null" : std::to_string(eventIndex - 1))
+         << ",\n"
+         << "  \"ptsUs\": " << frame.ptsUs << ",\n"
+         << "  \"ptsDeltaMs\": " << ptsDeltaMs << ",\n"
+         << "  \"reset\": " << (sideInputs.reset ? "true" : "false")
+         << ",\n"
+         << "  \"forcedReset\": " << (forcedReset ? "true" : "false")
+         << ",\n"
+         << "  \"detectorSceneCut\": "
+         << (detectorSceneCut ? "true" : "false") << ",\n"
+         << "  \"resetCause\": \"" << cause << "\",\n"
+         << "  \"ghostCause\": \"" << cause << "\",\n"
+         << "  \"detectorInputs\": {\n"
+         << "    \"histogramDelta\": " << sideInputs.histogramDelta << ",\n"
+         << "    \"avgLumaDelta\": " << sideInputs.avgLumaDelta << ",\n"
+         << "    \"motionConfidence\": " << sideInputs.motionConfidence << ",\n"
+         << "    \"ptsGapMs\": " << ptsDeltaMs << ",\n"
+         << "    \"expectedFrameIntervalMs\": "
+         << sideInputs.expectedFrameIntervalMs << "\n"
+         << "  },\n"
+         << "  \"thresholdProvenance\": {\n"
+         << "    \"contract\": \"side_buffer_scene_cut.v1\",\n"
+         << "    \"implementation\": \"SideBufferSynth::shouldReset\",\n"
+         << "    \"histogramDeltaGreaterThan\": 0.65,\n"
+         << "    \"motionConfidenceLessThan\": 0.15,\n"
+         << "    \"ptsGapMultiplierGreaterThan\": 2.5\n"
+         << "  },\n"
+         << "  \"event\": " << (event ? "true" : "false") << "\n"
+         << "}\n";
+  if (!output.good()) {
+    logWarn("PlaybackEngine: event trace frame write failed: {}", path.string());
+    return false;
+  }
+  return true;
 }
 
 std::vector<MvEntry> scaleMotionToModel(const std::vector<MvEntry> &mvs,
@@ -665,6 +801,7 @@ bool PlaybackEngine::initFsr4Path(int decodedW, int decodedH, int modelW,
   fsr4DumpedOutput_ = false;
   fsr4DumpedRaw_ = false;
   fsr4SequenceDumpCount_ = 0;
+  fsr4SequenceFramesSeen_ = 0;
   fsr4DumpedPresentation_ = false;
   fsr4Ready_.store(true, std::memory_order_release);
   logInfo("PlaybackEngine: FSR4 path ready decoded {}x{} -> model {}x{} -> {}x{}",
@@ -1372,6 +1509,11 @@ void PlaybackEngine::videoDecodeLoop() {
   bool hasPendingDecodedFrame = false;
   static const bool forceResetEnv =
       std::getenv("TFORGE_FSR4_FORCE_RESET") != nullptr;
+  static const char *jitterModeEnv = std::getenv("TFORGE_FSR4_JITTER_MODE");
+  static const float controlledJitterStrength = [] {
+    const char *value = std::getenv("TFORGE_FSR4_CONTROLLED_JITTER");
+    return value ? std::clamp(std::strtof(value, nullptr), 0.0f, 1.5f) : 1.0f;
+  }();
   static const bool dumpDecoderEnv =
       std::getenv("TFORGE_FSR4_DUMP_DECODER") != nullptr;
   static const uint32_t dumpDecoderFrame = [] {
@@ -1395,10 +1537,16 @@ void PlaybackEngine::videoDecodeLoop() {
     const char *value = std::getenv("TFORGE_FSR4_DUMP_PRESENTATION_PATH");
     return value && *value ? value : "/tmp/temporal_forge_fsr4_presentation.ppm";
   }();
+  static const char *dumpRawPath = [] {
+    const char *value = std::getenv("TFORGE_FSR4_DUMP_RAW_PATH");
+    return value && *value ? value : "/tmp/temporal_forge_fsr4_raw.ppm";
+  }();
   static const bool headlessBenchmarkEnv =
       std::getenv("TFORGE_HEADLESS_BENCHMARK") != nullptr;
   static const bool profileUploadEnv =
       std::getenv("TFORGE_FSR4_PROFILE_UPLOAD") != nullptr;
+  static const bool profileTimingsEnv =
+      std::getenv("TFORGE_FSR4_PROFILE_TIMINGS") != nullptr;
   static const uint32_t fsrLogInterval = [] {
     const char *value = std::getenv("TFORGE_FSR4_LOG_INTERVAL");
     if (!value)
@@ -1412,8 +1560,43 @@ void PlaybackEngine::videoDecodeLoop() {
       return 0l;
     return std::strtol(value, nullptr, 10);
   }();
+  static const uint32_t dumpSequenceWarmup = [] {
+    const char *value = std::getenv("TFORGE_FSR4_DUMP_SEQUENCE_WARMUP");
+    if (!value)
+      return 0u;
+    char *end = nullptr;
+    const unsigned long parsed = std::strtoul(value, &end, 10);
+    if (end == value || *end != '\0')
+      return 0u;
+    return static_cast<uint32_t>(std::min<unsigned long>(parsed, 100000ul));
+  }();
+  static const bool dumpMotionSidecarEnv =
+      std::getenv("TFORGE_FSR4_DUMP_MOTION_SIDECAR") != nullptr;
+  static const bool dumpEventTraceEnv =
+      std::getenv("TFORGE_FSR4_DUMP_EVENT_TRACE") != nullptr;
+  // The default remains Current. Diagnostic runs can explicitly choose
+  // off/reduced/controlled without changing history, motion, or reconstruction
+  // rules; the environment value belongs in the capture manifest.
+  if (jitterModeEnv && std::strcmp(jitterModeEnv, "off") == 0)
+    sideBufferSynth_.setJitterMode(JitterMode::Off);
+  else if (jitterModeEnv && std::strcmp(jitterModeEnv, "reduced") == 0)
+    sideBufferSynth_.setJitterMode(JitterMode::Reduced);
+  else if (jitterModeEnv && std::strcmp(jitterModeEnv, "controlled") == 0) {
+    sideBufferSynth_.setJitterMode(JitterMode::Controlled);
+    sideBufferSynth_.setControlledJitterStrength(controlledJitterStrength);
+  } else {
+    sideBufferSynth_.setJitterMode(JitterMode::Current);
+  }
   static const char *dumpSequenceDirectory = [] {
     const char *value = std::getenv("TFORGE_FSR4_DUMP_SEQUENCE_DIR");
+    return value && *value ? value : "/tmp";
+  }();
+  static const char *dumpMotionDirectory = [] {
+    const char *value = std::getenv("TFORGE_FSR4_DUMP_MOTION_DIR");
+    return value && *value ? value : "/tmp";
+  }();
+  static const char *dumpEventTraceDirectory = [] {
+    const char *value = std::getenv("TFORGE_FSR4_DUMP_EVENT_DIR");
     return value && *value ? value : "/tmp";
   }();
   while (running_.load()) {
@@ -1447,13 +1630,19 @@ void PlaybackEngine::videoDecodeLoop() {
 
     vdec_->sendPacket(pkt.isEof ? nullptr : pkt.av);
     DecodedVideoFrame df;
+    double decodeCpuMs = 0.0;
     while (true) {
       if (hasPendingDecodedFrame) {
         df = std::move(pendingDecodedFrame);
         pendingDecodedFrame = {};
         hasPendingDecodedFrame = false;
-      } else if (!vdec_->receiveFrame(df)) {
-        break;
+      } else {
+        const auto decodeStart = std::chrono::steady_clock::now();
+        if (!vdec_->receiveFrame(df))
+          break;
+        decodeCpuMs = std::chrono::duration<double, std::milli>(
+                          std::chrono::steady_clock::now() - decodeStart)
+                          .count();
       }
       DecodedVideoFrame nextDecodedFrame;
       if (vdec_->receiveFrame(nextDecodedFrame)) {
@@ -1791,6 +1980,8 @@ void PlaybackEngine::videoDecodeLoop() {
             in.prefixCommandBuffer = uploadCommandBuffer;
             in.colorView = firstUploader->colorView();
             in.colorImage = firstUploader->colorImage();
+            in.sourceDisplayView = firstUploader->rawPresentationView();
+            in.sourceDisplayImage = firstUploader->rawPresentationImage();
             in.motionView = firstUploader->motionView();
             in.depthView = firstUploader->depthView();
             in.reactiveView = firstUploader->reactiveView();
@@ -1808,11 +1999,13 @@ void PlaybackEngine::videoDecodeLoop() {
                     : firstUploader;
             in.historyReadView = temporalSource->historyReadView();
             in.historyWriteView = firstUploader->historyWriteView();
+            in.reprojectedColorView = firstUploader->reprojectedColorView();
             in.recurrentReadView = temporalSource->recurrentReadView();
             in.recurrentWriteView = firstUploader->recurrentWriteView();
             in.outputImage = firstUploader->outputImage();
             in.historyReadImage = temporalSource->historyReadImage();
             in.historyWriteImage = firstUploader->historyWriteImage();
+            in.reprojectedColorImage = firstUploader->reprojectedColorImage();
             in.recurrentReadImage = temporalSource->recurrentReadImage();
             in.recurrentWriteImage = firstUploader->recurrentWriteImage();
             // Independent chained passes do not share motion/history at the
@@ -1834,7 +2027,8 @@ void PlaybackEngine::videoDecodeLoop() {
 
             const bool runAsync = asyncSlots && !dumpOutputEnv &&
                                   !dumpPresentationEnv &&
-                                  !dumpSequenceLimit && !dumpDecoderEnv;
+                                  !dumpSequenceLimit && !dumpDecoderEnv &&
+                                  !dumpRawEnv;
             auto dr = runAsync ? firstHarness->dispatchFrameAsync(in)
                                : firstHarness->dispatchFrame(in);
             double chainDispatchMs = dr.dispatchMs;
@@ -1905,6 +2099,11 @@ void PlaybackEngine::videoDecodeLoop() {
               // firstUploader->colorView().
               chained.colorView = current->colorView();
               chained.colorImage = current->colorImage();
+              // The preceding pass output is display RGB and is the actual
+              // color source for this chained pass. Keep it separate from the
+              // model-space copy produced by downscaleRgb10().
+              chained.sourceDisplayView = previousUpscaledView;
+              chained.sourceDisplayImage = previousUpscaledOutput;
               // Auxiliary metadata remains in the original decoded-frame
               // domain; only the color frame changes between passes.
               chained.motionView = firstUploader->motionView();
@@ -1915,11 +2114,13 @@ void PlaybackEngine::videoDecodeLoop() {
               chained.outputView = current->outputView();
               chained.historyReadView = current->historyReadView();
               chained.historyWriteView = current->historyWriteView();
+              chained.reprojectedColorView = current->reprojectedColorView();
               chained.recurrentReadView = current->recurrentReadView();
               chained.recurrentWriteView = current->recurrentWriteView();
               chained.outputImage = current->outputImage();
               chained.historyReadImage = current->historyReadImage();
               chained.historyWriteImage = current->historyWriteImage();
+              chained.reprojectedColorImage = current->reprojectedColorImage();
               chained.recurrentReadImage = current->recurrentReadImage();
               chained.recurrentWriteImage = current->recurrentWriteImage();
               // Secondary passes currently use neutral motion. Reusing their
@@ -1958,15 +2159,25 @@ void PlaybackEngine::videoDecodeLoop() {
             // the actual FSR output.
             GpuImageUploader *presentationUploader =
                 asyncSlots ? firstUploader : fsr4Uploader_.get();
+            double presentationCpuMs = 0.0;
             if (!runAsync && dr.ok &&
-                !presentationUploader->dispatchPresentationScaler(displayW,
-                                                                  displayH)) {
-              logWarn("PlaybackEngine: GPU presentation scaler failed");
-              dr.ok = false;
+                presentationUploader) {
+              const auto presentationStart = std::chrono::steady_clock::now();
+              const bool presentationOk =
+                  presentationUploader->dispatchPresentationScaler(displayW,
+                                                                    displayH);
+              presentationCpuMs = std::chrono::duration<double, std::milli>(
+                                      std::chrono::steady_clock::now() -
+                                      presentationStart)
+                                      .count();
+              if (!presentationOk) {
+                logWarn("PlaybackEngine: GPU presentation scaler failed");
+                dr.ok = false;
+              }
             }
 
             static uint32_t fsrFrameCounter = 0;
-            const uint32_t fsrFrameIndex = fsrFrameCounter;
+            const uint64_t sourceFrameIndex = fsrFrame->frameIndex;
             if (dr.ok)
               ++fsrFrameCounter;
             if (dr.ok && (fsrFrameCounter % fsrLogInterval) == 0u) {
@@ -1981,6 +2192,17 @@ void PlaybackEngine::videoDecodeLoop() {
                         colorUploadMs, motionUploadMs, neutralUploadMs,
                         uploadFinalizeMs);
               }
+              if (profileTimingsEnv) {
+                logInfo("PlaybackEngine: FSR4 stage-timing decodeCPU={:.3f}ms "
+                        "uploadCPU={:.3f}ms presentationCPU={:.3f}ms "
+                        "pipelineCPU={:.3f}ms dispatchCPU={:.3f}ms "
+                        "GPU={:.3f}ms",
+                        decodeCpuMs,
+                        colorUploadMs + motionUploadMs + neutralUploadMs +
+                            uploadFinalizeMs,
+                        presentationCpuMs, pipelineCpuMs, chainDispatchMs,
+                        chainGpuMs);
+              }
             }
 
             if (!dr.ok) {
@@ -1989,7 +2211,7 @@ void PlaybackEngine::videoDecodeLoop() {
             } else {
               static bool dumpedDecoder = false;
               if (!dumpedDecoder && dumpDecoderEnv &&
-                  fsrFrameIndex >= dumpDecoderFrame) {
+                  sourceFrameIndex >= dumpDecoderFrame) {
                 std::vector<float> decoder;
                 if (fsr4Harness_->readbackFinalAccum(decoder)) {
                   constexpr size_t kMaxDiagnosticPixels = 65536;
@@ -2009,7 +2231,7 @@ void PlaybackEngine::videoDecodeLoop() {
                   }
                   logInfo("PlaybackEngine: decoder frame={} pixels={} "
                           "sample_stride={}",
-                          fsrFrameIndex, pixelCount, sampleStride);
+                          sourceFrameIndex, pixelCount, sampleStride);
                   for (size_t c = 0; c < samples.size(); ++c) {
                     auto &channel = samples[c];
                     if (channel.empty())
@@ -2039,7 +2261,7 @@ void PlaybackEngine::videoDecodeLoop() {
               // written by the native postpass. It is deliberately
               // one-shot and never substitutes for presentation.
               if (!fsr4DumpedOutput_ && dumpOutputEnv &&
-                  fsrFrameIndex >= dumpOutputFrame) {
+                  sourceFrameIndex >= dumpOutputFrame) {
                 uint32_t dumpW = 0, dumpH = 0;
                 if (fsr4Uploader_->readbackOutput(fsr4Readback_, dumpW,
                                                   dumpH)) {
@@ -2054,7 +2276,7 @@ void PlaybackEngine::videoDecodeLoop() {
                                  3);
                     logInfo("PlaybackEngine: dumped native FSR4 output "
                             "frame={} {}x{} to {}",
-                            fsrFrameIndex, dumpW, dumpH, dumpOutputPath);
+                            sourceFrameIndex, dumpW, dumpH, dumpOutputPath);
                   }
                 } else {
                   logWarn("PlaybackEngine: native FSR4 output readback failed");
@@ -2066,7 +2288,7 @@ void PlaybackEngine::videoDecodeLoop() {
               // dump makes presentation filtering measurable instead of
               // inferring it from the Qt surface.
               if (!fsr4DumpedPresentation_ && dumpPresentationEnv &&
-                  fsrFrameIndex >= dumpOutputFrame) {
+                  sourceFrameIndex >= dumpOutputFrame) {
                 uint32_t dumpW = 0, dumpH = 0;
                 if (fsr4Uploader_->readbackPresentation(fsr4Readback_, dumpW,
                                                         dumpH)) {
@@ -2081,17 +2303,18 @@ void PlaybackEngine::videoDecodeLoop() {
                                  3);
                     logInfo("PlaybackEngine: dumped presented FSR4 output "
                             "frame={} {}x{} to {}",
-                            fsrFrameIndex, dumpW, dumpH, dumpPresentationPath);
+                            sourceFrameIndex, dumpW, dumpH, dumpPresentationPath);
                   }
                 } else {
                   logWarn("PlaybackEngine: presented FSR4 output readback failed");
                 }
                 fsr4DumpedPresentation_ = true;
               }
-              if (!fsr4DumpedRaw_ && dumpRawEnv) {
+              if (!fsr4DumpedRaw_ && dumpRawEnv &&
+                  sourceFrameIndex >= dumpOutputFrame) {
                 uint32_t dumpW = 0, dumpH = 0;
-                if (fsr4Uploader_->readbackRaw(fsr4Readback_, dumpW, dumpH)) {
-                  std::ofstream dump("/tmp/temporal_forge_fsr4_raw.ppm",
+                if (firstUploader->readbackRaw(fsr4Readback_, dumpW, dumpH)) {
+                  std::ofstream dump(dumpRawPath,
                                      std::ios::binary | std::ios::trunc);
                   if (dump) {
                     dump << "P6\n" << dumpW << ' ' << dumpH << "\n255\n";
@@ -2100,9 +2323,9 @@ void PlaybackEngine::videoDecodeLoop() {
                       dump.write(reinterpret_cast<const char *>(
                                      fsr4Readback_.data() + i * 4),
                                  3);
-                    logInfo("PlaybackEngine: dumped raw decoded image {}x{} to "
-                            "/tmp/temporal_forge_fsr4_raw.ppm",
-                            dumpW, dumpH);
+                    logInfo("PlaybackEngine: dumped raw decoded image frame={} "
+                            "{}x{} to {}",
+                            sourceFrameIndex, dumpW, dumpH, dumpRawPath);
                   }
                 } else {
                   logWarn("PlaybackEngine: raw image readback failed");
@@ -2115,9 +2338,12 @@ void PlaybackEngine::videoDecodeLoop() {
               if (dumpSequenceLimit > 0 &&
                   fsr4SequenceDumpCount_ <
                       static_cast<uint32_t>(dumpSequenceLimit)) {
-                uint32_t dumpW = 0, dumpH = 0;
-                if (fsr4Uploader_->readbackOutput(fsr4Readback_, dumpW,
-                                                  dumpH)) {
+                const bool pastWarmup =
+                    fsr4SequenceFramesSeen_ >= dumpSequenceWarmup;
+                if (pastWarmup) {
+                  uint32_t dumpW = 0, dumpH = 0;
+                  if (fsr4Uploader_->readbackOutput(fsr4Readback_, dumpW,
+                                                    dumpH)) {
                   char sequenceName[64];
                   std::snprintf(sequenceName, sizeof(sequenceName),
                                 "temporal_forge_fsr4_%04u.ppm",
@@ -2133,9 +2359,37 @@ void PlaybackEngine::videoDecodeLoop() {
                       dump.write(reinterpret_cast<const char *>(
                                      fsr4Readback_.data() + i * 4),
                                  3);
+                    dump.flush();
+                    if (dump.good() && dumpMotionSidecarEnv) {
+                      char motionName[64];
+                      std::snprintf(motionName, sizeof(motionName),
+                                    "codec_motion_%04u.json",
+                                    fsr4SequenceDumpCount_);
+                      dumpCausalMotionFrame(
+                          std::filesystem::path(dumpMotionDirectory) /
+                              motionName,
+                          *fsrFrame, sideInputs.reset,
+                          sideInputs.histogramDelta, sideInputs.avgLumaDelta,
+                          sideInputs.motionConfidence,
+                          pastReferenceMotion(fsrFrame->motionVectors), dumpW,
+                          dumpH, fsr4SequenceDumpCount_);
+                    }
+                    if (dump.good() && dumpEventTraceEnv) {
+                      char eventName[64];
+                      std::snprintf(eventName, sizeof(eventName),
+                                    "event_trace_%04u.json",
+                                    fsr4SequenceDumpCount_);
+                      dumpEventTraceFrame(
+                          std::filesystem::path(dumpEventTraceDirectory) /
+                              eventName,
+                          *fsrFrame, fsr4SequenceDumpCount_, reset,
+                          sideInputs, ptsDeltaMs);
+                    }
                   }
+                  }
+                  ++fsr4SequenceDumpCount_;
                 }
-                ++fsr4SequenceDumpCount_;
+                ++fsr4SequenceFramesSeen_;
               }
               if (!runAsync) {
                 fsr4PublishedUploader_.store(presentationUploader,
@@ -2232,21 +2486,22 @@ void PlaybackEngine::videoDecodeLoop() {
                 }
                 fsr4DumpedOutput_ = true;
               }
-              if (!fsr4DumpedRaw_ && dumpRawEnv) {
+              if (!fsr4DumpedRaw_ && dumpRawEnv &&
+                  df.frameIndex >= dumpOutputFrame) {
                 uint32_t rawW = 0, rawH = 0;
                 if (fsr4Uploader_->readbackRaw(fsr4Readback_, rawW, rawH)) {
-                  std::ofstream rawDump("/tmp/temporal_forge_fsr4_raw.ppm",
-                                        std::ios::binary | std::ios::trunc);
-                  if (rawDump) {
-                    rawDump << "P6\n" << rawW << ' ' << rawH << "\n255\n";
+                  std::ofstream dump(dumpRawPath,
+                                     std::ios::binary | std::ios::trunc);
+                  if (dump) {
+                    dump << "P6\n" << rawW << ' ' << rawH << "\n255\n";
                     for (size_t i = 0; i < static_cast<size_t>(rawW) * rawH;
                          ++i)
-                      rawDump.write(reinterpret_cast<const char *>(
-                                        fsr4Readback_.data() + i * 4),
-                                    3);
+                      dump.write(reinterpret_cast<const char *>(
+                                     fsr4Readback_.data() + i * 4),
+                                 3);
                     logInfo("PlaybackEngine: dumped EASU source frame={} "
-                            "{}x{} to /tmp/temporal_forge_fsr4_raw.ppm",
-                            df.frameIndex, rawW, rawH);
+                            "{}x{} to {}",
+                            df.frameIndex, rawW, rawH, dumpRawPath);
                   }
                 } else {
                   logWarn("PlaybackEngine: EASU source readback failed");

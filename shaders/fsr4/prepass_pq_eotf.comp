@@ -38,8 +38,9 @@ layout(set = 0, binding = 0) uniform PrepassCB {
 layout(set = 0, binding = 1, rgb10_a2) readonly uniform image2D u_color;
 layout(set = 0, binding = 2, rg16f)   readonly uniform image2D u_motion;
 layout(set = 0, binding = 3, r32f)    readonly uniform image2D u_depth;
-layout(set = 0, binding = 7, rgb10_a2) readonly uniform image2D u_history;
+layout(set = 0, binding = 7, rgba16f) readonly uniform image2D u_history;
 layout(set = 0, binding = 8, rgba16f) readonly uniform image2D u_recurrent;
+layout(set = 0, binding = 9, rgba16f) writeonly uniform image2D u_reprojectedColor;
 
 // encoder1 DownscaleStridedConv2x2 weight [2,2,8,16] HNWC, FP16, 1024 bytes.
 layout(set = 0, binding = 4) readonly buffer WeightBlob { uint weightWords[]; };
@@ -199,7 +200,12 @@ void main() {
         // a fixed 0.1 shifts every temporal feature supplied to the network.
         const float temporalSampleWeight = current.a * 0.1;
         if ((slot0.z & 12u) == 12u) {
-            historyModel = temporalSampleWeight * current.rgb;
+            // No prior color or recurrent state is available. Publish the
+            // complete current resolve as the causal fallback. The postpass
+            // consumes this shared image as model-space color, so applying
+            // the feature confidence weight here would darken the learned
+            // reconstruction every time history feedback is disabled.
+            historyModel = current.rgb;
         } else {
             const ivec2 sourceSize = imageSize(u_color);
             const ivec2 sourceCoord = clamp(ivec2(round(inputPos)), ivec2(0),
@@ -227,6 +233,10 @@ void main() {
     }
     const float inputY = dot(current.rgb, vec3(0.2126, 0.7152, 0.0722));
     const float historyY = dot(historyModel, vec3(0.2126, 0.7152, 0.0722));
+    // Publish the exact causal target-grid resolve once. The conv features and
+    // postpass both consume this image, so no later stage performs a second
+    // independently-filtered history reprojection.
+    imageStore(u_reprojectedColor, ivec2(px, py), vec4(historyModel, 1.0));
     const vec2 inputChroma = vec2((current.b - inputY) / 1.8556,
                                   (current.r - inputY) / 1.5748);
     const vec2 historyChroma = vec2((historyModel.b - historyY) / 1.8556,

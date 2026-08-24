@@ -30,9 +30,29 @@ import re
 import shutil
 import subprocess
 import sys
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from statistics import fmean
 from typing import Any
+
+try:
+    # Package import is used by the test suite and by callers importing the
+    # sweep as a module.
+    from .quality_lab_contract import (
+        create_artifact_directory,
+        inherited_image_settings,
+        sha256_file,
+    )
+    from .paired_spatial_metrics import write_paired_reports
+except ImportError:
+    # Direct script execution puts this directory on sys.path instead of the
+    # repository root, so retain a script-mode import path as well.
+    from quality_lab_contract import (
+        create_artifact_directory,
+        inherited_image_settings,
+        sha256_file,
+    )
+    from paired_spatial_metrics import write_paired_reports
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -43,6 +63,15 @@ TIMING_RE = re.compile(
     r"GPU\(all 1 passes\)=(?P<gpu>[0-9.]+)ms"
 )
 SAFE_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]*$")
+CAPTURE_ENV_PREFIXES = (
+    "TFORGE_QUALITY_",
+    "TFORGE_FSR4_",
+    "TFORGE_UPSCALE_",
+    "TFORGE_JITTER_",
+    "TFORGE_REVIEW_",
+    "TFORGE_BENCHMARK_",
+)
+CAPTURE_ENV_KEYS = {"TFORGE_DISABLE_HW_DECODE"}
 
 
 def parse_args() -> argparse.Namespace:
@@ -61,6 +90,18 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Record a failed candidate and continue with the remaining candidates.",
     )
+    parser.add_argument(
+        "--workers",
+        type=int,
+        default=max(1, int(os.environ.get("TFORGE_CAPTURE_WORKERS", "2"))),
+        help="Maximum isolated capture processes to run at once (default: 2).",
+    )
+    parser.add_argument(
+        "--retries",
+        type=int,
+        default=1,
+        help="Number of isolated retry attempts for failed candidates (default: 1).",
+    )
     return parser.parse_args()
 
 
@@ -71,6 +112,38 @@ def load_json(path: Path) -> dict[str, Any]:
     if not isinstance(value, dict):
         raise ValueError(f"manifest must contain a JSON object: {path}")
     return value
+
+
+def _is_capture_environment_key(name: str) -> bool:
+    """Return whether one variable can alter capture pixels or identity."""
+    return name in CAPTURE_ENV_KEYS or name.startswith(CAPTURE_ENV_PREFIXES)
+
+
+def build_candidate_environment(
+    parent: dict[str, str], manifest: dict[str, Any], candidate: dict[str, Any]
+) -> dict[str, str]:
+    """Build an isolated runtime environment from declared capture settings.
+
+    Desktop, Vulkan, locale, and executable-path variables remain available,
+    while every image/capture-affecting Temporal Forge variable is removed
+    unless the campaign or candidate declares it explicitly.
+    """
+    environment = {
+        key: value for key, value in parent.items() if not _is_capture_environment_key(key)
+    }
+    declared: dict[str, str] = {}
+    for owner, source in (("campaign", manifest), ("candidate", candidate)):
+        values = source.get("environment", {})
+        if not isinstance(values, dict):
+            raise ValueError(f"{owner} environment must be an object")
+        for key, value in values.items():
+            if not isinstance(key, str) or not _is_capture_environment_key(key):
+                raise ValueError(f"unsupported candidate environment key: {key!r}")
+            if not isinstance(value, str):
+                raise ValueError(f"candidate environment value for {key} must be a string")
+            declared[key] = value
+    environment.update(declared)
+    return environment
 
 
 def resolve_from_root(path_value: str, base: Path) -> Path:
@@ -104,6 +177,35 @@ def summarize_csv(path: Path) -> dict[str, Any]:
         values = [float(row[field]) for row in rows if row.get(field)]
         summary[f"mean_{field}"] = mean(values)
     return summary
+
+
+def load_review_assets(path: Path) -> list[dict[str, Any]]:
+    """Load the runner's full-frame inventory into campaign asset metadata."""
+    if not path.is_file():
+        raise FileNotFoundError(f"quality runner did not create asset manifest: {path}")
+    with path.open("r", encoding="utf-8", newline="") as stream:
+        rows = list(csv.DictReader(stream))
+    assets: list[dict[str, Any]] = []
+    for row in rows:
+        try:
+            asset = {
+                "scene": row["scene"],
+                "frame": int(row["frame"]),
+                "path": row["path"],
+                "width": int(row["width"]),
+                "height": int(row["height"]),
+            }
+        except (KeyError, TypeError, ValueError) as error:
+            raise ValueError(f"invalid review asset row in {path}: {row}") from error
+        asset_path = Path(asset["path"])
+        if not asset["scene"] or not asset_path.is_file() or asset_path.stat().st_size == 0:
+            raise ValueError(f"missing full-frame review asset in {path}: {row}")
+        if asset["width"] <= 0 or asset["height"] <= 0:
+            raise ValueError(f"invalid review asset dimensions in {path}: {row}")
+        assets.append(asset)
+    if not assets:
+        raise ValueError(f"quality runner produced no full-frame review assets: {path}")
+    return assets
 
 
 def summarize_timings(tag: str) -> dict[str, Any]:
@@ -202,18 +304,74 @@ def run_candidate(
     quality = manifest.get("quality", "high")
     clip_regex = manifest.get("clipRegex", "")
     preset = manifest.get("preset", "Quality")
+    output_dimensions = candidate.get("outputDimensions", manifest.get("outputDimensions"))
+    if output_dimensions is not None:
+        if not isinstance(output_dimensions, str) or not re.fullmatch(r"[1-9][0-9]*x[1-9][0-9]*", output_dimensions):
+            raise ValueError("candidate outputDimensions must be WIDTHxHEIGHT")
+    jitter = manifest.get("jitter", {"mode": "current", "controlledStrength": 1.0})
+    if not isinstance(jitter, dict):
+        raise ValueError("manifest jitter must be an object")
+    jitter_mode = jitter.get("mode", "current")
+    jitter_strength = jitter.get("controlledStrength", 1.0)
+    if jitter_mode not in {"off", "current", "reduced", "controlled"}:
+        raise ValueError(f"unsupported manifest jitter mode: {jitter_mode!r}")
+    if not isinstance(jitter_strength, (int, float)) or not 0.0 <= float(jitter_strength) <= 1.5:
+        raise ValueError("manifest jitter controlledStrength must be in [0, 1.5]")
     if not isinstance(dimensions, str) or not isinstance(frame, int):
         raise ValueError("manifest dimensions must be a string and frame must be an integer")
     if not isinstance(quality, str) or not isinstance(clip_regex, str):
         raise ValueError("manifest quality and clipRegex must be strings")
 
     tag = f"{run_id}-{index:02d}-{candidate_id}"
-    candidate_root = run_root / candidate_id
-    candidate_root.mkdir()
+    # Each attempt gets a numbered, non-overwriting directory.  This keeps a
+    # rerun from replacing the evidence that explains an earlier result.
+    # `run_root` already names the run; pass its parent so the helper creates
+    # exactly `<output>/<run>/<candidate>/<attempt>` rather than duplicating
+    # the run component.
+    candidate_root = create_artifact_directory(run_root.parent, run_id, candidate_id, index)
     runtime_config_path, config_source = materialize_config(
         candidate, manifest_path, candidate_root / "quality_lab.json"
     )
+    environment = build_candidate_environment(os.environ.copy(), manifest, candidate)
+    environment.update(
+        {
+            "TFORGE_BENCHMARK_PRESET": preset,
+            "TFORGE_QUALITY_LAB_CONFIG": str(runtime_config_path),
+            "TFORGE_QUALITY_FRAME": str(frame),
+            "TFORGE_QUALITY_TAG": tag,
+            "TFORGE_QUALITY_QUALITY": quality,
+            "TFORGE_QUALITY_CLIP": clip_regex,
+            "TFORGE_FSR4_JITTER_MODE": str(jitter_mode),
+            "TFORGE_FSR4_CONTROLLED_JITTER": str(jitter_strength),
+        }
+    )
+    class_selections = manifest.get("classSelections")
+    annotations_value = manifest.get("qualityClassAnnotationsPath")
+    if class_selections is not None or annotations_value is not None:
+        if not isinstance(class_selections, dict) or not isinstance(annotations_value, str) or not annotations_value:
+            raise ValueError(
+                "classSelections and qualityClassAnnotationsPath are both required for spatial capture"
+            )
+        annotation_path = resolve_from_root(annotations_value, ROOT)
+        spatial_input_path = candidate_root / "spatial_capture_input.json"
+        write_json(
+            spatial_input_path,
+            {
+                "schema": "temporal_forge.spatial_capture.v1",
+                "annotationsPath": str(annotation_path),
+                "classSelections": class_selections,
+                "frame": frame,
+                "outputDimensions": output_dimensions,
+            },
+        )
+        environment["TFORGE_QUALITY_SPATIAL_INPUT"] = str(spatial_input_path)
+        if output_dimensions is None:
+            raise ValueError("spatial capture requires outputDimensions")
+        environment["TFORGE_QUALITY_OUTPUT_DIMENSIONS"] = output_dimensions
+    if output_dimensions is not None:
+        environment["TFORGE_FSR4_FORCE_VIEWPORT"] = output_dimensions
     exact_manifest = {
+        "schemaVersion": 1,
         "runId": run_id,
         "candidateId": candidate_id,
         "tag": tag,
@@ -226,34 +384,40 @@ def run_candidate(
         "quality": quality,
         "preset": preset,
         "clipRegex": clip_regex,
+        "outputDimensions": output_dimensions,
+        "jitter": {
+            "mode": jitter_mode,
+            "controlledStrength": float(jitter_strength),
+        },
         "binary": str(binary),
+        "binarySha256": sha256_file(binary),
+        "configSha256": sha256_file(runtime_config_path),
+        "imageAffectingEnvironment": inherited_image_settings(environment),
     }
     write_json(candidate_root / "experiment.json", exact_manifest)
 
     csv_path = candidate_root / "quality.csv"
-    env = os.environ.copy()
-    env.update(
-        {
-            "TFORGE_BENCHMARK_PRESET": preset,
-            "TFORGE_QUALITY_LAB_CONFIG": str(runtime_config_path),
-            "TFORGE_QUALITY_FRAME": str(frame),
-            "TFORGE_QUALITY_TAG": tag,
-            "TFORGE_QUALITY_QUALITY": quality,
-            "TFORGE_QUALITY_CLIP": clip_regex,
-        }
-    )
+    asset_manifest_path = candidate_root / "review_assets.csv"
+    environment["TFORGE_QUALITY_ASSET_MANIFEST"] = str(asset_manifest_path)
     corpus_manifest = manifest.get("corpusManifest")
     if corpus_manifest is not None:
         if not isinstance(corpus_manifest, str):
             raise ValueError("manifest corpusManifest must be a path string")
-        env["TFORGE_QUALITY_MANIFEST"] = str(
-            resolve_from_root(corpus_manifest, manifest_path.parent)
-        )
+        manifest_candidate = resolve_from_root(corpus_manifest, manifest_path.parent)
+        if not manifest_candidate.is_file():
+            # Campaign plans retain repository-relative evidence paths even
+            # after the plan is copied beneath the non-overwriting run root.
+            manifest_candidate = resolve_from_root(corpus_manifest, ROOT)
+        if not manifest_candidate.is_file():
+            raise FileNotFoundError(f"quality corpus manifest does not exist: {corpus_manifest}")
+        environment["TFORGE_QUALITY_MANIFEST"] = str(manifest_candidate)
+        exact_manifest["imageAffectingEnvironment"] = inherited_image_settings(environment)
+        write_json(candidate_root / "experiment.json", exact_manifest)
     command = [str(QUALITY_RUNNER), str(binary), dimensions, str(csv_path)]
     completed = subprocess.run(
         command,
         cwd=ROOT,
-        env=env,
+        env=environment,
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
         text=True,
@@ -265,13 +429,20 @@ def run_candidate(
     result["exitCode"] = completed.returncode
     result["csv"] = str(csv_path)
     if completed.returncode == 0 and csv_path.is_file():
-        result["metrics"] = summarize_csv(csv_path)
-        result["timings"] = summarize_timings(tag)
-        result["representativeStillPaths"] = [
-            row["output_path"]
-            for row in result["metrics"]["clips"]
-            if row.get("output_path")
-        ]
+        metrics = summarize_csv(csv_path)
+        result["metrics"] = metrics
+        if metrics["rowCount"] == 0:
+            # A child can exit zero after swallowing a failed capture.  Empty
+            # metrics are never a valid candidate result, so surface this as
+            # a distinct failure instead of allowing a false green ranking.
+            result["exitCode"] = 3
+            result["error"] = "quality runner returned success but produced zero metric rows"
+        else:
+            result["timings"] = summarize_timings(tag)
+            result["reviewAssets"] = load_review_assets(asset_manifest_path)
+            result["representativeStillPaths"] = [
+                asset["path"] for asset in result["reviewAssets"]
+            ]
     else:
         result["error"] = "quality runner failed; see runner.log"
     write_json(candidate_root / "result.json", result)
@@ -318,6 +489,8 @@ def write_rankings(run_root: Path, results: list[dict[str, Any]]) -> None:
 def main() -> int:
     """Run every manifest candidate and return a shell-friendly status code."""
     args = parse_args()
+    if args.workers < 1 or args.retries < 0:
+        raise ValueError("workers must be >= 1 and retries must be >= 0")
     manifest_path = args.manifest.resolve()
     binary = resolve_from_root(str(args.binary), ROOT)
     if not manifest_path.is_file():
@@ -348,37 +521,64 @@ def main() -> int:
     write_json(run_root / "manifest.json", manifest)
     shutil.copy2(manifest_path, run_root / "manifest.source.json")
 
-    results: list[dict[str, Any]] = []
+    indexed_candidates = []
     for index, candidate in enumerate(candidates, start=1):
         if not isinstance(candidate, dict):
             raise ValueError(f"experiment {index} is not an object")
+        indexed_candidates.append((index, candidate))
+
+    def execute(item: tuple[int, dict[str, Any]], attempt: int = 0) -> dict[str, Any]:
+        index, candidate = item
+        # Retry indices are disjoint from first attempts, so a retry can never
+        # overwrite evidence from the original capture.
+        retry_index = index + attempt * len(indexed_candidates)
         try:
-            result = run_candidate(
+            return run_candidate(
                 candidate,
                 manifest_path=manifest_path,
                 manifest=manifest,
                 binary=binary,
                 run_root=run_root,
                 run_id=run_id,
-                index=index,
+                index=retry_index,
             )
         except Exception as error:  # noqa: BLE001 - preserve candidate failure evidence.
             candidate_id = str(candidate.get("id", f"experiment-{index}"))
-            result = {
+            return {
                 "runId": run_id,
                 "candidateId": candidate_id,
                 "exitCode": -1,
                 "error": str(error),
+                "attempt": attempt,
             }
-            candidate_root = run_root / candidate_id
-            candidate_root.mkdir(exist_ok=True)
-            write_json(candidate_root / "result.json", result)
-            if not args.continue_on_error:
-                write_json(run_root / "results.json", results + [result])
-                raise
-        results.append(result)
+
+    def run_batch(items: list[tuple[int, dict[str, Any]]], attempt: int) -> list[dict[str, Any]]:
+        # Each candidate owns its config, output directory, tag, and runner
+        # process. The pool only overlaps independent captures; it never
+        # merges or reuses their evidence.
+        with ThreadPoolExecutor(max_workers=args.workers) as pool:
+            futures = {pool.submit(execute, item, attempt): item[0] for item in items}
+            ordered = []
+            for future in as_completed(futures):
+                ordered.append((futures[future], future.result()))
+        return [result for _, result in sorted(ordered)]
+
+    results = run_batch(indexed_candidates, 0)
+    for attempt in range(1, args.retries + 1):
+        failed_ids = {result.get("candidateId") for result in results if result.get("exitCode") != 0}
+        if not failed_ids:
+            break
+        retry_items = [item for item in indexed_candidates if item[1].get("id") in failed_ids]
+        retry_results = run_batch(retry_items, attempt)
+        retry_by_id = {result.get("candidateId"): result for result in retry_results}
+        results = [retry_by_id.get(result.get("candidateId"), result) for result in results]
     write_json(run_root / "results.json", results)
     write_rankings(run_root, results)
+    baseline_id = manifest.get("baselineCandidateId")
+    if baseline_id is not None:
+        if not isinstance(baseline_id, str) or not baseline_id:
+            raise ValueError("manifest baselineCandidateId must be a non-empty string")
+        write_paired_reports(run_root, results, baseline_id=baseline_id)
     print(run_root)
     return 0 if all(result.get("exitCode") == 0 for result in results) else 2
 

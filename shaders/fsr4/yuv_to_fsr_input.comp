@@ -13,6 +13,7 @@ layout(push_constant) uniform Push {
     vec4 params;       // width, height, sharpness, compareEnabled
     vec4 range;        // yOffset, yScale, chromaOffset, chromaScale
     vec4 matrix;       // rV, gU, gV, bU
+    vec4 chroma;       // chromaPhase x/y, source bit depth, reserved
 } pc;
 
 layout(set = 0, binding = 0, r8) readonly uniform image2D u_y;
@@ -22,9 +23,10 @@ layout(set = 0, binding = 3, rgb10_a2) writeonly uniform image2D u_color;
 layout(set = 0, binding = 4, rgba8) writeonly uniform image2D u_raw;
 
 const int Y_TILE_WIDTH = 18;
-// Bicubic chroma needs one additional texel beyond the bilinear footprint at
-// the right/bottom edge of each 16x16 luma workgroup.
-const int UV_TILE_WIDTH = 11;
+// Centered chroma puts the first luma pixel at UV -0.25, so the four-tap
+// cubic footprint reaches two texels before the workgroup and nine after its
+// origin. A 12x12 tile covers that complete [-2,+9] range.
+const int UV_TILE_WIDTH = 12;
 shared float yTile[Y_TILE_WIDTH * Y_TILE_WIDTH];
 shared vec2 uvTile[UV_TILE_WIDTH * UV_TILE_WIDTH];
 
@@ -51,7 +53,7 @@ vec2 loadUvBicubic(ivec2 p, ivec2 size, ivec2 uvSize, ivec2 tileBase) {
     // Reconstruct 4:2:0 chroma at the luma pixel center. The cubic footprint
     // avoids the soft 2x2 bilinear chroma cells that are especially visible
     // around text and high-contrast screen-recording edges.
-    vec2 uvPos = (vec2(p) + vec2(0.5)) * 0.5 - vec2(0.5);
+    vec2 uvPos = (vec2(p) + vec2(0.5)) * 0.5 - pc.chroma.xy;
     ivec2 base = ivec2(floor(uvPos));
     vec2 f = fract(uvPos);
     vec4 wx = catmullRomWeights(f.x);
@@ -103,7 +105,7 @@ void main() {
     ivec2 uvSize = max((size + ivec2(1)) / 2, ivec2(1));
     const ivec2 groupCoord = ivec2(gl_WorkGroupID.xy) * 16;
     const ivec2 yTileBase = groupCoord - ivec2(1);
-    const ivec2 uvTileBase = groupCoord / 2 - ivec2(1);
+    const ivec2 uvTileBase = groupCoord / 2 - ivec2(2);
     const uint localIndex = gl_LocalInvocationID.y * 16u +
                             gl_LocalInvocationID.x;
     for (uint i = localIndex; i < uint(Y_TILE_WIDTH * Y_TILE_WIDTH); i += 256u) {

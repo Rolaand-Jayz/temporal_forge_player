@@ -93,7 +93,15 @@ SideBufferInputs SideBufferSynth::update(const LumaBuffer& lumaCurrent,
 
     // --- jitter ---
     const JitterOffset j = haltonJitter(jitterIndex_);
-    const float jitterScale = jitterAmplitudeScale(renderWidth_, renderHeight_) * jitterStrength_;
+    float policyStrength = 0.0f;
+    switch (jitterMode_) {
+    case JitterMode::Off: policyStrength = 0.0f; break;
+    case JitterMode::Current: policyStrength = jitterStrength_; break;
+    case JitterMode::Reduced: policyStrength = jitterStrength_ * 0.5f; break;
+    case JitterMode::Controlled: policyStrength = controlledJitterStrength_; break;
+    }
+    const float jitterScale = jitterAmplitudeScale(renderWidth_, renderHeight_) *
+                              std::clamp(policyStrength, 0.0f, 1.5f);
     out.jitterX = j.x * jitterScale;
     out.jitterY = j.y * jitterScale;
     jitterIndex_++;
@@ -114,6 +122,7 @@ SideBufferInputs SideBufferSynth::update(const LumaBuffer& lumaCurrent,
     const float observedInterval = ptsDeltaMs > 0.0f ? ptsDeltaMs : expectedFrameIntervalMs_;
     const float expectedInterval = previousFrameValid_
         ? expectedFrameIntervalMs_ : observedInterval;
+    out.expectedFrameIntervalMs = expectedInterval;
     out.motionConfidence = std::clamp(motionConfidence, 0.0f, 1.0f);
     const bool sceneCut = shouldReset(out.histogramDelta,
                                       out.motionConfidence,

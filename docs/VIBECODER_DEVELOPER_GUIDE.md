@@ -74,6 +74,11 @@ update the nearby comment in the same patch.
   capture workflows; they can produce large ignored media under `results/`.
 - `tools/build_review_harness.mjs` creates the standalone reviewer, and
   `tools/embed_review_harness.mjs` creates the single-file shareable reviewer.
+  For a large corpus, place same-basename lossless `.webp` sidecars in a
+  separate directory and set `TFORGE_REVIEW_WEBP_ROOT` while embedding. The
+  embedder stores duplicate payloads once, keeps the manifest names intact,
+  and enforces `TFORGE_REVIEW_MAX_MIB` (512 MiB by default). These sidecars and
+  the generated HTML are review artifacts; benchmark PNGs are never rewritten.
 - `external/` is vendored or imported dependency material. Do not rewrite it
   to add local commentary; document the integration boundary in our files.
 

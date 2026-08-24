@@ -518,6 +518,7 @@ void GpuImageUploader::destroy() {
   destroyGpuImage(device_, history_[1]);
   destroyGpuImage(device_, recurrent_[0]);
   destroyGpuImage(device_, recurrent_[1]);
+  destroyGpuImage(device_, reprojectedColor_);
   if (stagingMapped_) {
     vkUnmapMemory(device_, staging_.memory);
     stagingMapped_ = nullptr;
@@ -580,6 +581,7 @@ bool GpuImageUploader::allocate(uint32_t sourceW, uint32_t sourceH,
   destroyGpuImage(device_, history_[1]);
   destroyGpuImage(device_, recurrent_[0]);
   destroyGpuImage(device_, recurrent_[1]);
+  destroyGpuImage(device_, reprojectedColor_);
   destroyGpuImage(device_, easuImage_);
   destroyGpuBufferObj(device_, motionOwners_);
 
@@ -655,12 +657,10 @@ bool GpuImageUploader::allocate(uint32_t sourceW, uint32_t sourceH,
                        VK_FORMAT_R8G8B8A8_UNORM, outputUsage,
                        VK_IMAGE_ASPECT_COLOR_BIT, output_, "fsr4_output",
                        queueFamily_, presentationQueueFamily_);
-  ok &= createGpuImage(
-      device_, physical_, outputW, outputH, VK_FORMAT_A2B10G10R10_UNORM_PACK32,
-      outputUsage, VK_IMAGE_ASPECT_COLOR_BIT, history_[0], "fsr4_history_a");
-  ok &= createGpuImage(
-      device_, physical_, outputW, outputH, VK_FORMAT_A2B10G10R10_UNORM_PACK32,
-      outputUsage, VK_IMAGE_ASPECT_COLOR_BIT, history_[1], "fsr4_history_b");
+  ok &= createGpuImage(device_, physical_, outputW, outputH, VK_FORMAT_R16G16B16A16_SFLOAT, outputUsage,
+                       VK_IMAGE_ASPECT_COLOR_BIT, history_[0], "fsr4_history_a");
+  ok &= createGpuImage(device_, physical_, outputW, outputH, VK_FORMAT_R16G16B16A16_SFLOAT, outputUsage,
+                       VK_IMAGE_ASPECT_COLOR_BIT, history_[1], "fsr4_history_b");
   ok &= createGpuImage(device_, physical_, outputW, outputH,
                        VK_FORMAT_R16G16B16A16_SFLOAT, outputUsage,
                        VK_IMAGE_ASPECT_COLOR_BIT, recurrent_[0],
@@ -669,6 +669,10 @@ bool GpuImageUploader::allocate(uint32_t sourceW, uint32_t sourceH,
                        VK_FORMAT_R16G16B16A16_SFLOAT, outputUsage,
                        VK_IMAGE_ASPECT_COLOR_BIT, recurrent_[1],
                        "fsr4_recurrent_b");
+  ok &= createGpuImage(device_, physical_, outputW, outputH,
+                       VK_FORMAT_R16G16B16A16_SFLOAT, outputUsage,
+                       VK_IMAGE_ASPECT_COLOR_BIT, reprojectedColor_,
+                       "fsr4_reprojected_color");
   ok &= createGpuBufferObj(
       device_, physical_,
       static_cast<VkDeviceSize>(sourceW) * sourceH * sizeof(uint32_t),
@@ -1450,9 +1454,14 @@ bool GpuImageUploader::uploadColorTo(const DecodedVideoFrame &frame,
     return false;
 
   const AVPixelFormat fmt = static_cast<AVPixelFormat>(frame.avFormat);
+  // The software image planes are R8. High-bit-depth planar frames must go
+  // through the explicit swscale normalization path instead of being copied
+  // as if each sample were one byte; otherwise every second byte becomes a
+  // fake luma/chroma sample and the visible result is corrupted.
+  const size_t bytesPerSample = frame.bitDepth > 8 ? 2u : 1u;
   const bool planar420 =
-      fmt == AV_PIX_FMT_YUV420P || fmt == AV_PIX_FMT_YUVJ420P ||
-      fmt == AV_PIX_FMT_YUV420P10LE || fmt == AV_PIX_FMT_YUV420P12LE;
+      bytesPerSample == 1u &&
+      (fmt == AV_PIX_FMT_YUV420P || fmt == AV_PIX_FMT_YUVJ420P);
   const float sharpness =
       std::clamp(sharpness_.load(std::memory_order_acquire), 0.0f, 1.0f);
 
@@ -1525,6 +1534,10 @@ bool GpuImageUploader::uploadColorTo(const DecodedVideoFrame &frame,
     normalized.avFormat = AV_PIX_FMT_YUV420P;
     normalized.colorRange = frame.colorRange;
     normalized.colorSpace = frame.colorSpace;
+    normalized.colorTransfer = frame.colorTransfer;
+    normalized.colorPrimaries = frame.colorPrimaries;
+    normalized.chromaLocation = frame.chromaLocation;
+    normalized.bitDepth = 8;
     normalized.planes = 3;
     normalized.linesize[0] = frame.width;
     normalized.linesize[1] = uvW;
@@ -2150,7 +2163,7 @@ bool GpuImageUploader::transitionOutputToGeneral() {
   // their color image from the preceding pass's RGB10 history on the GPU.
   for (auto *img :
        {&color_, &output_, &history_[0], &history_[1], &recurrent_[0],
-        &recurrent_[1]}) {
+        &recurrent_[1], &reprojectedColor_}) {
     if (img->layout == VK_IMAGE_LAYOUT_GENERAL)
       continue;
     VkImageMemoryBarrier b{};

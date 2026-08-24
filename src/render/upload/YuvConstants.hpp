@@ -16,6 +16,7 @@ struct alignas(16) YuvPushConstants {
     float width, height, sharpness, compareEnabled;
     float yOffset, yScale, chromaOffset, chromaScale;
     float rV, gU, gV, bU;
+    float chromaPhaseX, chromaPhaseY, sourceBitDepth, reserved;
 };
 
 // yuvPushConstants: build the conversion push-constants for a frame.
