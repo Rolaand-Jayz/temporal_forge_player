@@ -100,6 +100,9 @@ int main() {
     CHECK(shader.find("weightParams[", declaration + 1) != std::string::npos);
     CHECK(shader.find("TFORGE_POSTPASS_PARAM_OFFSET") != std::string::npos);
     CHECK(shader.find("postpassParameterTrace") != std::string::npos);
+    CHECK(shader.find("TFORGE_POSTPASS_OUTPUT_BIAS0") != std::string::npos);
+    CHECK(shader.find("TFORGE_POSTPASS_OUTPUT_BIAS1") != std::string::npos);
+    CHECK(shader.find("slot0.z & 64u") != std::string::npos);
 
     // CAS is a postpass over the selected composition. It must consume the
     // incoming color; otherwise it silently replaces every experimental

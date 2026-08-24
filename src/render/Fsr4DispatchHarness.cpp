@@ -3114,6 +3114,11 @@ Fsr4DispatchHarness::dispatchFrame(const FrameDispatchInput &in) {
         pp.slot0[2] |= 16u;
       if (std::getenv("TFORGE_FSR4_CURRENT_BASE_JITTERED"))
         pp.slot0[2] |= 32u;
+      // The recovered 4.1 postpass reads eight FP32 output-composition bias
+      // values from the tail of the initializer blob. The matched Tears and
+      // Sintel campaign showed a small consistent quality gain with no timing
+      // cost, so bit 64 is part of the normal composition contract.
+      pp.slot0[2] |= 64u;
       // The final transpose convolution writes its FP16 decoder tensor
       // through the dedicated edge/final-tensor binding at offset 0.
       pp.slot0[3] = 0;

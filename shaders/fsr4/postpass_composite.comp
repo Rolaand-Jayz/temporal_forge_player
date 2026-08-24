@@ -32,11 +32,14 @@ layout(set = 0, binding = 1, std430) readonly buffer WeightBlob {
     float weightParams[];
 };
 
-// The v4.1 postpass region is 222 FP32 values at byte offset 130088. Keep
-// these constants in the shader beside the binding so host tests can prove
+// The v4.1 postpass region is 222 FP32 values at byte offset 130088. The
+// recovered postpass reads the final eight values as output-composition
+// biases. Keep these constants beside the binding so host tests can prove
 // that the typed contract and shader address map agree.
 const uint TFORGE_POSTPASS_PARAM_OFFSET = 130088u;
 const uint TFORGE_POSTPASS_PARAM_COUNT = 222u;
+const uint TFORGE_POSTPASS_OUTPUT_BIAS0 = 130944u / 4u;
+const uint TFORGE_POSTPASS_OUTPUT_BIAS1 = 130960u / 4u;
 
 layout(set = 0, binding = 2, std430) readonly buffer DecoderOut {
     float16_t decoderChannels[];
@@ -419,7 +422,7 @@ vec3 learnedColorAt(ivec2 targetCoord, vec2 invScale, vec2 scale,
     const uint decoderOffset = slot0.w +
                                (uint(coord.y) * dispatchW +
                                 uint(coord.x)) * 8u;
-    const vec4 params = vec4(
+    vec4 params = vec4(
         finiteOrZero(decoderChannels[decoderOffset + 0u]),
         finiteOrZero(decoderChannels[decoderOffset + 1u]),
         finiteOrZero(decoderChannels[decoderOffset + 2u]),
@@ -541,11 +544,27 @@ void main() {
     // Decoder output is on the FSR target grid. sourceCoord is only used for
     // the learned filter's current-frame source samples below.
     const uint decoderOffset = slot0.w + (py * dispatchW + px) * 8u;
-    const vec4 params = vec4(
+    vec4 params = vec4(
         finiteOrZero(decoderChannels[decoderOffset + 0u]),
         finiteOrZero(decoderChannels[decoderOffset + 1u]),
         finiteOrZero(decoderChannels[decoderOffset + 2u]),
         finiteOrZero(decoderChannels[decoderOffset + 3u]));
+    vec4 recurrentBias = vec4(0.0);
+    // The native FSR 4.1 postpass loads these eight FP32 values from the
+    // initializer tail before consuming the decoder output. The host always
+    // sets bit 64 after the matched campaign verified this correction.
+    if ((slot0.z & 64u) != 0u) {
+        params += vec4(
+            finiteOrZero(weightParams[TFORGE_POSTPASS_OUTPUT_BIAS0 + 0u]),
+            finiteOrZero(weightParams[TFORGE_POSTPASS_OUTPUT_BIAS0 + 1u]),
+            finiteOrZero(weightParams[TFORGE_POSTPASS_OUTPUT_BIAS0 + 2u]),
+            finiteOrZero(weightParams[TFORGE_POSTPASS_OUTPUT_BIAS0 + 3u]));
+        recurrentBias = vec4(
+            finiteOrZero(weightParams[TFORGE_POSTPASS_OUTPUT_BIAS1 + 0u]),
+            finiteOrZero(weightParams[TFORGE_POSTPASS_OUTPUT_BIAS1 + 1u]),
+            finiteOrZero(weightParams[TFORGE_POSTPASS_OUTPUT_BIAS1 + 2u]),
+            finiteOrZero(weightParams[TFORGE_POSTPASS_OUTPUT_BIAS1 + 3u]));
+    }
     // Exact recovered filter parameterization. Clamp only the exponent input
     // to avoid overflow; at +/-16 the sigmoid/tanh are already saturated.
     const vec3 filterLogits = clamp(params.xyz, vec3(-16.0), vec3(16.0));
@@ -686,8 +705,8 @@ void main() {
             finiteOrZero(decoderChannels[decoderOffset + 5u]),
             finiteOrZero(decoderChannels[decoderOffset + 6u]),
             finiteOrZero(decoderChannels[decoderOffset + 7u]));
-        const vec4 recurrent = 1.0 /
-            (1.0 + exp(-clamp(recurrentLogits, vec4(-16.0), vec4(16.0))));
+        const vec4 recurrent = 1.0 / (1.0 + exp(-clamp(
+            recurrentLogits + recurrentBias, vec4(-16.0), vec4(16.0))));
         imageStore(u_recurrentOut, coord, recurrent);
     }
 }
