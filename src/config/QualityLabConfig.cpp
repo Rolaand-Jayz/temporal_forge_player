@@ -80,6 +80,12 @@ QualityBaseFilterMode parseBaseFilter(const std::string &name) {
     return QualityBaseFilterMode::CatmullRom;
 }
 
+QualityBaseColorSpace parseBaseColorSpace(const std::string &name) {
+    return name == "display" || name == "srgb" || name == "rgb"
+               ? QualityBaseColorSpace::Display
+               : QualityBaseColorSpace::Model;
+}
+
 QualityResidualLowpassMode parseResidualLowpass(const std::string &name) {
     return name == "gaussian3x3" || name == "gaussian"
                ? QualityResidualLowpassMode::Gaussian3x3
@@ -163,6 +169,8 @@ QualityLabConfig loadQualityLabConfig(const std::filesystem::path &path) {
     const QJsonObject baseFilter = childObject(lab, "baseFilter");
     result.baseFilterMode = parseBaseFilter(
         readName(baseFilter, "mode", "catmull_rom"));
+    result.baseColorSpace = parseBaseColorSpace(
+        readName(baseFilter, "colorSpace", "model"));
     result.baseB = finiteClamped(baseFilter, "b", result.baseB, -1.0f, 1.0f);
     result.baseC = finiteClamped(baseFilter, "c", result.baseC, -1.0f, 1.0f);
 
@@ -218,6 +226,10 @@ std::string qualityBaseFilterModeName(QualityBaseFilterMode mode) {
     case QualityBaseFilterMode::Lanczos2: return "lanczos2";
     }
     return "catmull_rom";
+}
+
+std::string qualityBaseColorSpaceName(QualityBaseColorSpace space) {
+    return space == QualityBaseColorSpace::Display ? "display" : "model";
 }
 
 std::string qualityResidualLowpassModeName(QualityResidualLowpassMode mode) {

@@ -26,6 +26,8 @@ class PerformanceRunnerContractTests(unittest.TestCase):
             "presentation_mean_ms",
             "pipeline_mean_ms",
             "gpu_mean_ms",
+            "record_mean_ms",
+            "wait_gpu_mean_ms",
         ):
             self.assertIn(field, header)
 
@@ -35,6 +37,15 @@ class PerformanceRunnerContractTests(unittest.TestCase):
         self.assertIn("decodeCPU=", source)
         self.assertIn("uploadCPU=", source)
         self.assertIn("presentationCPU=", source)
+        self.assertIn("recordCPU=", source)
+        self.assertIn("waitGPUCPU=", source)
+
+    def test_synchronous_capture_is_opt_in(self) -> None:
+        source = (ROOT / "benchmarks/video_corpus/run_performance.sh").read_text()
+
+        self.assertIn("TFORGE_PERFORMANCE_SYNCHRONOUS", source)
+        self.assertIn("TFORGE_FSR4_DISABLE_INFLIGHT", source)
+        self.assertIn("performance_environment", source)
 
 
 if __name__ == "__main__":

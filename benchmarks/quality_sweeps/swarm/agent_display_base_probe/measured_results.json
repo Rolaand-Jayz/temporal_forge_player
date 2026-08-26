@@ -1,0 +1,29 @@
+{
+  "schema": "temporal_forge.quality_sweep_results.v1",
+  "campaignId": "display-base-probe-20260825",
+  "status": "rejected-not-promoted",
+  "configuration": {
+    "scene": "tos_daylight",
+    "input": "426x240",
+    "output": "1920x1080",
+    "warmupFrames": 8,
+    "scoredFrames": 12
+  },
+  "baseline": {
+    "ssim": 0.859146,
+    "temporalAbsError": 1.409493
+  },
+  "strength025": {
+    "ssim": 0.859224,
+    "temporalAbsError": 1.477560
+  },
+  "strength050": {
+    "ssim": 0.859565,
+    "temporalAbsError": 1.496910
+  },
+  "strength100": {
+    "ssim": 0.860145,
+    "temporalAbsError": 1.532153
+  },
+  "decision": "Reject fixed display-base strengths. They trade temporal stability for spatial SSIM; investigate motion-aware composition before considering promotion."
+}

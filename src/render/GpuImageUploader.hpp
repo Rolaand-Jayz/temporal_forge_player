@@ -121,6 +121,11 @@ struct GpuImageUploader {
   VkImageView uPlaneView() const { return uPlane_.view; }
   VkImageView vPlaneView() const { return vPlane_.view; }
   VkImageView motionView() const { return motion_.view; }
+  VkImage motionImage() const { return motion_.image; }
+  // One byte per model pixel: 255 means a codec block covered the pixel;
+  // zero means the dense motion value is only the zero-initialized fallback.
+  VkImageView motionValidityView() const { return motionValidity_.view; }
+  VkImage motionValidityImage() const { return motionValidity_.image; }
   VkImageView depthView() const { return depth_.view; }
   VkImageView reactiveView() const { return reactive_.view; }
   VkImageView tcMaskView() const { return tcMask_.view; }
@@ -268,8 +273,8 @@ private:
   // Decoded input images remain at source dimensions. The model image is
   // produced by the GPU bicubic prefilter at modelW_ x modelH_.
   GpuImage yPlane_, uPlane_, vPlane_;
-  GpuImage sourceModel_, color_, rawPresentation_, motion_, depth_, reactive_, tcMask_,
-      exposure_;
+  GpuImage sourceModel_, color_, rawPresentation_, motion_, motionValidity_,
+      depth_, reactive_, tcMask_, exposure_;
   // Output images (output dims)
   GpuImage output_, history_[2], recurrent_[2], reprojectedColor_;
   GpuImage presentation_;

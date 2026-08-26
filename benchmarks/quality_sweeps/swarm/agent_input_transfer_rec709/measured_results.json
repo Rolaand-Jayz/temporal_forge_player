@@ -1,0 +1,23 @@
+{
+  "candidateId": "input-transfer-rec709",
+  "status": "rejected-not-promoted",
+  "configuration": {
+    "decode": "software",
+    "colorHistory": true,
+    "learnedStrength": 0.15,
+    "warmupFrames": 8,
+    "scoredFrames": 12,
+    "output": "1920x1080",
+    "scene": "tos_daylight",
+    "input": "426x240"
+  },
+  "baseline": {
+    "ssim": 0.859335,
+    "temporalAbsError": 1.339099
+  },
+  "rec709": {
+    "ssim": 0.850364,
+    "temporalAbsError": 1.373176
+  },
+  "decision": "Keep the existing input transfer interpretation. Do not enable rec709 globally."
+}

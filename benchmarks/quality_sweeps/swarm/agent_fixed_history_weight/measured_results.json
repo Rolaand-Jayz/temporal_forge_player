@@ -1,0 +1,22 @@
+{
+  "schema": 1,
+  "status": "diagnostic_not_promoted",
+  "candidate": "native_fixed_current_history_weight",
+  "control": "current_native_int8_graph",
+  "candidateControl": "TFORGE_FSR4_EXPERIMENTAL_FIXED_HISTORY_WEIGHT=1",
+  "settings": {
+    "softwareDecode": true,
+    "colorHistory": true,
+    "path": "native INT8 for the NativeAA 426x240 tier; generic fallback was not disabled for these A/B captures",
+    "qualityLabConfig": "benchmarks/quality_sweeps/swarm/agent_recheck_current/config.json",
+    "shortRun": "2 warmup + 4 scored frames",
+    "longRun": "12 warmup + 12 scored frames",
+    "outputs": ["1920x1080", "3840x2160"]
+  },
+  "summary": {
+    "426x240": "SSIM improved on 3 of 4 scenes in the long run; temporal error improved on all 4.",
+    "640x360": "SSIM improved on 3 of 4 scenes; temporal error was mixed.",
+    "1280x720": "SSIM improved on all 4 scenes; temporal error was mixed."
+  },
+  "decision": "Do not promote globally. Keep the reference-style 0.1 history-weight interpretation available as an opt-in candidate because it has a spatial gain but mixed temporal behavior outside the 426x240 tier."
+}

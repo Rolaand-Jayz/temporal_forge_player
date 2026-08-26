@@ -34,6 +34,7 @@ class EventTraceRuntimeContractTests(unittest.TestCase):
         self.assertIn("fsr4SequenceDumpCount_", source)
         self.assertIn("eventFrameIndex", source)
         self.assertIn("transitionIndex", source)
+        self.assertIn('<< "    \\\"reactiveAverage\\\": " << sideInputs.reactiveAverage', source)
 
 
 if __name__ == "__main__":

@@ -11,6 +11,9 @@ layout(binding = 1) uniform sampler2D uvTex;
 layout(binding = 2, rgb10_a2) writeonly uniform image2D colorImg;
 layout(binding = 3, rgba8) writeonly uniform image2D rawImg;
 
+const uint YUV_FLAG_REC709_INPUT_EOTF = 1u;
+const uint YUV_FLAG_LINEAR_INPUT_EOTF = 2u;
+const uint YUV_FLAG_CHROMA_BILINEAR = 4u;
 layout(push_constant) uniform Push {
     vec4 params; // width, height, sharpness, compareEnabled
     vec4 range;  // yOffset, yScale, chromaOffset, chromaScale
@@ -66,6 +69,23 @@ vec2 loadUvBicubic(ivec2 p, ivec2 uvSize, ivec2 tileBase) {
     return clamp(result, 0.0, 1.0);
 }
 
+vec2 loadUvBilinear(ivec2 p, ivec2 uvSize, ivec2 tileBase) {
+    vec2 uvPos = (vec2(p) + vec2(0.5)) * 0.5 - pc.chroma.xy;
+    ivec2 base = ivec2(floor(uvPos));
+    vec2 f = fract(uvPos);
+    vec2 c00 = loadUvCached(clamp(base, ivec2(0), uvSize - ivec2(1)), tileBase);
+    vec2 c10 = loadUvCached(clamp(base + ivec2(1, 0), ivec2(0), uvSize - ivec2(1)), tileBase);
+    vec2 c01 = loadUvCached(clamp(base + ivec2(0, 1), ivec2(0), uvSize - ivec2(1)), tileBase);
+    vec2 c11 = loadUvCached(clamp(base + ivec2(1), ivec2(0), uvSize - ivec2(1)), tileBase);
+    return mix(mix(c00, c10, f.x), mix(c01, c11, f.x), f.y);
+}
+
+vec2 loadUvFiltered(ivec2 p, ivec2 uvSize, ivec2 tileBase) {
+    return (floatBitsToUint(pc.chroma.w) & YUV_FLAG_CHROMA_BILINEAR) != 0u
+        ? loadUvBilinear(p, uvSize, tileBase)
+        : loadUvBicubic(p, uvSize, tileBase);
+}
+
 vec3 yuvToRgb(float y, vec2 uv) {
     float c = (y - pc.range.x) * pc.range.y;
     vec2 chroma = uv - vec2(pc.range.z);
@@ -75,10 +95,27 @@ vec3 yuvToRgb(float y, vec2 uv) {
                  vec3(0.0), vec3(1.0));
 }
 
-vec3 toModelColor(vec3 srgb) {
-    vec3 lo = srgb / 12.92;
-    vec3 hi = pow((srgb + 0.055) / 1.055, vec3(2.4));
-    vec3 linear = mix(hi, lo, lessThan(srgb, vec3(0.04045)));
+float rec709InverseOetf(float encoded) {
+    return encoded < 0.081
+        ? encoded / 4.5
+        : pow((encoded + 0.099) / 1.099, 1.0 / 0.45);
+}
+
+vec3 toModelColor(vec3 encoded) {
+    vec3 linear;
+    const uint flags = floatBitsToUint(pc.chroma.w);
+    if ((flags & YUV_FLAG_LINEAR_INPUT_EOTF) != 0u) {
+        linear = encoded;
+    } else if ((flags & YUV_FLAG_REC709_INPUT_EOTF) != 0u) {
+        linear = vec3(rec709InverseOetf(encoded.r),
+                      rec709InverseOetf(encoded.g),
+                      rec709InverseOetf(encoded.b));
+    } else {
+        // Preserve the established sRGB EOTF for the default path.
+        vec3 lo = encoded / 12.92;
+        vec3 hi = pow((encoded + 0.055) / 1.055, vec3(2.4));
+        linear = mix(hi, lo, lessThan(encoded, vec3(0.04045)));
+    }
     return max(0.1174 * log(1.0 + 150.0 * linear), vec3(0.0));
 }
 
@@ -108,7 +145,7 @@ void main() {
     if (any(greaterThanEqual(p, size))) return;
 
     float y = loadYCached(p, yTileBase);
-    vec3 rgb = yuvToRgb(y, loadUvBicubic(p, uvSize, uvTileBase));
+    vec3 rgb = yuvToRgb(y, loadUvFiltered(p, uvSize, uvTileBase));
 
     float blur = loadYCached(ivec2(max(p.x - 1, 0), p.y), yTileBase) +
                  loadYCached(ivec2(min(p.x + 1, size.x - 1), p.y), yTileBase) +

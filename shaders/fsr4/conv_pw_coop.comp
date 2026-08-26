@@ -13,7 +13,7 @@ layout(local_size_x = 32, local_size_y = 1, local_size_z = 1) in;
 layout(set = 0, binding = 0) uniform ConvCB {
     ivec4 slot0;
     ivec4 slot1;
-    ivec4 slot2;
+    ivec4 slot2; // (fp8 scale bits, rounding mode, _, _)
 };
 layout(set = 0, binding = 1, std430) readonly buffer WeightBlob { uint8_t weightU8[]; };
 layout(set = 0, binding = 2, std430) readonly buffer ScratchBuf { float16_t scratchData[]; };
@@ -30,10 +30,13 @@ float decodeFp8(uint b) {
     const uint sign = b >> 7u;
     const uint exponent = (b >> 3u) & 0xFu;
     const uint mantissa = b & 0x7u;
+    const int exponentBias = (slot2.z & 4) != 0 ? 7 : 8;
     if (exponent == 0u)
-        return (sign != 0u ? -1.0 : 1.0) * float(mantissa) * exp2(-10.0);
+        return (sign != 0u ? -1.0 : 1.0) * float(mantissa) *
+               exp2(float(1 - exponentBias - 3));
     if (b == 0x80u) return 0.0;
-    const float value = (1.0 + float(mantissa) / 8.0) * exp2(float(exponent) - 8.0);
+    const float value = (1.0 + float(mantissa) / 8.0) *
+                        exp2(float(exponent) - float(exponentBias));
     return sign != 0u ? -value : value;
 }
 
@@ -59,8 +62,27 @@ float loadPackedFloat(uint byteOffset) {
 }
 
 float quantizeFp8(float x) {
-    return x;
+    // slot2.y bit 0 is an opt-in capture probe. Zero preserves the current
+    // FP16 scratch behavior; one uses the existing nearest E4M3 quantizer.
+    if (slot2.y == 0) return x;
     if (isnan(x) || isinf(x) || x == 0.0) return 0.0;
+    if ((slot2.z & 4) != 0) {
+        const float subnormalScale = exp2(-9.0);
+        const float sign = x < 0.0 ? -1.0 : 1.0;
+        const float ax = abs(x);
+        if (ax < subnormalScale) return 0.0;
+        const float exponent = floor(log2(ax));
+        int exponentBits = int(exponent) + 7;
+        if (exponentBits <= 0)
+            return sign * clamp(round(ax / subnormalScale), 0.0, 7.0) *
+                   subnormalScale;
+        if (exponentBits >= 16) return sign * 240.0;
+        float mantissa = round((ax / exp2(exponent) - 1.0) * 8.0);
+        if (mantissa >= 8.0) { mantissa = 0.0; exponentBits++; }
+        if (exponentBits >= 16) return sign * 240.0;
+        return sign * (1.0 + mantissa / 8.0) *
+               exp2(float(exponentBits) - 7.0);
+    }
     const uint sign = x < 0.0 ? 0x80000000u : 0u;
     const float ax = abs(x);
     const uint bits = floatBitsToUint(ax);

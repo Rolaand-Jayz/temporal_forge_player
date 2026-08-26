@@ -13,6 +13,7 @@
 // buffers for the decision logic; the actual mask textures are generated on
 // GPU in the full path (Phase 3+).
 #pragma once
+#include "media/VideoDecoder.hpp"
 #include "util/Jitter.hpp"
 #include <algorithm>
 #include <cstdint>
@@ -27,6 +28,10 @@ enum class ReactiveSynthMode { Off, CheapAuto, Aggressive };
 // of an unnamed scalar. Current preserves playback behavior; the other modes
 // are for controlled sequence comparisons and are recorded by the caller.
 enum class JitterMode { Off, Current, Reduced, Controlled };
+// JitterSequence selects an existing deterministic low-cost sample family.
+// Halton(2,3) is the current default; the alternatives are opt-in capture
+// probes and do not add temporal lookahead or optical flow.
+enum class JitterSequence { Halton23, Halton32, Alternating, Zero };
 
 // Cheap analysis buffer: a small luminance image used for scene-cut and
 // reactive-mask heuristics. Quarter-resolution is plenty (spec 03 block
@@ -66,6 +71,26 @@ public:
                             bool forcedReset,
                             float motionConfidence = 1.0f);
 
+    // Estimate a sparse causal motion field from the previous and current
+    // analysis-luma buffers. The returned vectors use source-pixel units so
+    // PlaybackEngine can pass them through its existing source-to-model
+    // scaling and GPU expansion path. This is deliberately an opt-in
+    // fallback for clips whose decoder exports no codec motion vectors.
+    std::vector<MvEntry> estimateFallbackMotion(const LumaBuffer& current,
+                                                uint32_t sourceWidth,
+                                                uint32_t sourceHeight) const;
+
+    // Refine decoder-provided causal vectors with a tiny analysis-luma search.
+    // Upstream: VideoDecoder's codec vectors seed the search. Downstream:
+    // PlaybackEngine sends the corrected vectors through the existing model
+    // scaling and GPU expansion path. This is deliberately local and bounded;
+    // it is not a replacement for codec motion or a full optical-flow pass.
+    std::vector<MvEntry> refineCodecMotion(const LumaBuffer& current,
+                                           const std::vector<MvEntry>& seeds,
+                                           uint32_t sourceWidth,
+                                           uint32_t sourceHeight,
+                                           int refinementRadius = 1) const;
+
     // Resolution-aware jitter scaling for low-res sources.
     void setRenderSize(uint32_t width, uint32_t height) {
         renderWidth_ = width;
@@ -75,6 +100,10 @@ public:
     void setJitterMode(JitterMode mode) { jitterMode_ = mode; }
     void setControlledJitterStrength(float v) {
         controlledJitterStrength_ = std::clamp(v, 0.0f, 1.5f);
+    }
+    void setJitterSequence(JitterSequence sequence) { jitterSequence_ = sequence; }
+    void setJitterCadence(uint32_t cadence) {
+        jitterCadence_ = std::clamp(cadence, 1u, 64u);
     }
 
     // Reactive mask value per spec 03 section 5:
@@ -87,6 +116,12 @@ public:
 
     void setDepthMode(DepthSynthMode m) { depthMode_ = m; }
     void setReactiveMode(ReactiveSynthMode m) { reactiveMode_ = m; }
+
+    // Opt-in temporal-quality probe: fold frame-level motion confidence into
+    // the reactive uncertainty term without changing the default behavior.
+    void setMotionConfidenceReactive(bool enabled) {
+        motionConfidenceReactive_ = enabled;
+    }
 
     // spec 03 scene-cut rule:
     //   reset = histogramDelta > 0.65
@@ -105,13 +140,21 @@ private:
     float previousAvgLuma_ = -1.0f;
     std::array<uint32_t, 64> previousHist_{}; // 64-bin histogram
     bool previousFrameValid_ = false;
+    // The first frame has no positive PTS interval. Keep cadence validity
+    // separate from previous-frame validity so the first real interval can
+    // establish a 24/30/60-fps baseline before gap detection runs.
+    bool expectedIntervalEstablished_ = false;
     float expectedFrameIntervalMs_ = 16.6667f;
     uint32_t jitterIndex_ = 1;           // Halton sequence index
+    uint32_t jitterCadenceCounter_ = 0;  // frames held at the current phase
     uint32_t renderWidth_ = 0;
     uint32_t renderHeight_ = 0;
     float jitterStrength_ = 1.0f;
     JitterMode jitterMode_ = JitterMode::Current;
     float controlledJitterStrength_ = 1.0f;
+    JitterSequence jitterSequence_ = JitterSequence::Halton23;
+    uint32_t jitterCadence_ = 1;
+    bool motionConfidenceReactive_ = false;
 };
 
 // Compute a 64-bin luminance histogram + average over a luma buffer.

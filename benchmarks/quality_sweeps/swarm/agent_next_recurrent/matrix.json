@@ -1,0 +1,64 @@
+{
+  "schema": "temporal_forge.quality_sweep_matrix.recurrent.v1",
+  "campaignId": "agent-next-recurrent-20260824",
+  "status": "captured-not-promoted",
+  "control": {
+    "name": "recurrent_state_feedback",
+    "environment": "TFORGE_FSR4_ENABLE_RECURRENT",
+    "default": "unset",
+    "enabledValue": "1",
+    "scope": "prepass recurrent-state read and postpass recurrent-state write",
+    "colorHistory": "disabled in every cell; do not set TFORGE_FSR4_ENABLE_COLOR_HISTORY"
+  },
+  "candidates": [
+    {"id": "recurrent_off", "environment": {}},
+    {"id": "recurrent_on", "environment": {"TFORGE_FSR4_ENABLE_RECURRENT": "1"}}
+  ],
+  "scenes": ["tos_daylight", "tos_debris", "sintel_rooftop", "sintel_cave"],
+  "inputResolutions": ["426x240", "1280x720"],
+  "outputDimensionsByInput": {"426x240": "1920x1080", "1280x720": "3840x2160"},
+  "inputs": {
+    "root": "benchmarks/video_corpus",
+    "clipPattern": "clips/{scene}_{inputResolution}_high_crf12.mp4",
+    "referencePattern": "references/{scene}_2160p_lossless.mkv"
+  },
+  "framePolicy": {"warmupFrames": 36, "scoredFrames": 24},
+  "captureCount": 16,
+  "pairCount": 8,
+  "isolation": {
+    "qualityLabConfig": "unset",
+    "fixedBaseline": "recurrent_off",
+    "mustRemainUnset": [
+      "TFORGE_FSR4_ENABLE_COLOR_HISTORY", "TFORGE_FSR4_DISABLE_COLOR_HISTORY",
+      "TFORGE_FSR4_LEARNED_STRENGTH", "TFORGE_FSR4_LEARNED_CONFIDENCE_BLEND",
+      "TFORGE_FSR4_DISABLE_LEARNED_CONFIDENCE_GATE", "TFORGE_FSR4_CAS_STRENGTH",
+      "TFORGE_FSR4_LEGACY_RCAS_STRENGTH", "TFORGE_FSR4_USE_DISPLAY_BASE",
+      "TFORGE_FSR4_DISPLAY_BASE_STRENGTH", "TFORGE_FSR4_CURRENT_BASE_FILTER",
+      "TFORGE_FSR4_CURRENT_BLEND_LINEAR", "TFORGE_FSR4_CURRENT_BASE_JITTERED",
+      "TFORGE_FSR4_EXPERIMENTAL_BASE_UNJITTERED", "TFORGE_FSR4_JITTER_MODE",
+      "TFORGE_FSR4_CONTROLLED_JITTER", "TFORGE_FSR4_DISABLE_MOTION_VALIDITY",
+      "TFORGE_FSR4_DISABLE_PREPASS", "TFORGE_FSR4_DISABLE_POSTPASS"
+    ],
+    "sidecarsMustBeUnset": [
+      "TFORGE_TEMPORAL_MOTION_JSON", "TFORGE_TEMPORAL_METRICS_CSV",
+      "TFORGE_TEMPORAL_EVENTS_JSON", "TFORGE_TEMPORAL_STATIC_MASK_JSON",
+      "TFORGE_TEMPORAL_CLASS"
+    ]
+  },
+  "decisionGate": {
+    "comparison": "each recurrent_on cell versus recurrent_off at identical scene and input resolution",
+    "requiredForEveryPair": {
+      "finiteMetrics": true,
+      "ssimDeltaAtLeast": -0.0005,
+      "temporalErrorRelativeIncreaseAtMost": 0.02,
+      "gpuMedianIncreaseMsAtMost": 0.25
+    },
+    "minimumImprovedPairs": 3,
+    "aggregateMeanSsimDeltaAtLeast": 0.0,
+    "aggregateMeanTemporalErrorDeltaAtMost": 0.0,
+    "aggregateOnly": false
+  },
+  "executedCaptureCount": 16,
+  "result": "measured_results.json",
+  "noPromotion": "Capture and comparison only. Never change defaults, source, shaders, model selection, or playback behavior from these results alone. A candidate failing any per-pair gate is not promotable even if aggregate metrics improve."
+}

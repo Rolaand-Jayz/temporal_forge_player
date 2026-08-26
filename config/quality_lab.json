@@ -1,6 +1,6 @@
 {
   "qualityLab": {
-    "enabled": false,
+    "enabled": true,
     "composition": {
       "mode": "base_only",
       "learnedStrength": 0.0,
@@ -8,6 +8,7 @@
     },
     "baseFilter": {
       "mode": "bilinear",
+      "colorSpace": "model",
       "b": 0.3333333333,
       "c": 0.3333333333
     },

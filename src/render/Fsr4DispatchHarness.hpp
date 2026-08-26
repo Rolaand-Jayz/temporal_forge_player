@@ -64,6 +64,11 @@ struct Fsr4DispatchResult {
   bool ok = false;
   UpscaleError error = UpscaleError::None;
   double dispatchMs = 0.0;
+  // CPU time spent recording and submitting commands. Kept separate from
+  // cpuWaitMs because a fence wait is GPU latency observed by the CPU, not
+  // CPU reconstruction work.
+  double cpuRecordMs = 0.0;
+  double cpuWaitMs = 0.0;
   double gpuMs = 0.0;
   std::string failReason;
 };
@@ -83,6 +88,9 @@ struct FrameDispatchInput {
   VkImageView sourceDisplayView = VK_NULL_HANDLE; // rgba8, source dims
   VkImage sourceDisplayImage = VK_NULL_HANDLE;
   VkImageView motionView = VK_NULL_HANDLE;   // rg16f,   source dims
+  VkImageView motionValidityView = VK_NULL_HANDLE; // r8, covered codec pixels
+  VkImage motionImage = VK_NULL_HANDLE;
+  VkImage motionValidityImage = VK_NULL_HANDLE;
   VkImageView depthView = VK_NULL_HANDLE;    // r32f,    source dims
   VkImageView reactiveView = VK_NULL_HANDLE; // r8,      source dims
   VkImageView tcMaskView = VK_NULL_HANDLE;   // r8,      source dims
@@ -103,6 +111,10 @@ struct FrameDispatchInput {
   float jitterY = 0.0f;
   float frameTimeMs = 16.6667f;
   float historyConfidence = 1.0f;
+  // Scalar frame-level reactivity synthesized from luma change and codec
+  // motion. It is only consumed by the opt-in adaptive learned-strength
+  // candidate; the default composition ignores it.
+  float reactiveAverage = 0.0f;
   bool reset = false;
   bool hdr = false; // false = SDR (Rec.709 EOTF in prepass)
   // 0 = SDR/sRGB, 1 = PQ, 2 = HLG. The postpass keeps SDR output by

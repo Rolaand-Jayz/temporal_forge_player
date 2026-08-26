@@ -1,0 +1,13 @@
+{
+  "schema":"temporal_forge.quality_sweep_results.v1",
+  "campaignId":"agent-history-confidence015-20260824",
+  "status":"captured-not-promoted",
+  "captureCount":8,
+  "baseline":"current_default",
+  "candidate":"color_history_on_confidence_blend_075_learned_015",
+  "environment":{"TFORGE_FSR4_ENABLE_COLOR_HISTORY":"1","TFORGE_FSR4_LEARNED_CONFIDENCE_BLEND":"0.75","TFORGE_FSR4_LEARNED_STRENGTH":"0.15"},
+  "aggregate":{"meanSsimDelta":0.000404625,"meanTemporalErrorDelta":-0.026618750,"badPairs":3,"improvedPairs":8,"minSsimDelta":-0.000337000,"maxTemporalRelativeIncrease":0.18853},
+  "failedPairs":[{"cell":"sintel_cave_426x240","temporalRelativeIncrease":0.02012},{"cell":"sintel_cave_1280x720","temporalRelativeIncrease":0.09473},{"cell":"tos_debris_426x240","temporalRelativeIncrease":0.18853}],
+  "decision":{"promoted":null,"reason":"Aggregate metrics improve, but three matched cells exceed the 2% temporal-error gate. No timing or human review is claimed.","sourceChanged":false,"shaderChanged":false,"benchmarkImagesChanged":false},
+  "captureRoot":"captures/"
+}

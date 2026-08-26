@@ -41,18 +41,27 @@ class ReviewHarnessContractTests(unittest.TestCase):
             review_root = results / "review_fixture_frame1"
             review_root.mkdir(parents=True)
             names = (
-                "tos_daylight_426x240_high_crf12_review.png",
-                "tos_daylight_426x240_reference_1920x1080_f48.png",
-                "tos_daylight_reference_1920x1080_f55.png",
-                "tos_daylight_426x240_to1920x1080_temporal_forge_review.png",
-                "tos_daylight_426x240_f48_m6-current-20260823T193252Z-01-current.png",
-                "tos_daylight_426x240_f48_m6-current-20260823T193252Z-01-current_bicubic.png",
-                "tos_daylight_426x240_f48_m6-current-20260823T193252Z-01-current_gpu_raw.png",
-                "tos_daylight_426x240_to1920x1080_stagec-detail_residual_075_adaptive_sharpen_020_review.png",
+                "tos_daylight_640x360_high_crf12_f48.png",
+                "tos_daylight_640x360_high_crf12_f48_cross_control.png",
+                "tos_daylight_640x360_high_crf12_f48_cas0p00.png",
+                "tos_daylight_640x360_high_crf12_f48_cas0p02.png",
+                "tos_daylight_640x360_high_crf12_f48_cross_direct_unjittered.png",
+                "tos_daylight_640x360_high_crf12_f48_cross_jitter_off.png",
+                "tos_daylight_reference_1280x720_f48.png",
+                "tos_daylight_input854x480_to1280x720_lanczos.png",
+                "tos_daylight_input854x480_to1280x720_candidate-1.png",
+                "tos_daylight_input854x480_to1280x720_candidate-2.png",
+                "tos_daylight_input854x480_to1280x720_candidate-3.png",
+                "tos_daylight_input854x480_to1280x720_candidate-4.png",
+                "tos_daylight_input854x480_to1280x720_candidate-5.png",
+                "tos_daylight_input854x480_to1280x720_candidate-6.png",
+                "tos_daylight_input854x480_to1280x720_opt-in-1.png",
+                "tos_daylight_input1280x720_to1920x1080_bicubic.png",
+                "tos_daylight_input1920x1080_to3840x2160_temporal-forge.png",
                 "synthetic_motion_426x240_to1920x1080_temporal_forge_review.png",
             )
             for name in names:
-                dimensions = (426, 240) if "high_crf12" in name else (1920, 1080)
+                dimensions = (1280, 720)
                 (review_root / name).write_bytes(_png_with_dimensions(*dimensions))
 
             input_html = root / "legacy.html"
@@ -95,31 +104,38 @@ class ReviewHarnessContractTests(unittest.TestCase):
             self.assertFalse(any("synthetic" in asset["scene"] for asset in manifest))
             self.assertFalse(any(asset["assetName"].endswith("_gpu_raw.png") for asset in manifest))
             techniques = {asset["technique"] for asset in manifest}
-            self.assertIn("native-reference", techniques)
-            contextual_reference = next(
-                asset for asset in manifest if "426x240_reference" in asset["assetName"]
+            self.assertTrue(
+                {"native", "temporal-forge", "candidate-1", "opt-in-1", "opt-in-2", "opt-in-3", "opt-in-4"}
+                <= techniques
             )
-            self.assertEqual(contextual_reference["inputResolution"], "426x240")
-            self.assertEqual(contextual_reference["outputResolution"], "1920x1080")
-            current = next(asset for asset in manifest if asset["technique"] == "temporal-forge")
-            self.assertIsNone(current["experimentId"])
-            campaign_current = next(
-                asset for asset in manifest if asset["assetName"].endswith("current.png")
-            )
-            self.assertEqual(campaign_current["technique"], "temporal-forge")
-            campaign_bicubic = next(
-                asset for asset in manifest if asset["assetName"].endswith("current_bicubic.png")
-            )
-            self.assertEqual(campaign_bicubic["technique"], "bicubic-control")
-            native = next(asset for asset in manifest if asset["technique"] == "native-input")
-            self.assertIsNone(native["featureStack"])
-            self.assertIsNone(native["featureStackKey"])
-            experimental = next(asset for asset in manifest if asset["technique"] == "experimental")
-            self.assertAlmostEqual(experimental["residualStrength"], 0.75)
-            self.assertEqual(experimental["sharpeningMode"], "Adaptive")
-            self.assertAlmostEqual(experimental["sharpeningStrength"], 0.20)
-            self.assertTrue(any(asset["technique"] == "experimental" for asset in manifest))
-            self.assertTrue(any(asset["featureStackKey"] for asset in manifest if asset["technique"] == "experimental"))
+            contextual_reference = next(asset for asset in manifest if asset["technique"] == "native")
+            self.assertEqual(contextual_reference["inputResolution"], "640x360")
+            self.assertEqual(contextual_reference["outputResolution"], "1280x720")
+            candidate = next(asset for asset in manifest if asset["technique"] == "candidate-1")
+            self.assertEqual(candidate["experimentId"], "candidate-1")
+            tier_candidate = next(asset for asset in manifest if asset["assetName"].endswith("input854x480_to1280x720_candidate-1.png"))
+            self.assertEqual(tier_candidate["technique"], "candidate-1")
+            tier_candidate_two = next(asset for asset in manifest if asset["assetName"].endswith("input854x480_to1280x720_candidate-2.png"))
+            self.assertEqual(tier_candidate_two["technique"], "candidate-2")
+            tier_candidate_three = next(asset for asset in manifest if asset["assetName"].endswith("input854x480_to1280x720_candidate-3.png"))
+            self.assertEqual(tier_candidate_three["technique"], "candidate-3")
+            tier_candidate_four = next(asset for asset in manifest if asset["assetName"].endswith("input854x480_to1280x720_candidate-4.png"))
+            self.assertEqual(tier_candidate_four["technique"], "candidate-4")
+            tier_candidate_five = next(asset for asset in manifest if asset["assetName"].endswith("input854x480_to1280x720_candidate-5.png"))
+            self.assertEqual(tier_candidate_five["technique"], "candidate-5")
+            tier_candidate_six = next(asset for asset in manifest if asset["assetName"].endswith("input854x480_to1280x720_candidate-6.png"))
+            self.assertEqual(tier_candidate_six["technique"], "candidate-6")
+            tier_opt_in = next(asset for asset in manifest if asset["assetName"].endswith("input854x480_to1280x720_opt-in-1.png"))
+            self.assertEqual(tier_opt_in["technique"], "opt-in-1")
+            legacy_assets = [asset for asset in manifest if asset["assetName"].startswith("tos_daylight_640x360") or asset["assetName"].startswith("sintel_")]
+            self.assertTrue(all(asset["inputResolution"] == "640x360" for asset in legacy_assets))
+            self.assertTrue(all(asset["outputResolution"] == "1280x720" for asset in legacy_assets))
+            self.assertNotIn("Candidate #1", html.split("const assetManifest", 1)[0])
+            self.assertIn("'candidate-1':'Candidate #1'", html)
+            self.assertIn("'temporal-forge':'Temporal Forge'", html)
+            self.assertIn("'native':'Native reference'", html)
+            self.assertIn("'opt-in-1':'Opt-in #1'", html)
+            self.assertIn("'opt-in-4':'Opt-in #4'", html)
             self.assertIn('const state={left:', html)
             self.assertIn("compare-stage", html)
             self.assertIn("Upscale technique", html)
@@ -131,11 +147,23 @@ class ReviewHarnessContractTests(unittest.TestCase):
             self.assertIn("const featureOrder=", html)
             self.assertIn("canonicalFeatureStack(next)", html)
             self.assertIn("if(current.technique!=='experimental')return[];", html)
-            self.assertIn("zoom===1?'100% / 1:1 canvas'", html)
+            self.assertIn("function intendedCanvas(left,right)", html)
+            self.assertIn("shared canvas ", html)
+            self.assertIn("actual pixels", html)
+            self.assertIn("zoom===1?'100% / 1:1 highest canvas'", html)
             self.assertIn(
                 "viewer-compare.pixel-mode img{max-width:none;max-height:none;object-fit:contain",
                 html,
             )
+            self.assertIn("stage.addEventListener('wheel'", html)
+            self.assertIn("id=\"lens-toggle\"", html)
+            self.assertIn("function setLensEnabled", html)
+            self.assertIn("e.ctrlKey", html)
+            self.assertIn("className='magnifier'", html)
+            self.assertIn("zoom=Math.max(.25,Math.min(16,zoom))", html)
+            self.assertIn("'lanczos':'Lanczos'", html)
+            self.assertIn("'bicubic':'Bicubic'", html)
+            self.assertIn("native-input", html)
             self.assertNotIn("(zoom===0?'Fit to view':'100% / 1:1 canvas')", html)
             self.assertNotIn(
                 "const next=[...new Set(active?current.featureStack.filter(x=>x!==feature):[...current.featureStack,feature])].sort()",
@@ -171,17 +199,17 @@ class ReviewHarnessContractTests(unittest.TestCase):
             self.assertIsNotNone(embedded_alias_match)
             aliases = dict(
                 re.findall(
-                    r'"([^"]+)":embeddedAssetData\["([^"]+)"\]',
+                    r'"([^"]+)":"([^"]+)"',
                     embedded_alias_match.group(1),
                 )
             )
             self.assertEqual(set(aliases), {asset["assetName"] for asset in manifest})
-            self.assertTrue(all(value.startswith("data:image/") for value in embedded_data.values()))
+            self.assertTrue(all(value in {"image/png", "image/webp"} for value in embedded_data.values()))
             self.assertTrue(all(reference in embedded_data for reference in aliases.values()))
             self.assertLess(len(embedded_data), len(aliases))
             self.assertIn("embeddedAssetData", single_html)
             self.assertIn("const externalAssets = Object.freeze([]);", single_html)
-            self.assertIn("embeddedAssets[asset.assetName]??asset.assetPath", single_html)
+            self.assertIn("function embeddedAssetSource", single_html)
 
             embed_source = (Path(__file__).resolve().parents[1] / "tools/embed_review_harness.mjs").read_text(
                 encoding="utf-8"

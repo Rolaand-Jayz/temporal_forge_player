@@ -100,6 +100,24 @@ static void test_pts_gap_uses_prior_cadence() {
     CHECK(recovered.reset == false);
 }
 
+// The first decoded frame has no PTS delta. The first real interval must
+// establish the clip cadence before the gap detector compares it with the
+// built-in 60-fps fallback; otherwise a normal 24-fps second frame is
+// incorrectly treated as a scene cut.
+static void test_first_interval_establishes_cadence() {
+    LumaBuffer frame;
+    frame.width = 8;
+    frame.height = 8;
+    frame.data.assign(64, 0.4f);
+
+    SideBufferSynth synth;
+    const auto first = synth.update(frame, 0.0f, false);
+    CHECK(first.reset == true);
+    const auto second = synth.update(frame, 41.6667f, false);
+    CHECK(second.reset == false);
+    CHECK_FEQ(second.expectedFrameIntervalMs, 41.6667f);
+}
+
 static void test_low_res_jitter_scaling() {
     LumaBuffer frame;
     frame.width = 640;
@@ -140,14 +158,96 @@ static void test_jitter_strength_override() {
           std::fabs(enabled.jitterY) > 0.0f);
 }
 
+static void test_jitter_sequence_and_cadence_controls() {
+    LumaBuffer frame;
+    frame.width = 1920;
+    frame.height = 1080;
+    frame.data.assign(16, 0.5f);
+
+    SideBufferSynth swapped;
+    swapped.setRenderSize(frame.width, frame.height);
+    swapped.setJitterSequence(JitterSequence::Halton32);
+    const auto first = swapped.update(frame, 16.7f, false);
+    CHECK_FEQ(first.jitterX, -1.0f / 6.0f);
+    CHECK_FEQ(first.jitterY, 0.0f);
+
+    SideBufferSynth held;
+    held.setRenderSize(frame.width, frame.height);
+    held.setJitterCadence(2);
+    held.update(frame, 16.7f, false);
+    const auto heldFirst = held.update(frame, 16.7f, false);
+    const auto heldSecond = held.update(frame, 16.7f, false);
+    CHECK_FEQ(heldFirst.jitterX, heldSecond.jitterX);
+    CHECK_FEQ(heldFirst.jitterY, heldSecond.jitterY);
+}
+
+// Opt-in quality candidate: when motion correspondence is uncertain but not
+// low enough to hard-reset, reactive handling should reduce history trust.
+// The default path remains unchanged until the caller enables this policy.
+static void test_motion_confidence_can_raise_reactive_uncertainty() {
+    LumaBuffer frame;
+    frame.width = 8;
+    frame.height = 8;
+    frame.data.assign(64, 0.4f);
+
+    SideBufferSynth trusted;
+    trusted.setMotionConfidenceReactive(true);
+    trusted.update(frame, 41.7f, false, 1.0f);
+    const auto trustedFrame = trusted.update(frame, 41.7f, false, 1.0f);
+
+    SideBufferSynth uncertain;
+    uncertain.setMotionConfidenceReactive(true);
+    uncertain.update(frame, 41.7f, false, 1.0f);
+    const auto uncertainFrame = uncertain.update(frame, 41.7f, false, 0.20f);
+
+    CHECK(trustedFrame.reset == false);
+    CHECK(uncertainFrame.reset == false);
+    CHECK(uncertainFrame.reactiveAverage > trustedFrame.reactiveAverage);
+}
+
+// The optional block-motion fallback must remain empty before a previous
+// analysis frame exists, then produce valid source-space blocks for a static
+// pair. Static blocks are useful: they distinguish covered zero motion from
+// uncovered pixels in the GPU validity image.
+static void test_fallback_motion_has_causal_state() {
+    LumaBuffer frame;
+    frame.width = 16;
+    frame.height = 8;
+    frame.data.resize(frame.width * frame.height);
+    for (uint32_t y = 0; y < frame.height; ++y) {
+        for (uint32_t x = 0; x < frame.width; ++x)
+            frame.data[y * frame.width + x] =
+                0.2f + 0.03f * static_cast<float>((x + y) % 7);
+    }
+
+    SideBufferSynth synth;
+    const auto first = synth.estimateFallbackMotion(frame, 160, 80);
+    CHECK(first.empty());
+    synth.update(frame, 16.7f, false);
+    const auto second = synth.estimateFallbackMotion(frame, 160, 80);
+    CHECK(!second.empty());
+    for (const auto& mv : second) {
+        CHECK(mv.w > 0);
+        CHECK(mv.h > 0);
+        CHECK_FEQ(mv.mvX, 0.0f);
+        CHECK_FEQ(mv.mvY, 0.0f);
+        CHECK(mv.dstX >= 0);
+        CHECK(mv.dstY >= 0);
+    }
+}
+
 int main() {
     test_reactive_formula();
     test_scene_cut_thresholds();
     test_histogram_delta();
     test_static_vs_cut();
     test_pts_gap_uses_prior_cadence();
+    test_first_interval_establishes_cadence();
     test_low_res_jitter_scaling();
     test_jitter_strength_override();
+    test_jitter_sequence_and_cadence_controls();
+    test_motion_confidence_can_raise_reactive_uncertainty();
+    test_fallback_motion_has_causal_state();
     if (g_failures == 0) { std::printf("sidebuffer_tests: OK\n"); return 0; }
     std::fprintf(stderr, "sidebuffer_tests: %d FAILURES\n", g_failures);
     return 1;

@@ -39,6 +39,11 @@ benchmarks/video_corpus/results/
 .m6-captures/
 .m7-captures/
 
+# Local campaign workspaces and nested provenance clones are disposable and
+# must never make the developer worktree appear dirty. The reproducible
+# campaign definitions and reports live under benchmarks/quality_sweeps/.
+tmp/
+
 # Generated human-review exports. Rebuild with tools/build_review_harness.mjs
 # and tools/embed_review_harness.mjs; keep the source tools and metadata in Git.
 temporal-forge-frame*-review-standalone.html

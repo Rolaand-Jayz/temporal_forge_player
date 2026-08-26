@@ -1,0 +1,26 @@
+{
+  "schema": "temporal_forge.quality_sweep_measurements.v1",
+  "source": "real 426x240 high CRF12 clips, 1280x720 output, 36 warmup + 24 scored",
+  "baseline": {"meanSsim": 0.874627, "meanTemporalError": 0.789779},
+  "candidates": {
+    "history_blend075_strength010": {"meanSsim": 0.874952, "meanTemporalError": 0.767510, "validityOffMeanTemporalError": 0.776036},
+    "history_blend100_strength010": {"meanSsim": 0.874998, "meanTemporalError": 0.760136},
+    "history_blend075_strength015": {"meanSsim": 0.875088, "meanTemporalError": 0.738087}
+  },
+  "resolutionValidation": {
+    "input": "1280x720 high CRF12",
+    "output": "1920x1080",
+    "warmupFrames": 36,
+    "scoredFrames": 24,
+    "candidate": {"meanSsim": 0.954576, "meanTemporalError": 0.172969},
+    "fixedHistoryControl": {"meanSsim": 0.954784, "meanTemporalError": 0.184465},
+    "perSceneCandidateTemporalError": {
+      "tos_daylight": 0.505264,
+      "tos_debris": 0.002876,
+      "sintel_rooftop": 0.000611,
+      "sintel_cave": 0.183124
+    }
+  },
+  "decision": "not-promoted",
+  "reason": "The candidate improves aggregate temporal error at both tested scales but trades scene-specific regressions and slightly lower SSIM; retain as opt-in review configuration."
+}

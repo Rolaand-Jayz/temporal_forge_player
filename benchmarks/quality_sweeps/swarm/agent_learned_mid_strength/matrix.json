@@ -1,0 +1,39 @@
+{
+  "schema": "temporal_forge.quality_sweep_matrix.current_learned_mid_strength.v1",
+  "campaignId": "agent-learned-mid-strength-20260824",
+  "status": "captured-not-promoted",
+  "control": "TFORGE_FSR4_LEARNED_STRENGTH",
+  "baseline": {"id": "current_default", "environment": {}},
+  "candidates": [
+    {"id": "learned_040", "value": 0.40, "environment": {"TFORGE_FSR4_LEARNED_STRENGTH": "0.40"}},
+    {"id": "learned_045", "value": 0.45, "environment": {"TFORGE_FSR4_LEARNED_STRENGTH": "0.45"}},
+    {"id": "learned_050", "value": 0.50, "environment": {"TFORGE_FSR4_LEARNED_STRENGTH": "0.50"}},
+    {"id": "learned_055", "value": 0.55, "environment": {"TFORGE_FSR4_LEARNED_STRENGTH": "0.55"}}
+  ],
+  "scenes": ["tos_daylight", "tos_debris", "sintel_rooftop", "sintel_cave"],
+  "inputResolutions": ["426x240", "1280x720"],
+  "outputDimensionsByInput": {"426x240": "1920x1080", "1280x720": "3840x2160"},
+  "framePolicy": {"warmupFrames": 36, "scoredFrames": 24},
+  "captureCount": 40,
+  "executedCaptureCount": 24,
+  "decisionGate": {
+    "perPairSsimFloorDelta": -0.0005,
+    "perPairTemporalErrorMaxRelativeIncrease": 0.02,
+    "perPairGpuTimeIncreaseMsAtMost": 0.25,
+    "minimumImprovedPairs": 3,
+    "meanSsimDeltaAtLeast": 0.0,
+    "meanTemporalErrorDeltaAtMost": 0.0,
+    "aggregateOnly": false,
+    "humanVisualReviewRequired": true
+  },
+  "mustRemainUnset": [
+    "TFORGE_QUALITY_LAB_CONFIG", "TFORGE_FSR4_ENABLE_COLOR_HISTORY",
+    "TFORGE_FSR4_DISABLE_COLOR_HISTORY", "TFORGE_FSR4_ENABLE_RECURRENT",
+    "TFORGE_FSR4_LEARNED_CONFIDENCE_BLEND", "TFORGE_FSR4_DISABLE_LEARNED_CONFIDENCE_GATE",
+    "TFORGE_FSR4_CAS_STRENGTH", "TFORGE_FSR4_LEGACY_RCAS_STRENGTH",
+    "TFORGE_FSR4_CURRENT_BASE_FILTER", "TFORGE_FSR4_JITTER_MODE",
+    "TFORGE_FSR4_CONTROLLED_JITTER", "TFORGE_FSR4_DISABLE_MOTION_VALIDITY"
+  ],
+  "result": "measured_results.json",
+  "noPromotion": "Capture and review only; do not change defaults or source from this matrix alone."
+}

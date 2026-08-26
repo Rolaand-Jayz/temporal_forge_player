@@ -87,10 +87,11 @@ int main(int argc, char** argv) {
     const auto qualityLab =
         temporal_forge::loadQualityLabConfig(qualityLabPath);
     temporal_forge::logInfo(
-        "QualityLab: {} enabled={} composition={} base={} sharpen={} toneEV={:.3f}",
+        "QualityLab: {} enabled={} composition={} base={} colorSpace={} sharpen={} toneEV={:.3f}",
         qualityLabPath.string(), qualityLab.enabled,
         temporal_forge::qualityCompositionModeName(qualityLab.compositionMode),
         temporal_forge::qualityBaseFilterModeName(qualityLab.baseFilterMode),
+        temporal_forge::qualityBaseColorSpaceName(qualityLab.baseColorSpace),
         temporal_forge::qualitySharpenModeName(qualityLab.sharpenMode),
         qualityLab.toneExposureEV);
     // Benchmark-only override. It is intentionally applied after loading and

@@ -27,6 +27,25 @@ extern "C" {
 
 namespace temporal_forge {
 
+namespace {
+
+// inputSharpnessForCapture: keep the interactive/UI sharpness as the default,
+// while allowing isolated quality captures to override only the uploader's
+// pre-FSR luma mask. Downstream FSR, postpass, and presentation sharpening are
+// unaffected by this switch.
+float inputSharpnessForCapture(float configured) {
+  const char *value = std::getenv("TFORGE_FSR4_INPUT_SHARPEN_STRENGTH");
+  if (!value || !*value)
+    return std::clamp(configured, 0.0f, 1.0f);
+  char *end = nullptr;
+  const float parsed = std::strtof(value, &end);
+  if (end == value || *end != '\0' || !std::isfinite(parsed))
+    return std::clamp(configured, 0.0f, 1.0f);
+  return std::clamp(parsed, 0.0f, 1.0f);
+}
+
+} // namespace
+
 bool GpuImageUploader::init(VkPhysicalDevice physical, VkDevice device,
                             VkQueue queue, uint32_t queueFamily,
                             uint32_t presentationQueueFamily) {
@@ -96,12 +115,14 @@ bool GpuImageUploader::init(VkPhysicalDevice physical, VkDevice device,
     logError("GpuImageUploader: create drm descriptor layout failed");
     return false;
   }
-  std::array<VkDescriptorSetLayoutBinding, 3> motionBindings{};
+  std::array<VkDescriptorSetLayoutBinding, 4> motionBindings{};
   motionBindings[0] = {0, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1,
                        VK_SHADER_STAGE_COMPUTE_BIT, nullptr};
   motionBindings[1] = {1, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1,
                        VK_SHADER_STAGE_COMPUTE_BIT, nullptr};
   motionBindings[2] = {2, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1,
+                       VK_SHADER_STAGE_COMPUTE_BIT, nullptr};
+  motionBindings[3] = {3, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1,
                        VK_SHADER_STAGE_COMPUTE_BIT, nullptr};
   VkDescriptorSetLayoutCreateInfo motionDci{};
   motionDci.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
@@ -261,6 +282,7 @@ bool GpuImageUploader::init(VkPhysicalDevice physical, VkDevice device,
     return false;
   }
   vkDestroyShaderModule(device_, motionMod, nullptr);
+
   vkDestroyShaderModule(device_, drmMod, nullptr);
   vkDestroyShaderModule(device_, mod, nullptr);
 
@@ -507,6 +529,7 @@ void GpuImageUploader::destroy() {
   destroyGpuImage(device_, uPlane_);
   destroyGpuImage(device_, vPlane_);
   destroyGpuImage(device_, motion_);
+  destroyGpuImage(device_, motionValidity_);
   destroyGpuImage(device_, depth_);
   destroyGpuImage(device_, reactive_);
   destroyGpuImage(device_, tcMask_);
@@ -570,6 +593,7 @@ bool GpuImageUploader::allocate(uint32_t sourceW, uint32_t sourceH,
   destroyGpuImage(device_, uPlane_);
   destroyGpuImage(device_, vPlane_);
   destroyGpuImage(device_, motion_);
+  destroyGpuImage(device_, motionValidity_);
   destroyGpuImage(device_, depth_);
   destroyGpuImage(device_, reactive_);
   destroyGpuImage(device_, tcMask_);
@@ -639,6 +663,10 @@ bool GpuImageUploader::allocate(uint32_t sourceW, uint32_t sourceH,
                        VK_FORMAT_R16G16_SFLOAT, inputUsage,
                        VK_IMAGE_ASPECT_COLOR_BIT, motion_, "fsr4_motion");
   ok &= createGpuImage(device_, physical_, modelW, modelH,
+                       VK_FORMAT_R8_UNORM, inputUsage,
+                       VK_IMAGE_ASPECT_COLOR_BIT, motionValidity_,
+                       "fsr4_motion_validity");
+  ok &= createGpuImage(device_, physical_, modelW, modelH,
                        VK_FORMAT_R32_SFLOAT, inputUsage,
                        VK_IMAGE_ASPECT_COLOR_BIT, depth_, "fsr4_depth");
   ok &= createGpuImage(device_, physical_, modelW, modelH, VK_FORMAT_R8_UNORM,
@@ -675,7 +703,7 @@ bool GpuImageUploader::allocate(uint32_t sourceW, uint32_t sourceH,
                        "fsr4_reprojected_color");
   ok &= createGpuBufferObj(
       device_, physical_,
-      static_cast<VkDeviceSize>(sourceW) * sourceH * sizeof(uint32_t),
+      static_cast<VkDeviceSize>(modelW) * modelH * sizeof(uint32_t),
       VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
       VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, motionOwners_, "fsr4_motion_owners");
   historyIndex_.store(0, std::memory_order_release);
@@ -1432,7 +1460,7 @@ bool GpuImageUploader::importAndConvertDrmFrame(
                           drmPipelineLayout_, 0, 1, &set, 0, nullptr);
   const YuvPushConstants push = yuvPushConstants(
       frame, compareEnabled_.load(std::memory_order_acquire),
-      std::clamp(sharpness_.load(std::memory_order_acquire), 0.0f, 1.0f));
+      inputSharpnessForCapture(sharpness_.load(std::memory_order_acquire)));
   vkCmdPushConstants(cmd_, drmPipelineLayout_, VK_SHADER_STAGE_COMPUTE_BIT, 0,
                      sizeof(push), &push);
   const uint32_t gx = (frame.width + 15u) / 16u;
@@ -1462,8 +1490,8 @@ bool GpuImageUploader::uploadColorTo(const DecodedVideoFrame &frame,
   const bool planar420 =
       bytesPerSample == 1u &&
       (fmt == AV_PIX_FMT_YUV420P || fmt == AV_PIX_FMT_YUVJ420P);
-  const float sharpness =
-      std::clamp(sharpness_.load(std::memory_order_acquire), 0.0f, 1.0f);
+  const float sharpness = inputSharpnessForCapture(
+      sharpness_.load(std::memory_order_acquire));
 
   if (frame.hwFrame) {
     if (importAndConvertDrmFrame(frame)) {
@@ -1611,6 +1639,7 @@ bool GpuImageUploader::uploadColorTo(const DecodedVideoFrame &frame,
   return false;
 }
 
+
 bool GpuImageUploader::uploadMotion(const std::vector<MvEntry> &mvs) {
   static const bool forceCpu = std::getenv("TFORGE_FSR4_CPU_MOTION") != nullptr;
   if (forceCpu || motionPipeline_ == VK_NULL_HANDLE) {
@@ -1676,6 +1705,21 @@ bool GpuImageUploader::uploadMotion(const std::vector<MvEntry> &mvs) {
                        nullptr, 1, &motionReady);
   motion_.layout = VK_IMAGE_LAYOUT_GENERAL;
 
+  VkImageMemoryBarrier validityReady = motionReady;
+  validityReady.srcAccessMask =
+      motionValidity_.layout == VK_IMAGE_LAYOUT_UNDEFINED
+          ? 0
+          : VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT;
+  validityReady.oldLayout = motionValidity_.layout;
+  validityReady.image = motionValidity_.image;
+  vkCmdPipelineBarrier(
+      cmd_, validityReady.oldLayout == VK_IMAGE_LAYOUT_UNDEFINED
+                ? VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT
+                : VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+      VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 0, nullptr, 0, nullptr, 1,
+      &validityReady);
+  motionValidity_.layout = VK_IMAGE_LAYOUT_GENERAL;
+
   VkDescriptorSet set = VK_NULL_HANDLE;
   VkDescriptorSetAllocateInfo asi{};
   asi.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
@@ -1689,7 +1733,9 @@ bool GpuImageUploader::uploadMotion(const std::vector<MvEntry> &mvs) {
   VkDescriptorBufferInfo ownerInfo{motionOwners_.buffer, 0, VK_WHOLE_SIZE};
   VkDescriptorImageInfo motionInfo{VK_NULL_HANDLE, motion_.view,
                                    VK_IMAGE_LAYOUT_GENERAL};
-  std::array<VkWriteDescriptorSet, 3> writes{};
+  VkDescriptorImageInfo validityInfo{VK_NULL_HANDLE, motionValidity_.view,
+                                    VK_IMAGE_LAYOUT_GENERAL};
+  std::array<VkWriteDescriptorSet, 4> writes{};
   writes[0] = {VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
   writes[0].dstSet = set;
   writes[0].dstBinding = 0;
@@ -1708,6 +1754,12 @@ bool GpuImageUploader::uploadMotion(const std::vector<MvEntry> &mvs) {
   writes[2].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
   writes[2].descriptorCount = 1;
   writes[2].pImageInfo = &motionInfo;
+  writes[3] = {VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
+  writes[3].dstSet = set;
+  writes[3].dstBinding = 3;
+  writes[3].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+  writes[3].descriptorCount = 1;
+  writes[3].pImageInfo = &validityInfo;
   vkUpdateDescriptorSets(device_, static_cast<uint32_t>(writes.size()),
                          writes.data(), 0, nullptr);
 
@@ -1745,6 +1797,14 @@ bool GpuImageUploader::uploadMotion(const std::vector<MvEntry> &mvs) {
                        VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 0, nullptr, 0,
                        nullptr, 1, &motionWritten);
 
+  VkImageMemoryBarrier validityWritten = validityReady;
+  validityWritten.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
+  validityWritten.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+  validityWritten.oldLayout = VK_IMAGE_LAYOUT_GENERAL;
+  vkCmdPipelineBarrier(cmd_, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+                       VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 0, nullptr, 0,
+                       nullptr, 1, &validityWritten);
+
   if (!endUploadCmd())
     return false;
   if (frameUploadBatch_) {
@@ -1762,7 +1822,8 @@ bool GpuImageUploader::uploadMotionCpu(const std::vector<MvEntry> &mvs) {
   // lookup table of (dstX, dstY) → mv per block, then splat.
   // Layout: rg16f = 2 × half per pixel = 4 bytes/pixel.
   const size_t motionSize = (size_t)modelW_ * modelH_ * 4;
-  if (!ensureStaging(std::max(motionSize, (VkDeviceSize)4096)))
+  const size_t validitySize = (size_t)modelW_ * modelH_;
+  if (!ensureStaging(std::max(motionSize + validitySize, (size_t)4096)))
     return false;
 
   // Fill a block map: index by (blockTopLeftY * srcW + blockTopLeftX).
@@ -1771,6 +1832,7 @@ bool GpuImageUploader::uploadMotionCpu(const std::vector<MvEntry> &mvs) {
   // build a 2D coverage array by stamping each block's MV over its region.
   auto *out = static_cast<uint8_t *>(stagingMapped_);
   std::memset(out, 0, motionSize); // zero = no motion (default)
+  std::memset(out + motionSize, 0, validitySize);
 
   auto writeHalf = [&](size_t pixelIdx, float mvX, float mvY) {
     // fp16 encode (cheap: clamp + reuse bit pattern via fp16-from-fp32).
@@ -1805,6 +1867,7 @@ bool GpuImageUploader::uploadMotionCpu(const std::vector<MvEntry> &mvs) {
       for (int x = x0; x < x1; ++x) {
         size_t idx = (size_t)y * modelW_ + x;
         writeHalf(idx, m.mvX, m.mvY);
+        out[motionSize + idx] = 255;
       }
     }
   }
@@ -1813,6 +1876,9 @@ bool GpuImageUploader::uploadMotionCpu(const std::vector<MvEntry> &mvs) {
     return false;
   if (!copyBufferToImage(motion_, staging_.buffer, 0, modelW_, modelH_,
                          VK_IMAGE_ASPECT_COLOR_BIT))
+    return false;
+  if (!copyBufferToImage(motionValidity_, staging_.buffer, motionSize,
+                         modelW_, modelH_, VK_IMAGE_ASPECT_COLOR_BIT))
     return false;
   return endUploadCmd();
 }

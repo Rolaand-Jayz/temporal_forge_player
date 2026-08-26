@@ -220,6 +220,22 @@ def validate_page(client: Marionette, url: str) -> dict[str, Any]:
         return document.getElementById('viewer-status').textContent;
         """,
     )
+    lens_state = step(
+        "lens toggle and Ctrl-click exit",
+        """
+        document.querySelector('[data-view="fit"]').click();
+        const toggle = document.getElementById('lens-toggle');
+        toggle.click();
+        const enabled = toggle.getAttribute('aria-pressed') === 'true' &&
+          !document.querySelector('.magnifier').hidden;
+        document.querySelector('.viewer-compare').dispatchEvent(
+          new MouseEvent('click', {bubbles: true, ctrlKey: true})
+        );
+        const disabled = toggle.getAttribute('aria-pressed') === 'false' &&
+          document.querySelector('.magnifier').hidden;
+        return {enabled, disabled};
+        """,
+    )
     pan_position = step(
         "pixel-viewer pan",
         """
@@ -245,8 +261,9 @@ def validate_page(client: Marionette, url: str) -> dict[str, Any]:
             "opened": opened,
             "pixelStatus": pixel_status,
             "zoomStatus": zoom_status,
-            "oneToOne": "100% / 1:1 canvas" in pixel_status,
-            "zoomed": "150% canvas" in zoom_status,
+            "oneToOne": "100% / 1:1 highest canvas" in pixel_status,
+            "zoomed": "150% highest canvas" in zoom_status,
+            "lens": lens_state == {"enabled": True, "disabled": True},
             "panPosition": pan_position,
             "panned": pan_position["left"] > 0 and pan_position["top"] > 0,
             "fitStatus": fit_status,
@@ -306,6 +323,7 @@ def validate_page(client: Marionette, url: str) -> dict[str, Any]:
         "opened": True,
         "oneToOne": True,
         "zoomed": True,
+        "lens": True,
         "panned": True,
         "fitToView": True,
         "hashRestored": True,

@@ -86,8 +86,14 @@ LumaBuffer makeAnalysisLuma(const DecodedVideoFrame &frame) {
 
 float codecMotionConfidence(const std::vector<MvEntry> &mvs, int width,
                             int height) {
+  float emptyMotionConfidence = 0.5f;
+  if (const char *value =
+          std::getenv("TFORGE_FSR4_EXPERIMENTAL_EMPTY_MOTION_CONFIDENCE")) {
+    emptyMotionConfidence =
+        std::clamp(std::strtof(value, nullptr), 0.0f, 1.0f);
+  }
   if (width <= 0 || height <= 0 || mvs.empty())
-    return mvs.empty() ? 0.5f : 0.0f;
+    return mvs.empty() ? emptyMotionConfidence : 0.0f;
   const double frameArea = static_cast<double>(width) * height;
   double covered = 0.0;
   double weightedMagnitude = 0.0;
@@ -121,6 +127,24 @@ float codecMotionConfidence(const std::vector<MvEntry> &mvs, int width,
                                         0.0, 1.0));
 }
 
+float motionLimitMultiplier() {
+  // The historical limit was 16 block-diagonals. Keep that exact default for
+  // normal playback; quality experiments can lower it to reject codec vectors
+  // that are numerically valid but implausibly far from their destination.
+  static const float value = [] {
+    const char *env =
+        std::getenv("TFORGE_FSR4_EXPERIMENTAL_MOTION_MAX_BLOCKS");
+    if (!env || !*env)
+      return 16.0f;
+    char *end = nullptr;
+    const float parsed = std::strtof(env, &end);
+    if (end == env || *end != '\0' || !std::isfinite(parsed))
+      return 16.0f;
+    return std::clamp(parsed, 0.25f, 16.0f);
+  }();
+  return value;
+}
+
 std::vector<MvEntry> pastReferenceMotion(const std::vector<MvEntry> &mvs) {
   std::vector<MvEntry> past;
   past.reserve(mvs.size());
@@ -139,7 +163,8 @@ std::vector<MvEntry> pastReferenceMotion(const std::vector<MvEntry> &mvs) {
         4.0f * std::hypot(static_cast<float>(blockW),
                           static_cast<float>(blockH));
     if (mv.source <= 0 && std::isfinite(mv.mvX) && std::isfinite(mv.mvY) &&
-        std::hypot(mv.mvX, mv.mvY) <= maxDisplacement * 16.0f)
+        std::hypot(mv.mvX, mv.mvY) <=
+            maxDisplacement * motionLimitMultiplier())
       past.push_back(mv);
   }
   return past;
@@ -170,6 +195,11 @@ bool dumpCausalMotionFrame(const std::filesystem::path &path,
     logWarn("PlaybackEngine: cannot write motion sidecar frame {}", path.string());
     return false;
   }
+  // Frame zero has no previous reference in a causal sequence.  Preserve the
+  // transition explicitly instead of claiming its vectors are usable history
+  // motion; later frames retain the filtered vectors for diagnostics.
+  const std::vector<MvEntry> frameMotion =
+      frameIndex == 0 ? std::vector<MvEntry>{} : causalMotion;
   output << std::setprecision(9);
   output << "{\n"
          << "  \"frameIndex\": " << frameIndex << ",\n"
@@ -179,10 +209,10 @@ bool dumpCausalMotionFrame(const std::filesystem::path &path,
          << "  \"avgLumaDelta\": " << avgLumaDelta << ",\n"
          << "  \"motionConfidence\": " << motionConfidence << ",\n"
          << "  \"motionAvailable\": "
-         << (!causalMotion.empty() ? "true" : "false") << ",\n"
+         << (!frameMotion.empty() ? "true" : "false") << ",\n"
          << "  \"vectors\": [";
-  for (size_t index = 0; index < causalMotion.size(); ++index) {
-    const MvEntry &motion = causalMotion[index];
+  for (size_t index = 0; index < frameMotion.size(); ++index) {
+    const MvEntry &motion = frameMotion[index];
     if (index != 0) output << ',';
     output << "\n    {\"dstX\": " << static_cast<int>(motion.dstX)
            << ", \"dstY\": " << static_cast<int>(motion.dstY)
@@ -192,7 +222,7 @@ bool dumpCausalMotionFrame(const std::filesystem::path &path,
            << ", \"h\": " << static_cast<int>(motion.h)
            << ", \"source\": " << static_cast<int>(motion.source) << '}';
   }
-  if (!causalMotion.empty()) output << '\n';
+  if (!frameMotion.empty()) output << '\n';
   output << "  ],\n"
          << "  \"sourceWidth\": " << frame.width << ",\n"
          << "  \"sourceHeight\": " << frame.height << ",\n"
@@ -259,6 +289,7 @@ bool dumpEventTraceFrame(const std::filesystem::path &path,
          << "    \"histogramDelta\": " << sideInputs.histogramDelta << ",\n"
          << "    \"avgLumaDelta\": " << sideInputs.avgLumaDelta << ",\n"
          << "    \"motionConfidence\": " << sideInputs.motionConfidence << ",\n"
+         << "    \"reactiveAverage\": " << sideInputs.reactiveAverage << ",\n"
          << "    \"ptsGapMs\": " << ptsDeltaMs << ",\n"
          << "    \"expectedFrameIntervalMs\": "
          << sideInputs.expectedFrameIntervalMs << "\n"
@@ -392,6 +423,7 @@ void PlaybackEngine::setFsr4Enabled(bool enabled) {
     return;
   fsr4Enabled_.store(enabled, std::memory_order_release);
   fsr4FrameReady_.store(false, std::memory_order_release);
+  fsr4NativePassthrough_.store(false, std::memory_order_release);
   if (!enabled) {
     // Disabling FSR4 neural upscaling. Tear down the harness (weights, CNN
     // pipelines) but keep the uploader if Vulkan is present — it will run
@@ -430,6 +462,7 @@ void PlaybackEngine::teardownFsr4Path() {
   // immediately, even before we finish tearing them down.
   fsr4Ready_.store(false, std::memory_order_release);
   fsr4FrameReady_.store(false, std::memory_order_release);
+  fsr4NativePassthrough_.store(false, std::memory_order_release);
   // NOTE: do NOT clear easuOnlyMode_ here — it's a display policy, not a
   // teardown state. The decode loop re-creates the uploader lazily when
   // easuOnlyMode_ stays true (e.g. between file switches with FSR4 off).
@@ -695,7 +728,22 @@ bool PlaybackEngine::initFsr4Path(int decodedW, int decodedH, int modelW,
             decodedPassW, decodedPassH, passSourceW, passSourceH,
             passTarget.width, passTarget.height);
     h = std::make_unique<Fsr4DispatchHarness>();
-    h->setQualityLabConfig(qualityLabConfig_);
+    // The measured base-only composition wins on severe upscales, but the
+    // legacy composition is stronger at the normal 1.5x 720p-to-1080p tier.
+    // Apply that scale-aware policy only to the checked-in default. An
+    // explicit TFORGE_QUALITY_LAB_CONFIG remains a deliberate experiment and
+    // must retain its requested composition at every scale.
+    QualityLabConfig passQualityLabConfig = qualityLabConfig_;
+    const bool defaultScaleAwareQualityLab =
+        qualityLabConfig_.enabled &&
+        std::getenv("TFORGE_QUALITY_LAB_CONFIG") == nullptr;
+    const float passScale = passSourceW == 0
+                                ? scale
+                                : static_cast<float>(passTarget.width) /
+                                      static_cast<float>(passSourceW);
+    if (defaultScaleAwareQualityLab && passScale < 3.0f)
+      passQualityLabConfig.enabled = false;
+    h->setQualityLabConfig(passQualityLabConfig);
     if (!h->init(vkPhysical_, vkDevice_, vkQueue_, vkQueueFamily_, vkCap_))
       return false;
     Fsr4DispatchResources r{};
@@ -922,9 +970,15 @@ bool PlaybackEngine::fsr4NativeOutput(VkImage &image, uint32_t &width,
   // The dispatch waits for completion before publishing this handle. The
   // output image is the current frame in display space; history is model
   // space and must never be presented as the video frame.
-  image = published->presentationImage();
-  width = published->presentationW();
-  height = published->presentationH();
+  if (fsr4NativePassthrough_.load(std::memory_order_acquire)) {
+    image = published->rawPresentationImage();
+    width = published->sourceW();
+    height = published->sourceH();
+  } else {
+    image = published->presentationImage();
+    width = published->presentationW();
+    height = published->presentationH();
+  }
   return image != VK_NULL_HANDLE && width > 0 && height > 0;
 }
 
@@ -1509,10 +1563,24 @@ void PlaybackEngine::videoDecodeLoop() {
   bool hasPendingDecodedFrame = false;
   static const bool forceResetEnv =
       std::getenv("TFORGE_FSR4_FORCE_RESET") != nullptr;
+  static const bool motionConfidenceReactiveEnv =
+      std::getenv("TFORGE_FSR4_MOTION_CONFIDENCE_REACTIVE") != nullptr;
   static const char *jitterModeEnv = std::getenv("TFORGE_FSR4_JITTER_MODE");
   static const float controlledJitterStrength = [] {
     const char *value = std::getenv("TFORGE_FSR4_CONTROLLED_JITTER");
     return value ? std::clamp(std::strtof(value, nullptr), 0.0f, 1.5f) : 1.0f;
+  }();
+  static const char *jitterSequenceEnv =
+      std::getenv("TFORGE_FSR4_JITTER_SEQUENCE");
+  static const uint32_t jitterCadence = [] {
+    const char *value = std::getenv("TFORGE_FSR4_JITTER_CADENCE");
+    if (!value || !*value)
+      return 1u;
+    char *end = nullptr;
+    const unsigned long parsed = std::strtoul(value, &end, 10);
+    if (end == value || *end != '\0')
+      return 1u;
+    return static_cast<uint32_t>(std::clamp<unsigned long>(parsed, 1ul, 64ul));
   }();
   static const bool dumpDecoderEnv =
       std::getenv("TFORGE_FSR4_DUMP_DECODER") != nullptr;
@@ -1587,6 +1655,19 @@ void PlaybackEngine::videoDecodeLoop() {
   } else {
     sideBufferSynth_.setJitterMode(JitterMode::Current);
   }
+  // The default remains Halton(2,3), one new sample per frame. The other
+  // deterministic sequences/cadences are capture-only probes and do not
+  // create future-frame or optical-flow dependencies.
+  if (jitterSequenceEnv && std::strcmp(jitterSequenceEnv, "halton32") == 0)
+    sideBufferSynth_.setJitterSequence(JitterSequence::Halton32);
+  else if (jitterSequenceEnv && std::strcmp(jitterSequenceEnv, "alternating") == 0)
+    sideBufferSynth_.setJitterSequence(JitterSequence::Alternating);
+  else if (jitterSequenceEnv && std::strcmp(jitterSequenceEnv, "zero") == 0)
+    sideBufferSynth_.setJitterSequence(JitterSequence::Zero);
+  else
+    sideBufferSynth_.setJitterSequence(JitterSequence::Halton23);
+  sideBufferSynth_.setJitterCadence(jitterCadence);
+  sideBufferSynth_.setMotionConfidenceReactive(motionConfidenceReactiveEnv);
   static const char *dumpSequenceDirectory = [] {
     const char *value = std::getenv("TFORGE_FSR4_DUMP_SEQUENCE_DIR");
     return value && *value ? value : "/tmp";
@@ -1669,9 +1750,46 @@ void PlaybackEngine::videoDecodeLoop() {
       sideBufferSynth_.setRenderSize(
           fsrTargetViewportW_.load(std::memory_order_acquire),
           fsrTargetViewportH_.load(std::memory_order_acquire));
-      const std::vector<MvEntry> pastMotion =
-          pastReferenceMotion(df.motionVectors);
       const LumaBuffer analysisLuma = makeAnalysisLuma(df);
+      std::vector<MvEntry> pastMotion = pastReferenceMotion(df.motionVectors);
+      // Optional cheap correction for codec vectors. The decoder vectors stay
+      // the seed and the analysis-luma matcher only searches a one/two-pixel
+      // neighborhood around each seed; the default path is unchanged.
+      if (!pastMotion.empty() && !reset &&
+          std::getenv("TFORGE_FSR4_EXPERIMENTAL_REFINE_MOTION")) {
+        int refinementRadius = 1;
+        if (const char *env = std::getenv("TFORGE_FSR4_MOTION_REFINE_RADIUS")) {
+          char *end = nullptr;
+          const long parsed = std::strtol(env, &end, 10);
+          if (end != env && *end == '\0')
+            refinementRadius = static_cast<int>(std::clamp(parsed, 0L, 2L));
+        }
+        const auto refineStart = std::chrono::steady_clock::now();
+        pastMotion = sideBufferSynth_.refineCodecMotion(
+            analysisLuma, pastMotion, static_cast<uint32_t>(std::max(0, df.width)),
+            static_cast<uint32_t>(std::max(0, df.height)), refinementRadius);
+        if (profileUploadEnv) {
+          const double refineMs = std::chrono::duration<double, std::milli>(
+              std::chrono::steady_clock::now() - refineStart).count();
+          logInfo("PlaybackEngine: codec motion refinement frame={} blocks={} radius={} ms={:.3f}",
+                  df.frameIndex, pastMotion.size(), refinementRadius, refineMs);
+        }
+      }
+      // Some H.264/H.265 files expose no AV_FRAME_DATA_MOTION_VECTORS at
+      // all. Keep the normal path unchanged, but let a controlled quality
+      // capture use the analysis-luma block matcher as the documented
+      // AutoCheap fallback for those clips. It is computed before update()
+      // replaces SideBufferSynth's previous analysis frame.
+      if (pastMotion.empty() && !reset &&
+          std::getenv("TFORGE_FSR4_EXPERIMENTAL_BLOCK_MOTION")) {
+        pastMotion = sideBufferSynth_.estimateFallbackMotion(
+            analysisLuma, static_cast<uint32_t>(std::max(0, df.width)),
+            static_cast<uint32_t>(std::max(0, df.height)));
+        if (profileUploadEnv) {
+          logInfo("PlaybackEngine: fallback block motion frame={} blocks={}",
+                  df.frameIndex, pastMotion.size());
+        }
+      }
       const float futureAnalysisConfidence =
           hasPendingDecodedFrame
               ? lookaheadConfidence(df, pendingDecodedFrame)
@@ -1686,6 +1804,11 @@ void PlaybackEngine::videoDecodeLoop() {
           analysisLuma, ptsDeltaMs, reset,
           codecMotionConfidence(pastMotion, df.width, df.height) *
               futureAnalysisConfidence);
+      // Never carry an analysis match across a detected cut. Codec motion is
+      // subject to the same causal reset policy, so this keeps both sources
+      // consistent when the side-buffer detector rejects the transition.
+      if (sideInputs.reset)
+        pastMotion.clear();
       lastReactive_.store(sideInputs.reactiveAverage, std::memory_order_release);
       lastMotionConf_.store(sideInputs.motionConfidence, std::memory_order_release);
       if (sideInputs.reset && !reset) {
@@ -1769,10 +1892,20 @@ void PlaybackEngine::videoDecodeLoop() {
         // and no second softening filter is introduced.
         const uint32_t modelW = std::min(fsrInputW, static_cast<uint32_t>(df.width));
         const uint32_t modelH = std::min(fsrInputH, static_cast<uint32_t>(df.height));
+        // A same-size selection is an identity request, not an upscale. Keep
+        // it pixel-faithful and avoid paying for a reconstruction that has no
+        // new pixels to create. Any non-identity geometry follows FSR4 below.
+        const bool nativePassthrough =
+            neuralTargetW == static_cast<uint32_t>(df.width) &&
+            neuralTargetH == static_cast<uint32_t>(df.height) &&
+            displayW == static_cast<uint32_t>(df.width) &&
+            displayH == static_cast<uint32_t>(df.height);
         const DecodedVideoFrame &fsrDf = *fsrFrame;
-        const std::vector<MvEntry> temporalMotion = scaleMotionToModel(
-            pastReferenceMotion(fsrDf.motionVectors), fsrDf.width, fsrDf.height,
-            modelW, modelH);
+        std::vector<MvEntry> temporalMotion;
+        if (!nativePassthrough) {
+          temporalMotion = scaleMotionToModel(
+            pastMotion, fsrDf.width, fsrDf.height, modelW, modelH);
+        }
         // FSR presents from one shared Vulkan image. Do not let the decode
         // thread overwrite that image while the previous frame is still
         // queued for presentation; otherwise the PTS and pixels can diverge.
@@ -1831,10 +1964,13 @@ void PlaybackEngine::videoDecodeLoop() {
             fsr4Harness_) {
           const bool singlePass = fsr4PassSizes_.size() == 1;
           const bool asyncSlots =
-              singlePass && fsr4InFlightUploader_ && fsr4InFlightHarness_ &&
+              singlePass && !nativePassthrough && fsr4InFlightUploader_ &&
+              fsr4InFlightHarness_ &&
               std::getenv("TFORGE_FSR4_DISABLE_INFLIGHT") == nullptr;
           GpuImageUploader *firstUploader = nullptr;
           Fsr4DispatchHarness *firstHarness = nullptr;
+          double retiredGpuWaitCpuMs = 0.0;
+          double currentDispatchWaitCpuMs = 0.0;
           if (asyncSlots) {
             firstUploader = fsr4NextDispatchSlot_ == 0
                                  ? fsr4Uploader_.get()
@@ -1849,6 +1985,7 @@ void PlaybackEngine::videoDecodeLoop() {
             // explicit image barrier for the prior shader write.
             if (firstHarness->frameInFlight()) {
               const auto completed = firstHarness->waitForFrame();
+              retiredGpuWaitCpuMs = completed.cpuWaitMs;
               firstUploader->completeDeferredFrameUploads();
               if (completed.ok) {
                 firstUploader->advanceHistory();
@@ -1917,12 +2054,14 @@ void PlaybackEngine::videoDecodeLoop() {
             if (fsrDf.planes > 0) {
               // Luma is only needed for the reset-time side buffers.
             }
-            const auto motionUploadStart = std::chrono::steady_clock::now();
-            uploadOk &= firstUploader->uploadMotion(temporalMotion);
-            motionUploadMs =
-                std::chrono::duration<double, std::milli>(
-                    std::chrono::steady_clock::now() - motionUploadStart)
-                    .count();
+            if (!nativePassthrough) {
+              const auto motionUploadStart = std::chrono::steady_clock::now();
+              uploadOk &= firstUploader->uploadMotion(temporalMotion);
+              motionUploadMs =
+                  std::chrono::duration<double, std::milli>(
+                      std::chrono::steady_clock::now() - motionUploadStart)
+                      .count();
+            }
 
             // These are compatibility inputs inherited from the game
             // model, not changing video-frame data. Rebuilding Sobel
@@ -1931,7 +2070,7 @@ void PlaybackEngine::videoDecodeLoop() {
             // noise into the reconstruction. Initialize stable neutral
             // values when temporal state resets; color and codec motion
             // are the only per-frame uploads.
-            if (initializeNeutral) {
+            if (initializeNeutral && !nativePassthrough) {
               const auto neutralUploadStart = std::chrono::steady_clock::now();
               SideBufferSource sbs;
               sbs.motionVectors = &temporalMotion;
@@ -1961,8 +2100,8 @@ void PlaybackEngine::videoDecodeLoop() {
             // This is an intermediate uploader for chained passes, so ending
             // the final output uploader's batch leaves the real batch open
             // and makes the next frame fail beginFrameUploads().
-            uploadOk &=
-                firstUploader->endFrameUploads(&uploadCommandBuffer);
+            uploadOk &= firstUploader->endFrameUploads(nativePassthrough ? nullptr
+                                                                            : &uploadCommandBuffer);
             uploadFinalizeMs =
                 std::chrono::duration<double, std::milli>(
                     std::chrono::steady_clock::now() - uploadFinalizeStart)
@@ -1975,6 +2114,61 @@ void PlaybackEngine::videoDecodeLoop() {
           if (!uploadOk) {
             logWarn("PlaybackEngine: FSR4 input upload failed");
           } else {
+            if (nativePassthrough) {
+              // endFrameUploads(nullptr) above has already submitted and
+              // waited for the color conversion. Publish the raw image so
+              // both display and diagnostics see the exact native frame.
+              fsr4PublishedUploader_.store(firstUploader,
+                                            std::memory_order_release);
+              fsr4NativePassthrough_.store(true, std::memory_order_release);
+              fsr4FrameReady_.store(true, std::memory_order_release);
+              fsr4Upscaled = true;
+              fsr4OutW = firstUploader->sourceW();
+              fsr4OutH = firstUploader->sourceH();
+              lastFsr4DispatchMs_.store(0.0, std::memory_order_release);
+              lastFsr4GpuMs_.store(0.0, std::memory_order_release);
+              emit fsr4StatusChanged();
+
+              // Quality capture uses the same native image for output,
+              // presentation, and raw controls. Readback is opt-in and only
+              // occurs for those diagnostic environment switches.
+              const auto dumpNative = [&](const char *path,
+                                          const char *label) {
+                std::vector<uint8_t> nativeReadback;
+                uint32_t dumpW = 0, dumpH = 0;
+                if (!firstUploader->readbackRaw(nativeReadback, dumpW, dumpH)) {
+                  logWarn("PlaybackEngine: native {} readback failed", label);
+                  return;
+                }
+                std::ofstream dump(path, std::ios::binary | std::ios::trunc);
+                if (!dump)
+                  return;
+                dump << "P6\n" << dumpW << ' ' << dumpH << "\n255\n";
+                for (size_t i = 0; i < static_cast<size_t>(dumpW) * dumpH;
+                     ++i)
+                  dump.write(reinterpret_cast<const char *>(
+                                 nativeReadback.data() + i * 4),
+                             3);
+                logInfo("PlaybackEngine: dumped native {} frame={} {}x{} to {}",
+                        label, fsrFrame->frameIndex, dumpW, dumpH, path);
+              };
+              const bool nativeDumpFrameReady =
+                  fsrFrame->frameIndex >= dumpOutputFrame;
+              if (nativeDumpFrameReady && dumpOutputEnv &&
+                  !fsr4DumpedOutput_) {
+                dumpNative(dumpOutputPath, "FSR4 output");
+                fsr4DumpedOutput_ = true;
+              }
+              if (nativeDumpFrameReady && dumpPresentationEnv &&
+                  !fsr4DumpedPresentation_) {
+                dumpNative(dumpPresentationPath, "presentation");
+                fsr4DumpedPresentation_ = true;
+              }
+              if (nativeDumpFrameReady && dumpRawEnv && !fsr4DumpedRaw_) {
+                dumpNative(dumpRawPath, "raw");
+                fsr4DumpedRaw_ = true;
+              }
+            } else {
 
             FrameDispatchInput in;
             in.prefixCommandBuffer = uploadCommandBuffer;
@@ -1983,6 +2177,9 @@ void PlaybackEngine::videoDecodeLoop() {
             in.sourceDisplayView = firstUploader->rawPresentationView();
             in.sourceDisplayImage = firstUploader->rawPresentationImage();
             in.motionView = firstUploader->motionView();
+            in.motionValidityView = firstUploader->motionValidityView();
+            in.motionImage = firstUploader->motionImage();
+            in.motionValidityImage = firstUploader->motionValidityImage();
             in.depthView = firstUploader->depthView();
             in.reactiveView = firstUploader->reactiveView();
             in.tcMaskView = firstUploader->tcMaskView();
@@ -2017,6 +2214,7 @@ void PlaybackEngine::videoDecodeLoop() {
             in.jitterY = sideInputs.jitterY;
             in.frameTimeMs = ptsDeltaMs > 0.0f ? ptsDeltaMs : 16.6667f;
             in.historyConfidence = sideInputs.motionConfidence;
+            in.reactiveAverage = sideInputs.reactiveAverage;
             in.hdr = fsrDf.colorTransfer == AVCOL_TRC_SMPTE2084 ||
                      fsrDf.colorTransfer == AVCOL_TRC_ARIB_STD_B67;
             in.transfer = fsrDf.colorTransfer == AVCOL_TRC_SMPTE2084
@@ -2031,6 +2229,7 @@ void PlaybackEngine::videoDecodeLoop() {
                                   !dumpRawEnv;
             auto dr = runAsync ? firstHarness->dispatchFrameAsync(in)
                                : firstHarness->dispatchFrame(in);
+            currentDispatchWaitCpuMs += dr.cpuWaitMs;
             double chainDispatchMs = dr.dispatchMs;
             double chainGpuMs = dr.gpuMs;
             if (!runAsync) {
@@ -2107,6 +2306,9 @@ void PlaybackEngine::videoDecodeLoop() {
               // Auxiliary metadata remains in the original decoded-frame
               // domain; only the color frame changes between passes.
               chained.motionView = firstUploader->motionView();
+              chained.motionValidityView = firstUploader->motionValidityView();
+              chained.motionImage = firstUploader->motionImage();
+              chained.motionValidityImage = firstUploader->motionValidityImage();
               chained.depthView = firstUploader->depthView();
               chained.reactiveView = firstUploader->reactiveView();
               chained.tcMaskView = firstUploader->tcMaskView();
@@ -2127,9 +2329,11 @@ void PlaybackEngine::videoDecodeLoop() {
               // temporal history without resolution-matched motion turns
               // compression/detail noise into a persistent lattice.
               chained.reset = true;
+              chained.reactiveAverage = 1.0f;
               chained.hdr = in.hdr;
               chained.transfer = in.transfer;
               dr = harnessAt(pass)->dispatchFrame(chained);
+              currentDispatchWaitCpuMs += dr.cpuWaitMs;
               if (dr.ok) {
                 chainDispatchMs += dr.dispatchMs;
                 chainGpuMs += dr.gpuMs;
@@ -2196,11 +2400,15 @@ void PlaybackEngine::videoDecodeLoop() {
                 logInfo("PlaybackEngine: FSR4 stage-timing decodeCPU={:.3f}ms "
                         "uploadCPU={:.3f}ms presentationCPU={:.3f}ms "
                         "pipelineCPU={:.3f}ms dispatchCPU={:.3f}ms "
+                        "recordCPU={:.3f}ms waitGPUCPU={:.3f}ms "
                         "GPU={:.3f}ms",
                         decodeCpuMs,
                         colorUploadMs + motionUploadMs + neutralUploadMs +
                             uploadFinalizeMs,
                         presentationCpuMs, pipelineCpuMs, chainDispatchMs,
+                        dr.cpuRecordMs,
+                        runAsync ? retiredGpuWaitCpuMs
+                                 : currentDispatchWaitCpuMs,
                         chainGpuMs);
               }
             }
@@ -2215,7 +2423,17 @@ void PlaybackEngine::videoDecodeLoop() {
                 std::vector<float> decoder;
                 if (fsr4Harness_->readbackFinalAccum(decoder)) {
                   constexpr size_t kMaxDiagnosticPixels = 65536;
-                  const size_t pixelCount = decoder.size() / 8;
+                  size_t decoderChannels =
+                      std::getenv("TFORGE_FSR4_DUMP_PREFINAL") ? 16u : 8u;
+                  if (const char *probeChannels = std::getenv(
+                          "TFORGE_FSR4_DUMP_PREFINAL_CHANNELS")) {
+                    char *end = nullptr;
+                    const unsigned long parsed =
+                        std::strtoul(probeChannels, &end, 10);
+                    if (end != probeChannels && parsed > 0 && parsed <= 128)
+                      decoderChannels = static_cast<size_t>(parsed);
+                  }
+                  const size_t pixelCount = decoder.size() / decoderChannels;
                   const size_t sampleStride =
                       std::max<size_t>(1, pixelCount / kMaxDiagnosticPixels);
                   std::array<std::vector<float>, 8> samples;
@@ -2224,14 +2442,17 @@ void PlaybackEngine::videoDecodeLoop() {
                   for (size_t pixel = 0; pixel < pixelCount;
                        pixel += sampleStride) {
                     for (size_t c = 0; c < samples.size(); ++c) {
-                      const float value = decoder[pixel * 8 + c];
+                      const float value =
+                          decoder[pixel * decoderChannels + c];
                       if (std::isfinite(value))
                         samples[c].push_back(value);
                     }
                   }
-                  logInfo("PlaybackEngine: decoder frame={} pixels={} "
-                          "sample_stride={}",
-                          sourceFrameIndex, pixelCount, sampleStride);
+                  logInfo("PlaybackEngine: {} frame={} pixels={} "
+                          "channels={} sample_stride={}",
+                          decoderChannels == 16 ? "pre-final" : "decoder",
+                          sourceFrameIndex, pixelCount, decoderChannels,
+                          sampleStride);
                   for (size_t c = 0; c < samples.size(); ++c) {
                     auto &channel = samples[c];
                     if (channel.empty())
@@ -2399,6 +2620,7 @@ void PlaybackEngine::videoDecodeLoop() {
                 fsr4OutW = presentationUploader->outputW();
                 fsr4OutH = presentationUploader->outputH();
               }
+            }
             }
           }
         }

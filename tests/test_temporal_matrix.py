@@ -4,15 +4,76 @@ from __future__ import annotations
 
 import copy
 import json
+import os
+import subprocess
 import tempfile
 import unittest
 from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
+TEMPORAL_MATRIX = ROOT / "benchmarks/video_corpus/run_temporal_quality_matrix.sh"
+TEMPORAL_RUNNER = ROOT / "benchmarks/video_corpus/run_temporal_quality.sh"
 
 
 class TemporalMatrixTests(unittest.TestCase):
+    def test_temporal_matrix_dry_run_describes_isolated_retry_attempts(self) -> None:
+        """The matrix planner must expose retry isolation without launching the player."""
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            player = root / "player"
+            input_path = root / "input.mkv"
+            reference_path = root / "reference.mkv"
+            player.write_text("#!/usr/bin/env bash\nexit 0\n", encoding="utf-8")
+            player.chmod(0o755)
+            input_path.write_bytes(b"input")
+            reference_path.write_bytes(b"reference")
+            output_dir = root / "matrix"
+            result = subprocess.run(
+                [
+                    str(TEMPORAL_MATRIX),
+                    str(player),
+                    str(input_path),
+                    str(reference_path),
+                    str(output_dir),
+                    "8",
+                    "--retries",
+                    "2",
+                    "--dry-run",
+                ],
+                cwd=ROOT,
+                env=os.environ.copy(),
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("preset=Quality attempts=0..2", result.stdout)
+        self.assertIn("matrix dry run", result.stdout)
+        self.assertFalse(output_dir.exists())
+
+    def test_temporal_matrix_script_is_valid_bash(self) -> None:
+        result = subprocess.run(
+            ["bash", "-n", str(TEMPORAL_MATRIX)],
+            cwd=ROOT,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_temporal_runner_forwards_matrix_preset_to_player(self) -> None:
+        """Preset rows must configure the player rather than only rename output files."""
+        source = TEMPORAL_RUNNER.read_text(encoding="utf-8")
+        self.assertIn("TFORGE_BENCHMARK_PRESET", source)
+
+    def test_temporal_runner_forwards_experimental_phase_override(self) -> None:
+        """Temporal A/B captures must preserve the spatial phase under test."""
+        source = TEMPORAL_RUNNER.read_text(encoding="utf-8")
+        self.assertIn("TFORGE_FSR4_EXPERIMENTAL_BASE_UNJITTERED", source)
+
+
     def test_existing_m6_campaign_has_no_temporal_rows_until_assembled(self) -> None:
         campaign = json.loads(
             (ROOT / "benchmarks/quality_sweeps/m6_schema2_spatial_campaign.json").read_text(

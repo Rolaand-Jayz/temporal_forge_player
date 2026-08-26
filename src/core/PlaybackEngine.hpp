@@ -264,6 +264,9 @@ private:
     Fsr4Preset fsr4LoadedBlobPreset_ = Fsr4Preset::Quality;
     std::atomic<bool> fsr4Enabled_{false}; // user wants upscaling
     std::atomic<bool> fsr4Ready_{false};   // weights + harness + uploader initialized
+    // Exact native-size selections bypass neural reconstruction and publish
+    // the uploader's decoded presentation image without changing any upscale.
+    std::atomic<bool> fsr4NativePassthrough_{false};
     // EASU-only mode: when FSR4 is off but Vulkan is present, keep the
     // uploader alive to run the EASU 2x GPU upscale and display it. This
     // replaces the pixelated CPU/bilinear off-path with GPU-accelerated

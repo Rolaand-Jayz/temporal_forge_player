@@ -55,10 +55,9 @@ if (embeddedIndex < 0) throw new Error('Could not find the embedded asset manife
 const embeddedEnd = html.indexOf(');', embeddedIndex + embeddedStart.length);
 if (embeddedEnd < 0) throw new Error('Embedded asset manifest is truncated');
 
-// writeEmbeddedAssetObject: stream each encoded property directly to the
-// output file. Upstream is the prepared asset list; downstream is the browser's
-// embeddedAssets lookup. This is intentionally not JSON.stringify on the full
-// object because a large corpus can exceed Node's single-string limit.
+// writeEmbeddedAssetObject: write compact hash indexes into JavaScript. The
+// large base64 payloads are emitted as inert HTML blocks below, keeping them
+// out of JavaScript parsing and allowing the browser to load images lazily.
 function writeEmbeddedAssetObject(fd, assets) {
   // The hash-keyed data object stores identical image bytes once. The
   // name-keyed map below preserves the browser-facing asset lookup contract
@@ -68,20 +67,25 @@ function writeEmbeddedAssetObject(fd, assets) {
   fs.writeSync(fd, `${embeddedDataStart}{`);
   uniqueAssets.forEach((asset, index) => {
     if (index) fs.writeSync(fd, ',');
-    const bytes = fs.readFileSync(asset.source);
-    const encoded = `data:${asset.mime};base64,${bytes.toString('base64')}`;
     fs.writeSync(fd, JSON.stringify(asset.hash));
-    fs.writeSync(fd, ':');
-    fs.writeSync(fd, JSON.stringify(encoded));
+    fs.writeSync(fd, `:${JSON.stringify(asset.mime)}`);
   });
   fs.writeSync(fd, '});\n');
   fs.writeSync(fd, `${embeddedStart}{`);
   assets.forEach((asset, index) => {
     if (index) fs.writeSync(fd, ',');
     fs.writeSync(fd, JSON.stringify(asset.name));
-    fs.writeSync(fd, `:embeddedAssetData[${JSON.stringify(asset.hash)}]`);
+    fs.writeSync(fd, `:${JSON.stringify(asset.hash)}`);
   });
   fs.writeSync(fd, '});');
+  return uniqueAssets;
+}
+
+function writeEmbeddedAssetPayloads(fd, assets) {
+  for (const asset of assets) {
+    const bytes = fs.readFileSync(asset.source);
+    fs.writeSync(fd, `</script><script type="application/x-tforge-asset" data-tforge-hash="${asset.hash}" data-mime="${asset.mime}">${bytes.toString('base64')}</script><script>`);
+  }
 }
 
 const professionalStyles = '';
@@ -114,7 +118,8 @@ if (!Number.isFinite(maxMiB) || maxMiB <= 0) {
 const fd = fs.openSync(temporaryOutput, 'w');
 try {
   fs.writeSync(fd, prefix);
-  writeEmbeddedAssetObject(fd, preparedAssets);
+  const uniqueAssets = writeEmbeddedAssetObject(fd, preparedAssets);
+  writeEmbeddedAssetPayloads(fd, uniqueAssets);
   fs.writeSync(fd, suffix);
 } finally {
   fs.closeSync(fd);

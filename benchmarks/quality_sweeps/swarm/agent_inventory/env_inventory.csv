@@ -1,0 +1,81 @@
+name,kind,player_or_script,accepted_values_or_shape,forwarded_by,evidence
+TFORGE_QUALITY_LAB_CONFIG,quality-config,player+runner,path to JSON,run_quality_sweep.py;run_quality.sh;run_temporal_quality.sh,src/config/QualityLabConfig.cpp;benchmarks/quality_sweeps/run_quality_sweep.py
+TFORGE_BENCHMARK_PRESET,quality-config,player+runner,Off|NativeAA|Quality|Balanced|Performance|UltraPerformance|AutoMatchDisplay,run_quality_matrix.sh;run_quality_sweep.py;run_quality.sh;run_temporal_quality.sh,src/main.cpp;benchmarks/video_corpus/run_quality_matrix.sh
+TFORGE_BENCHMARK_SHARPNESS,quality-config,player,float clamped 0..1,,src/main.cpp
+TFORGE_BENCHMARK_JITTER_STRENGTH,quality-config,player,float clamped 0..1.5,,src/main.cpp
+TFORGE_FSR4_FORCE_VIEWPORT,quality-config,player+runner,WIDTHxHEIGHT each >=2,run_quality.sh;run_temporal_quality.sh,src/core/PlaybackEngine.cpp
+TFORGE_FSR4_FORCE_SCALE,quality-config,player+runner,finite float >=1.0,run_quality.sh,src/core/PlaybackEngine.cpp
+TFORGE_FSR4_DRS,quality-config,player+runner,presence=1,run_quality.sh,src/core/PlaybackEngine.cpp
+TFORGE_FSR4_CHAIN_PASSES,quality-config,player,positive integer,,src/core/PlaybackEngine.cpp
+TFORGE_FSR4_JITTER_MODE,quality-config,player+runner,implementation-defined string,run_quality.sh;run_temporal_quality.sh,src/core/PlaybackEngine.cpp
+TFORGE_FSR4_CONTROLLED_JITTER,quality-config,player+runner,float clamped 0..1.5,run_quality.sh;run_temporal_quality.sh,src/core/PlaybackEngine.cpp
+TFORGE_FSR4_FORCE_RESET,quality-config,player+runner,presence=1,run_temporal_quality.sh,src/core/PlaybackEngine.cpp
+TFORGE_FSR4_USE_DISPLAY_BASE,quality-config,player+runner,presence=1,run_temporal_quality.sh,src/render/Fsr4DispatchHarness.cpp
+TFORGE_FSR4_DISPLAY_BASE_STRENGTH,quality-config,player+runner,float,run_temporal_quality.sh,src/render/Fsr4DispatchHarness.cpp
+TFORGE_FSR4_CURRENT_BASE_FILTER,quality-config,player+runner,implementation-defined string,run_temporal_quality.sh,src/render/Fsr4DispatchHarness.cpp
+TFORGE_FSR4_CURRENT_BLEND_LINEAR,quality-config,player+runner,presence=1,run_temporal_quality.sh,src/render/Fsr4DispatchHarness.cpp
+TFORGE_FSR4_CURRENT_BASE_JITTERED,quality-config,player+runner,presence=1,run_temporal_quality.sh,src/render/Fsr4DispatchHarness.cpp
+TFORGE_FSR4_EXPERIMENTAL_BASE_UNJITTERED,quality-config,player+runner,presence=1,run_temporal_quality.sh,src/render/Fsr4DispatchHarness.cpp
+TFORGE_FSR4_EXPERIMENTAL_DISABLE_POSTPASS_TAIL,quality-config,player+runner,presence=1,run_temporal_quality.sh,src/render/Fsr4DispatchHarness.cpp
+TFORGE_FSR4_EXPERIMENTAL_RECOVERED_LINEAR_OUTPUT,quality-config,player+runner,presence=1,run_temporal_quality.sh,src/render/Fsr4DispatchHarness.cpp
+TFORGE_FSR4_EXPERIMENTAL_REC709_INPUT_EOTF,quality-config,player+runner,presence=1,run_temporal_quality.sh,src/render/upload/YuvConstants.cpp;benchmarks/video_corpus/run_temporal_quality.sh
+TFORGE_FSR4_EXPERIMENTAL_UNKNOWN_MATRIX_BT709,quality-config,player+runner,presence=1,run_temporal_quality.sh,src/render/upload/YuvConstants.cpp;benchmarks/video_corpus/run_temporal_quality.sh
+TFORGE_FSR4_ENABLE_COLOR_HISTORY,quality-config,player+runner,presence=1,run_quality.sh;run_temporal_quality.sh,src/render/Fsr4DispatchHarness.cpp
+TFORGE_FSR4_DISABLE_COLOR_HISTORY,quality-config,player+runner,presence=1,run_temporal_quality.sh,src/render/Fsr4DispatchHarness.cpp
+TFORGE_FSR4_ENABLE_RECURRENT,quality-config,player+runner,presence=1,run_quality.sh;run_temporal_quality.sh,src/render/Fsr4DispatchHarness.cpp
+TFORGE_FSR4_LEARNED_STRENGTH,quality-config,player+runner,float clamped 0..1,run_quality.sh;run_temporal_quality.sh,src/render/Fsr4DispatchHarness.cpp
+TFORGE_FSR4_DISABLE_LEARNED_CONFIDENCE_GATE,quality-config,player+runner,presence=1,run_temporal_quality.sh,src/render/Fsr4DispatchHarness.cpp
+TFORGE_FSR4_CAS_STRENGTH,quality-config,player+runner,float clamped 0..1 default 0,run_quality.sh;run_temporal_quality.sh,src/render/Fsr4DispatchHarness.cpp
+TFORGE_FSR4_DISABLE_CAS,quality-config,player,presence=1,,src/render/Fsr4DispatchHarness.cpp
+TFORGE_FSR4_LEGACY_RCAS_STRENGTH,quality-config,player+runner,float,run_temporal_quality.sh,src/render/Fsr4DispatchHarness.cpp
+TFORGE_FSR4_HDR_OUTPUT,quality-config,player,presence=1,,src/render/Fsr4DispatchHarness.cpp
+TFORGE_FSR4_DISABLE_PREPASS,quality-config,player+runner,presence=1,run_temporal_quality.sh,src/render/Fsr4DispatchHarness.cpp
+TFORGE_FSR4_DISABLE_POSTPASS,quality-config,player,presence=1,,src/render/Fsr4DispatchHarness.cpp
+TFORGE_FSR4_DISABLE_NATIVE_INT8,quality-config,player,presence=1,,src/render/Fsr4DispatchHarness.cpp
+TFORGE_FSR4_DISABLE_FUSED_INT8,quality-config,player+runner,presence=1,run_quality.sh,src/render/Fsr4DispatchHarness.cpp
+TFORGE_FSR4_ENABLE_FUSED_INT8,quality-config,player+runner,presence=1,run_quality.sh,src/render/Fsr4DispatchHarness.cpp
+TFORGE_FSR4_DISABLE_INFLIGHT,performance-control,player+runner,presence=1,run_performance.sh,src/core/PlaybackEngine.cpp;benchmarks/video_corpus/run_performance.sh
+TFORGE_FSR4_FP8_SCALE,diagnostic-control,player,float,proof/harness paths,src/backend/Fsr4ProofRunner.cpp;src/render/Fsr4DispatchHarness.cpp
+TFORGE_FSR4_DISABLE_COOP,performance-control,player,presence=1,,src/render/Fsr4DispatchHarness.cpp
+TFORGE_FSR4_COOP_MAX_STEP,performance-control,player,non-negative integer,,src/render/Fsr4DispatchHarness.cpp
+TFORGE_FSR4_DISABLE_FP16_COOP,performance-control,player,presence=1,,src/render/Fsr4DispatchHarness.cpp
+TFORGE_FSR4_DISABLE_FP16_DIRECT,performance-control,player,presence=1,,src/render/Fsr4DispatchHarness.cpp
+TFORGE_FSR4_DISABLE_FP16_UPSCALE,performance-control,player,presence=1,,src/render/Fsr4DispatchHarness.cpp
+TFORGE_FSR4_DISABLE_FP16_DOWNSCALE,performance-control,player,presence=1,,src/render/Fsr4DispatchHarness.cpp
+TFORGE_FSR4_FP16_FINAL_SCALAR,performance-control,player,presence=1,,src/render/Fsr4DispatchHarness.cpp
+TFORGE_FSR4_MAX_STEPS,performance-control,player,positive integer,,src/render/Fsr4DispatchHarness.cpp
+TFORGE_DISABLE_HW_DECODE,capture-isolation,player+runner,presence/value; disables hardware decode,run_quality.sh;run_temporal_quality.sh,src/media/VideoDecoder.cpp;benchmark runner contracts
+TFORGE_QUALITY_FRAME,capture-selection,script,non-negative frame index,run_quality.sh,benchmarks/video_corpus/run_quality.sh
+TFORGE_QUALITY_TAG,capture-provenance,script,alphanumeric/underscore/dot/hyphen,run_quality.sh;matrix runners,benchmarks/video_corpus/run_quality.sh
+TFORGE_QUALITY_CLIP,capture-selection,script,regex,run_quality.sh,benchmarks/video_corpus/run_quality.sh
+TFORGE_QUALITY_QUALITY,capture-selection,script,exact corpus quality string,run_quality.sh,benchmarks/video_corpus/run_quality.sh
+TFORGE_QUALITY_MANIFEST,capture-selection,script,path to corpus CSV,run_quality.sh,benchmarks/video_corpus/run_quality.sh
+TFORGE_QUALITY_SPATIAL_INPUT,capture-selection,script,path to spatial input,run_quality.sh,benchmarks/video_corpus/run_quality.sh
+TFORGE_QUALITY_OUTPUT_DIMENSIONS,capture-validation,script,WIDTHxHEIGHT,run_quality.sh,benchmarks/video_corpus/run_quality.sh
+TFORGE_QUALITY_ASSET_MANIFEST,capture-output,script,path to asset CSV,run_quality.sh,benchmarks/video_corpus/run_quality.sh
+TFORGE_REVIEW_PIPELINE_CONFIG,reference-pipeline,script,path to env file,run_quality.sh;prepare/apply controls,benchmarks/video_corpus/run_quality.sh
+TFORGE_REVIEW_PRE_SCALE,reference-pipeline,script,ffmpeg scale value,reference scripts,benchmarks/video_corpus/prepare_native_bicubic_input.sh
+TFORGE_REVIEW_PRE_FILTER,reference-pipeline,script,ffmpeg filter,reference scripts,benchmarks/video_corpus/prepare_native_bicubic_input.sh
+TFORGE_REVIEW_PRE_DENOISE,reference-pipeline,script,0/1,reference scripts,benchmarks/video_corpus/prepare_native_bicubic_input.sh
+TFORGE_REVIEW_PRE_DENOISE_FILTER,reference-pipeline,script,ffmpeg filter,reference scripts,benchmarks/video_corpus/prepare_native_bicubic_input.sh
+TFORGE_REVIEW_PRE_CAS,reference-pipeline,script,float,reference scripts,benchmarks/video_corpus/prepare_native_bicubic_input.sh
+TFORGE_REVIEW_FINAL_SCALE,reference-pipeline,script,ffmpeg scale value,reference scripts,benchmarks/video_corpus/apply_final_bicubic_pass.sh
+TFORGE_REVIEW_FINAL_FILTER,reference-pipeline,script,ffmpeg filter,reference scripts,benchmarks/video_corpus/apply_final_bicubic_pass.sh
+TFORGE_REVIEW_FINAL_CAS,reference-pipeline,script,float,reference scripts,benchmarks/video_corpus/apply_final_bicubic_pass.sh
+TFORGE_CAPTURE_WORKERS,runner-control,script,integer >=1,run_quality_sweep.py;run_quality_campaign.py,benchmarks/quality_sweeps/run_quality_sweep.py
+TFORGE_HEADLESS_BENCHMARK,runner-control,player,presence=1,all capture runners,src/main.cpp;src/core/PlaybackEngine.cpp
+TFORGE_TEMPORAL_WARMUP_FRAMES,temporal-capture,script,non-negative integer,run_temporal_quality.sh,benchmarks/video_corpus/run_temporal_quality.sh
+TFORGE_TEMPORAL_ARTIFACT_DIR,temporal-output,script,path,run_temporal_quality_matrix.sh,benchmarks/video_corpus/run_temporal_quality.sh
+TFORGE_TEMPORAL_FAILURE_ARTIFACT_DIR,temporal-output,script,path,run_temporal_quality_matrix.sh,benchmarks/video_corpus/run_temporal_quality.sh
+TFORGE_TEMPORAL_MOTION_JSON,temporal-metrics,script,path to new JSON,run_temporal_quality.sh,benchmarks/video_corpus/run_temporal_quality.sh
+TFORGE_TEMPORAL_EVENTS_JSON,temporal-metrics,script,path to new JSON,run_temporal_quality.sh,benchmarks/video_corpus/run_temporal_quality.sh
+TFORGE_TEMPORAL_STATIC_MASK_JSON,temporal-metrics,script,path to existing JSON,run_temporal_quality.sh,benchmarks/video_corpus/run_temporal_quality.sh
+TFORGE_TEMPORAL_METRICS_CSV,temporal-metrics,script,path to new CSV,run_temporal_quality.sh,benchmarks/video_corpus/run_temporal_quality.sh
+TFORGE_TEMPORAL_GHOST_THRESHOLD,temporal-metrics,script,float,run_temporal_quality.sh,benchmarks/video_corpus/run_temporal_quality.sh
+TFORGE_TEMPORAL_RESET_THRESHOLD,temporal-metrics,script,float,run_temporal_quality.sh,benchmarks/video_corpus/run_temporal_quality.sh
+TFORGE_TEMPORAL_ANALYSIS_FRAME_INDICES,temporal-metrics,script,frame-index list,run_temporal_quality.sh,benchmarks/video_corpus/run_temporal_quality.sh
+TFORGE_TEMPORAL_CANDIDATE_ID,temporal-provenance,script,string,run_temporal_quality.sh,benchmarks/video_corpus/run_temporal_quality.sh
+TFORGE_TEMPORAL_CLASS,temporal-provenance,script,string,run_temporal_quality.sh,benchmarks/video_corpus/run_temporal_quality.sh
+TFORGE_TEMPORAL_CONFIG_ID,temporal-provenance,script,string,run_temporal_quality.sh,benchmarks/video_corpus/run_temporal_quality.sh
+TFORGE_TEMPORAL_SCENE,temporal-provenance,script,string,run_temporal_quality.sh,benchmarks/video_corpus/run_temporal_quality.sh
+TFORGE_TEMPORAL_START_FRAME,temporal-provenance,script,integer,run_temporal_quality.sh,benchmarks/video_corpus/run_temporal_quality.sh

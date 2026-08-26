@@ -32,12 +32,16 @@ layout(local_size_x = 32, local_size_y = 8, local_size_z = 1) in;
 layout(set = 0, binding = 0) uniform PrepassCB {
     uvec4 slot0; // (dispatchW, dispatchH, flags, _)
     vec4  slot1; // (scaleX, scaleY, offsetX, offsetY) coordinate transform
+    vec4  slot2; // (history confidence, opt-in gate threshold, _, _)
 };
 
 // Source-resolution color is preconverted to FSR model space by the uploader.
 layout(set = 0, binding = 1, rgb10_a2) readonly uniform image2D u_color;
 layout(set = 0, binding = 2, rg16f)   readonly uniform image2D u_motion;
 layout(set = 0, binding = 3, r32f)    readonly uniform image2D u_depth;
+// Codec expansion writes this separately from motion so covered static blocks
+// (valid zero motion) remain distinct from uncovered pixels (zero fallback).
+layout(set = 0, binding = 6, r8)      readonly uniform image2D u_motionValidity;
 layout(set = 0, binding = 7, rgba16f) readonly uniform image2D u_history;
 layout(set = 0, binding = 8, rgba16f) readonly uniform image2D u_recurrent;
 layout(set = 0, binding = 9, rgba16f) writeonly uniform image2D u_reprojectedColor;
@@ -80,6 +84,7 @@ float pqEotf(float N) {
 // downstream conv chain sees comparable magnitudes regardless of EOTF.
 const float SDR_GAMMA = 2.4;
 const float SDR_OUT_SCALE = 1.0; // full linear range; PQ scale was too small for SDR
+const uint TFORGE_PREPASS_FIXED_HISTORY_WEIGHT = 4194304u;
 float rec709Eotf(float N) {
     N = clamp(N, 0.0, 1.0);
     return max(pow(N, SDR_GAMMA) * SDR_OUT_SCALE, 0.0);
@@ -137,6 +142,25 @@ vec4 sampleRecurrentLinear(vec2 outputPos) {
     return mix(top, bottom, f.y);
 }
 
+vec4 sampleHistoryLinear(vec2 outputPos) {
+    const ivec2 size = imageSize(u_history);
+    const vec2 p = clamp(outputPos, vec2(0.0), vec2(size - ivec2(1)));
+    const ivec2 a = ivec2(floor(p));
+    const ivec2 b = clamp(a + ivec2(1), ivec2(0), size - ivec2(1));
+    const vec2 f = fract(p);
+    const vec4 top = mix(imageLoad(u_history, a),
+                         imageLoad(u_history, ivec2(b.x, a.y)), f.x);
+    const vec4 bottom = mix(imageLoad(u_history, ivec2(a.x, b.y)),
+                            imageLoad(u_history, b), f.x);
+    return mix(top, bottom, f.y);
+}
+
+vec4 sampleHistoryNearest(vec2 outputPos) {
+    const ivec2 size = imageSize(u_history);
+    const ivec2 p = clamp(ivec2(round(outputPos)), ivec2(0), size - ivec2(1));
+    return imageLoad(u_history, p);
+}
+
 float filterWeightCubic(float x) {
     const float B = 0.0;
     const float C = 0.5;
@@ -188,17 +212,23 @@ void main() {
     const vec2 invScale = 1.0 / max(slot1.xy, vec2(1e-6));
     const vec2 inputPos = (-vec2(0.5) + invScale * 0.5 + vec2(px, py) * invScale) + slot1.zw;
     const vec4 current = sampleCurrentModel(inputPos);
+    const bool fullReset = (slot0.z & 2u) != 0u;
+    const bool recurrentResetOnly = (slot0.z & 1048576u) != 0u;
+    const bool resetRecurrent = fullReset || recurrentResetOnly;
 
     // History is model-space FP16 at target resolution. Motion is supplied in
     // source pixels and converted to target pixels here. It is always causal:
     // this pass only reads the completed previous ping-pong image.
-    vec3 historyModel = ((slot0.z & 2u) != 0u) ? current.rgb : vec3(0.0);
+    vec3 historyModel = fullReset ? current.rgb : vec3(0.0);
     vec4 recurrent = vec4(0.0);
-    if ((slot0.z & 2u) == 0u) {
+    if (!fullReset) {
         // FSR4 scales the current-frame contribution by the Gaussian resolve's
         // center weight. This preserves the training-time confidence signal;
         // a fixed 0.1 shifts every temporal feature supplied to the network.
-        const float temporalSampleWeight = current.a * 0.1;
+        const float temporalSampleWeight =
+            (slot0.z & TFORGE_PREPASS_FIXED_HISTORY_WEIGHT) != 0u
+                ? 0.1
+                : current.a * 0.1;
         if ((slot0.z & 12u) == 12u) {
             // No prior color or recurrent state is available. Publish the
             // complete current resolve as the causal fallback. The postpass
@@ -208,11 +238,31 @@ void main() {
             historyModel = current.rgb;
         } else {
             const ivec2 sourceSize = imageSize(u_color);
-            const ivec2 sourceCoord = clamp(ivec2(round(inputPos)), ivec2(0),
-                                            sourceSize - ivec2(1));
+            vec2 motionSamplePos = inputPos;
+            if ((slot0.z & 32768u) != 0u)
+                motionSamplePos = floor(motionSamplePos);
+            else if ((slot0.z & 65536u) != 0u)
+                motionSamplePos = ceil(motionSamplePos);
+            const ivec2 sourceCoord = clamp(ivec2(round(motionSamplePos)),
+                                            ivec2(0), sourceSize - ivec2(1));
             const ivec2 motionCoord = clamp(sourceCoord, ivec2(0),
                                              imageSize(u_motion) - ivec2(1));
-            const vec2 motion = imageLoad(u_motion, motionCoord).xy * slot1.xy;
+            float motionScale = 1.0;
+            if ((slot0.z & 16384u) != 0u)
+                motionScale = uintBitsToFloat(slot0.w);
+            vec2 motion = imageLoad(u_motion, motionCoord).xy *
+                          slot1.xy * motionScale;
+            if ((slot0.z & 8192u) != 0u)
+                motion = -motion;
+            bool motionCovered = (slot0.z & 512u) != 0u ||
+                                 imageLoad(u_motionValidity, motionCoord).r > 0.5;
+            // HISTORY_CONFIDENCE_GATE is opt-in. Codec motion may be
+            // structurally valid while frame-level confidence says that
+            // display-color history is not trustworthy enough to reuse.
+            const bool historyConfidenceGate = (slot0.z & 1073741824u) != 0u;
+            const float historyConfidenceThreshold = slot2.y;
+            if (historyConfidenceGate && slot2.x < historyConfidenceThreshold)
+                motionCovered = false;
             // Codec motion points from the current destination block to its
             // source position in the reference frame.
             const vec2 historyPos = vec2(px, py) + motion;
@@ -220,15 +270,26 @@ void main() {
             const bool onscreen = historyPos.x >= 0.0 && historyPos.y >= 0.0 &&
                                   historyPos.x <= float(historySize.x - 1) &&
                                   historyPos.y <= float(historySize.y - 1);
-            if (onscreen) {
-                if ((slot0.z & 8u) == 0u)
+            if (motionCovered && onscreen) {
+                if ((slot0.z & 524288u) != 0u)
+                    historyModel = sampleHistoryNearest(historyPos).rgb;
+                else if ((slot0.z & 262144u) != 0u)
+                    historyModel = sampleHistoryLinear(historyPos).rgb;
+                else if ((slot0.z & 8u) == 0u)
                     historyModel = sampleHistoryCatmullRom(historyPos).rgb;
-                if ((slot0.z & 4u) == 0u)
+                if ((slot0.z & 4u) == 0u && !resetRecurrent)
                     recurrent = sampleRecurrentLinear(historyPos);
             }
-            historyModel = max(temporalSampleWeight * current.rgb +
-                                   (1.0 - temporalSampleWeight) * historyModel,
-                               vec3(0.0));
+            // An uncovered pixel has no trustworthy correspondence. Keep the
+            // current resolve intact instead of treating zero motion as a
+            // valid same-pixel history sample.
+            if (motionCovered) {
+                historyModel = max(temporalSampleWeight * current.rgb +
+                                       (1.0 - temporalSampleWeight) * historyModel,
+                                   vec3(0.0));
+            } else {
+                historyModel = current.rgb;
+            }
         }
     }
     const float inputY = dot(current.rgb, vec3(0.2126, 0.7152, 0.0722));

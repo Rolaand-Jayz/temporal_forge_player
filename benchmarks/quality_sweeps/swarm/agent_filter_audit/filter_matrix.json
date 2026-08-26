@@ -1,0 +1,62 @@
+{
+  "schema": "temporal_forge.quality_sweeps.base_filter_temporal.v1",
+  "campaignId": "agent-filter-audit-20260824",
+  "status": "captured-not-promoted",
+  "executionPolicy": { "captureFree": false, "gpuCapturesAllowed": true, "plannedOnly": false, "doNotRunCaptureCommand": false },
+  "environment": {
+    "config": "TFORGE_QUALITY_LAB_CONFIG",
+    "viewport": "TFORGE_FSR4_FORCE_VIEWPORT",
+    "preset": "TFORGE_BENCHMARK_PRESET",
+    "warmup": "TFORGE_TEMPORAL_WARMUP_FRAMES",
+    "fixed": {
+      "TFORGE_BENCHMARK_PRESET": "Quality",
+      "TFORGE_TEMPORAL_WARMUP_FRAMES": "36",
+      "composition": "base_only",
+      "learnedStrength": 0.0,
+      "residualStrength": 0.0,
+      "sharpen": "none / 0.0",
+      "tone": { "exposureEV": 0.0, "contrast": 0.0, "contrastPivot": 0.5, "gamma": 1.0 },
+      "presentationFilter": "bicubic"
+    },
+    "mustUnset": [
+      "TFORGE_FSR4_CURRENT_BASE_FILTER", "TFORGE_FSR4_CURRENT_BLEND_LINEAR", "TFORGE_FSR4_CURRENT_BASE_JITTERED",
+      "TFORGE_FSR4_EXPERIMENTAL_BASE_UNJITTERED", "TFORGE_FSR4_ENABLE_COLOR_HISTORY", "TFORGE_FSR4_DISABLE_COLOR_HISTORY",
+      "TFORGE_FSR4_ENABLE_RECURRENT", "TFORGE_FSR4_LEARNED_STRENGTH", "TFORGE_FSR4_LEARNED_CONFIDENCE_BLEND",
+      "TFORGE_FSR4_DISABLE_LEARNED_CONFIDENCE_GATE", "TFORGE_FSR4_CAS_STRENGTH", "TFORGE_FSR4_LEGACY_RCAS_STRENGTH",
+      "TFORGE_FSR4_USE_DISPLAY_BASE", "TFORGE_FSR4_DISPLAY_BASE_STRENGTH", "TFORGE_FSR4_JITTER_MODE",
+      "TFORGE_FSR4_CONTROLLED_JITTER", "TFORGE_FSR4_FORCE_RESET", "TFORGE_FSR4_DISABLE_MOTION_VALIDITY"
+    ]
+  },
+  "corpus": {
+    "scenes": ["tos_daylight", "tos_debris", "sintel_rooftop", "sintel_cave"],
+    "inputResolutions": ["426x240", "1280x720"],
+    "inputPattern": "benchmarks/video_corpus/clips/{scene}_{inputResolution}_high_crf12.mp4",
+    "referencePattern": "benchmarks/video_corpus/references/{scene}_2160p_lossless.mkv",
+    "outputDimensionsByInput": { "426x240": "1920x1080", "1280x720": "3840x2160" },
+    "framePolicy": { "warmupFrames": 36, "scoredFrames": 24 },
+    "captureCount": 32
+  },
+  "experiments": [
+    { "id": "bilinear", "role": "baseline", "filterMode": "bilinear", "config": "filter_bilinear.json" },
+    { "id": "mitchell", "role": "candidate", "filterMode": "mitchell", "config": "filter_mitchell.json" },
+    { "id": "catmull_rom", "role": "candidate", "filterMode": "catmull_rom", "config": "filter_catmull_rom.json" },
+    { "id": "lanczos2", "role": "candidate", "filterMode": "lanczos2", "config": "filter_lanczos2.json" }
+  ],
+  "metrics": {
+    "primary": ["fsr_ssim_mean", "fsr_temporal_delta_abs_error"],
+    "secondary": ["fsr_ssim_min", "lanczos_ssim_mean", "lanczos_temporal_delta_abs_error", "fsr_temporal_delta_vs_bilinear_abs_error"],
+    "requiredRowsPerCapture": 1
+  },
+  "decisionGate": {
+    "baseline": "bilinear",
+    "requirements": [
+      "All 32 captures complete with one fsr CSV row each.",
+      "Every PPM header matches outputDimensionsByInput.",
+      "All candidates use the same binary, corpus, frame policy, preset, and neutral controls.",
+      "A candidate must improve or tie the eight-cell mean fsr_ssim_mean and not worsen the eight-cell mean fsr_temporal_delta_abs_error.",
+      "No candidate cell may lose more than 0.001000 fsr_ssim_mean or gain more than 0.020000 fsr_temporal_delta_abs_error versus bilinear.",
+      "A numerical pass still requires human review for ringing, staircase edges, texture stability, and motion artifacts."
+    ],
+    "promotion": "Promote at most one filter after both gates; otherwise retain bilinear."
+  }
+}

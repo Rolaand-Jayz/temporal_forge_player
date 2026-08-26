@@ -25,6 +25,16 @@ reference="$(realpath "$3")"
 output="$4"
 frames="${5:-8}"
 temporal_warmup_frames="${TFORGE_TEMPORAL_WARMUP_FRAMES:-0}"
+# The player timeout is a capture-harness guard, not a playback limit. Keep the
+# historical 30-second default, but let long warm-up protocols request a
+# truthful larger budget instead of being mislabeled as failed quality runs.
+capture_timeout="${TFORGE_TEMPORAL_CAPTURE_TIMEOUT:-30}"
+# FFmpeg is used only for benchmark encoding and metric extraction here.  A
+# campaign can run several captures at once, so allowing every child to spawn
+# its own full thread pool oversubscribes the CPU without changing the pixels.
+# Leave this unset for the historical FFmpeg behavior; the matrix runner sets
+# it to one when it is intentionally fanning out independent captures.
+ffmpeg_threads="${TFORGE_BENCHMARK_FFMPEG_THREADS:-}"
 artifact_dir="${TFORGE_TEMPORAL_ARTIFACT_DIR:-}"
 # Optional: set this to retain the temporary tree only when the run fails.
 failure_artifact_dir="${TFORGE_TEMPORAL_FAILURE_ARTIFACT_DIR:-}"
@@ -77,8 +87,14 @@ fi
     printf 'TFORGE_TEMPORAL_WARMUP_FRAMES must be a non-negative integer\n' >&2
     exit 2
 }
-capture_frames=$((frames + temporal_warmup_frames))
-
+if [[ -n "$ffmpeg_threads" && ! "$ffmpeg_threads" =~ ^[1-9][0-9]*$ ]]; then
+    printf 'TFORGE_BENCHMARK_FFMPEG_THREADS must be a positive integer\n' >&2
+    exit 2
+fi
+[[ "$capture_timeout" =~ ^[1-9][0-9]*$ ]] || {
+    printf 'TFORGE_TEMPORAL_CAPTURE_TIMEOUT must be a positive integer\n' >&2
+    exit 2
+}
 for tool in ffmpeg identify; do
     command -v "$tool" >/dev/null || {
         printf 'required tool not found: %s\n' "$tool" >&2
@@ -91,6 +107,12 @@ benchmark_config_home="$(mktemp -d "${TMPDIR:-/tmp}/tforge-temporal-config.XXXXX
 mkdir -p "$benchmark_config_home/temporal-forge-player"
 cp "$runner_dir/benchmark_settings.json" \
     "$benchmark_config_home/temporal-forge-player/settings.json"
+# Do not let an interactive checkout-level Quality Lab selection silently
+# rewrite the campaign's Current FSR arm. Callers may still provide an
+# explicit experiment file; absent that, this deliberately nonexistent path
+# makes the player load its typed disabled defaults. Upstream: the caller's
+# TFORGE_QUALITY_LAB_CONFIG. Downstream: PlaybackEngine's postpass selection.
+benchmark_quality_lab_config="${TFORGE_QUALITY_LAB_CONFIG:-$benchmark_config_home/temporal-forge-player/quality_lab.json}"
 
 # Keep failure diagnostics opt-in. The ordinary successful path still removes
 # the temporary directory, while an explicitly requested failure directory
@@ -144,12 +166,25 @@ trap cleanup_temporal_tmpdir EXIT
 sequence_dir="$tmpdir/fsr"
 mkdir -p "$sequence_dir"
 
+# Keep the metric commands identical apart from optional FFmpeg worker count.
+# This is a benchmark scheduling control, not an image-processing change.
+run_ffmpeg() {
+    if [[ -n "$ffmpeg_threads" ]]; then
+        command ffmpeg -threads "$ffmpeg_threads" "$@"
+    else
+        command ffmpeg "$@"
+    fi
+}
+
 player_environment=(
     "TFORGE_HEADLESS_BENCHMARK=1"
     "XDG_CONFIG_HOME=$benchmark_config_home"
-    "TFORGE_FSR4_DUMP_SEQUENCE=$capture_frames"
+    # The player interprets DUMP_SEQUENCE as the number of outputs after its
+    # optional internal warmup. Warmup is controlled separately below; adding
+    # it here would over-capture and then make the runner discard valid records.
+    "TFORGE_FSR4_DUMP_SEQUENCE=$frames"
     "TFORGE_FSR4_DUMP_SEQUENCE_DIR=$sequence_dir"
-    "TFORGE_QUALITY_LAB_CONFIG=${TFORGE_QUALITY_LAB_CONFIG:-}"
+    "TFORGE_QUALITY_LAB_CONFIG=$benchmark_quality_lab_config"
 )
 if (( temporal_motion_export )); then
     player_environment+=("TFORGE_FSR4_DUMP_MOTION_SIDECAR=1")
@@ -158,23 +193,118 @@ if [[ -n "${TFORGE_DISABLE_HW_DECODE:-}" ]]; then
     player_environment+=("TFORGE_DISABLE_HW_DECODE=$TFORGE_DISABLE_HW_DECODE")
 fi
 for name in \
+    TFORGE_FSR4_RE_ROOT \
+    TFORGE_FSR4_POSTPASS_TRACE \
+    TFORGE_FSR4_LEARNED_KERNEL_RADIUS \
+    TFORGE_FSR4_LEARNED_KERNEL_SIGMA \
+    TFORGE_FSR4_LEARNED_KERNEL_EXPONENT \
+    TFORGE_FSR4_LEARNED_KERNEL_NORMALIZATION \
+    TFORGE_FSR4_POSTPASS_CURRENT_WEIGHT \
+    TFORGE_FSR4_POSTPASS_TAIL_MAPPING \
+    TFORGE_FSR4_POSTPASS_REVERSE_TAIL_CHANNELS \
+    TFORGE_FSR4_EXPERIMENTAL_LEARNED_KERNEL_RADIUS \
+    TFORGE_FSR4_EXPERIMENTAL_LEARNED_KERNEL_SIGMA \
+    TFORGE_FSR4_EXPERIMENTAL_LEARNED_KERNEL_WIDE_EXPONENT \
+    TFORGE_FSR4_EXPERIMENTAL_LEARNED_KERNEL_LEGACY_NORMALIZATION \
+    TFORGE_FSR4_EXPERIMENTAL_LEARNED_KERNEL_RAW_NORMALIZATION \
+    TFORGE_FSR4_EXPERIMENTAL_POSTPASS_CURRENT_WEIGHT \
+    TFORGE_FSR4_EXPERIMENTAL_POSTPASS_SWAP_TAIL_MAPPING \
+    TFORGE_FSR4_EXPERIMENTAL_POSTPASS_REVERSE_TAIL_CHANNELS \
+    TFORGE_FSR4_FORCE_SCALE \
+    TFORGE_FSR4_DRS \
+    TFORGE_FSR4_DISABLE_FUSED_INT8 \
+    TFORGE_FSR4_ENABLE_FUSED_INT8 \
+    TFORGE_FSR4_CHAIN_PASSES \
+    TFORGE_FSR4_EXPERIMENTAL_SINGLE_HISTORY_BLEND \
+    TFORGE_FSR4_EXPERIMENTAL_LEGACY_ROUND \
+    TFORGE_FSR4_EXPERIMENTAL_LEGACY_RECURRENT_BIAS \
+    TFORGE_FSR4_EXPERIMENTAL_MOTION_SIGN \
+    TFORGE_FSR4_EXPERIMENTAL_MOTION_SCALE \
+    TFORGE_FSR4_EXPERIMENTAL_MOTION_ROUNDING \
+    TFORGE_FSR4_EXPERIMENTAL_HISTORY_INTERPOLATION \
+    TFORGE_FSR4_EXPERIMENTAL_RECURRENT_RESET_ONLY \
+    TFORGE_FSR4_EXPERIMENTAL_MOTION_SIGN \
+    TFORGE_FSR4_EXPERIMENTAL_MOTION_SCALE \
+    TFORGE_FSR4_EXPERIMENTAL_MOTION_ROUNDING \
+    TFORGE_FSR4_EXPERIMENTAL_HISTORY_INTERPOLATION \
+    TFORGE_FSR4_EXPERIMENTAL_RECURRENT_RESET_ONLY \
     TFORGE_FSR4_FORCE_VIEWPORT \
     TFORGE_FSR4_FORCE_RESET \
     TFORGE_FSR4_USE_DISPLAY_BASE \
     TFORGE_FSR4_DISPLAY_BASE_STRENGTH \
+    TFORGE_FSR4_MOTION_AWARE_DISPLAY_BASE \
+    TFORGE_FSR4_MOTION_AWARE_RESIDUAL \
+    TFORGE_FSR4_EDGE_ADAPTIVE_LEARNED \
+    TFORGE_FSR4_EDGE_ADAPTIVE_LEARNED_STRENGTH \
     TFORGE_FSR4_CURRENT_BASE_FILTER \
+    TFORGE_FSR4_QUALITY_LAB_DISPLAY_BASE \
     TFORGE_FSR4_CURRENT_BLEND_LINEAR \
     TFORGE_FSR4_CURRENT_BASE_JITTERED \
+    TFORGE_FSR4_EXPERIMENTAL_BASE_UNJITTERED \
+    TFORGE_FSR4_EXPERIMENTAL_DISABLE_POSTPASS_TAIL \
+    TFORGE_FSR4_EXPERIMENTAL_RECOVERED_LINEAR_OUTPUT \
+    TFORGE_FSR4_EXPERIMENTAL_REC709_INPUT_EOTF \
+    TFORGE_FSR4_INPUT_TRANSFER \
+    TFORGE_FSR4_INPUT_SHARPEN_STRENGTH \
+    TFORGE_FSR4_CHROMA_FILTER \
+    TFORGE_FSR4_CHROMA_PHASE \
+    TFORGE_FSR4_EXPERIMENTAL_UNKNOWN_MATRIX_BT709 \
     TFORGE_FSR4_ENABLE_COLOR_HISTORY \
     TFORGE_FSR4_DISABLE_COLOR_HISTORY \
     TFORGE_FSR4_DISABLE_PREPASS \
+    TFORGE_FSR4_DISPATCH_TRACE \
+    TFORGE_FSR4_DUMP_DECODER \
+    TFORGE_FSR4_DUMP_DECODER_FRAME \
+    TFORGE_FSR4_DUMP_PREPASS_INPUT \
     TFORGE_FSR4_ENABLE_RECURRENT \
     TFORGE_FSR4_CAS_STRENGTH \
     TFORGE_FSR4_LEGACY_RCAS_STRENGTH \
     TFORGE_FSR4_LEARNED_STRENGTH \
+    TFORGE_FSR4_ADAPTIVE_LEARNED_STRENGTH \
     TFORGE_FSR4_DISABLE_LEARNED_CONFIDENCE_GATE \
+    TFORGE_FSR4_LEARNED_CONFIDENCE_BLEND \
+    TFORGE_FSR4_HISTORY_CONFIDENCE_THRESHOLD \
+    TFORGE_FSR4_MOTION_CONFIDENCE_REACTIVE \
+    TFORGE_FSR4_EXPERIMENTAL_MOTION_MAX_BLOCKS \
+    TFORGE_FSR4_EXPERIMENTAL_REFINE_MOTION \
+    TFORGE_FSR4_MOTION_REFINE_RADIUS \
+    TFORGE_FSR4_EXPERIMENTAL_BLOCK_MOTION \
+    TFORGE_FSR4_ENABLE_EXPERIMENTAL_CONFIDENCE_GATE \
+    TFORGE_FSR4_EXPERIMENTAL_EMPTY_MOTION_CONFIDENCE \
+    TFORGE_FSR4_DISABLE_MOTION_VALIDITY \
+    TFORGE_FSR4_DISABLE_CAS \
+    TFORGE_FSR4_DISABLE_POSTPASS \
+    TFORGE_FSR4_DISABLE_NATIVE_INT8 \
+    TFORGE_FSR4_DISABLE_COOP \
+    TFORGE_FSR4_DISABLE_FP16_COOP \
+    TFORGE_FSR4_DISABLE_FP16_DIRECT \
+    TFORGE_FSR4_DISABLE_FP16_UPSCALE \
+    TFORGE_FSR4_DISABLE_FP16_DOWNSCALE \
+    TFORGE_FSR4_FP16_FINAL_SCALAR \
+    TFORGE_FSR4_FP8_SCALE \
+    TFORGE_FSR4_FP8_ROUNDING \
+    TFORGE_FSR4_FP8_DECODE_BIAS \
+    TFORGE_FSR4_RE_ROOT \
+    TFORGE_FSR4_COOP_MAX_STEP \
+    TFORGE_FSR4_MAX_STEPS \
+    TFORGE_FSR4_HDR_OUTPUT \
     TFORGE_FSR4_JITTER_MODE \
-    TFORGE_FSR4_CONTROLLED_JITTER; do
+    TFORGE_FSR4_CONTROLLED_JITTER \
+    TFORGE_FSR4_JITTER_SEQUENCE \
+    TFORGE_FSR4_JITTER_CADENCE \
+    TFORGE_FSR4_PROFILE_TIMINGS \
+    TFORGE_FSR4_LOG_INTERVAL \
+    TFORGE_FSR4_TRACE_STAGE_CONFIG \
+    TFORGE_FSR4_TRACE_FINAL_PIPELINE \
+    TFORGE_FSR4_EXPERIMENTAL_FIXED_HISTORY_WEIGHT; do
+    if [[ -n "${!name:-}" ]]; then
+        player_environment+=("$name=${!name}")
+    fi
+done
+if [[ -n "${TFORGE_BENCHMARK_PRESET:-}" ]]; then
+    player_environment+=("TFORGE_BENCHMARK_PRESET=$TFORGE_BENCHMARK_PRESET")
+fi
+for name in TFORGE_BENCHMARK_SHARPNESS TFORGE_BENCHMARK_JITTER_STRENGTH; do
     if [[ -n "${!name:-}" ]]; then
         player_environment+=("$name=${!name}")
     fi
@@ -201,8 +331,12 @@ fi
 
 set +e
 (
+    # This repository is often driven from the Electron/Codex host. Qt treats
+    # ELECTRON_RUN_AS_NODE as an application-mode switch; inheriting it makes
+    # QGuiApplication abort before Vulkan or the player can initialize.
+    unset ELECTRON_RUN_AS_NODE
     export "${player_environment[@]}"
-    timeout 30s "$player" "$input"
+    timeout "${capture_timeout}s" "$player" "$input"
 ) >"$tmpdir/player.log" 2>&1 &
 pid=$!
 status=124
@@ -328,7 +462,7 @@ if (( temporal_event_trace_export )); then
         --output "$temporal_events_json"
 fi
 
-ffmpeg -hide_banner -loglevel error -framerate 30 \
+run_ffmpeg -hide_banner -loglevel error -framerate 30 \
     -i "$sequence_dir/temporal_forge_fsr4_%04d.ppm" -frames:v "$frames" \
     -c:v ffv1 -level 3 -g 1 "$tmpdir/fsr.mkv"
 if (( temporal_warmup_frames > 0 )); then
@@ -336,10 +470,10 @@ if (( temporal_warmup_frames > 0 )); then
 else
     temporal_reference_filter="scale=${output_width}:${output_height}:flags=lanczos,setsar=1,setpts=N/30/TB"
 fi
-ffmpeg -hide_banner -loglevel error -i "$reference" -frames:v "$frames" \
+run_ffmpeg -hide_banner -loglevel error -i "$reference" -frames:v "$frames" \
     -vf "$temporal_reference_filter" \
     -an -r 30 -c:v ffv1 -level 3 -g 1 "$tmpdir/reference.mkv"
-ffmpeg -hide_banner -loglevel error -i "$input" -frames:v "$frames" \
+run_ffmpeg -hide_banner -loglevel error -i "$input" -frames:v "$frames" \
     -vf "$temporal_reference_filter" \
     -an -r 30 -c:v ffv1 -level 3 -g 1 "$tmpdir/lanczos.mkv"
 if (( temporal_warmup_frames > 0 )); then
@@ -347,17 +481,17 @@ if (( temporal_warmup_frames > 0 )); then
 else
     temporal_bilinear_filter="scale=${output_width}:${output_height}:flags=bilinear,setsar=1,setpts=N/30/TB"
 fi
-ffmpeg -hide_banner -loglevel error -i "$input" -frames:v "$frames" \
+run_ffmpeg -hide_banner -loglevel error -i "$input" -frames:v "$frames" \
     -vf "$temporal_bilinear_filter" \
     -an -r 30 -c:v ffv1 -level 3 -g 1 "$tmpdir/bilinear.mkv"
 
 mkdir -p "$(dirname "$output")"
 ssim_log="$tmpdir/ssim.log"
-ffmpeg -hide_banner -i "$tmpdir/fsr.mkv" -i "$tmpdir/reference.mkv" \
+run_ffmpeg -hide_banner -i "$tmpdir/fsr.mkv" -i "$tmpdir/reference.mkv" \
     -lavfi '[0:v][1:v]ssim=stats_file=/dev/stderr' -f null - 2> "$ssim_log"
 fsr_ssim="$(awk -F'All:' '/All:/ {sum += $2; n++} END {if (n) printf "%.6f", sum/n; else print "0"}' "$ssim_log")"
 lanczos_log="$tmpdir/lanczos_ssim.log"
-ffmpeg -hide_banner -i "$tmpdir/lanczos.mkv" -i "$tmpdir/reference.mkv" \
+run_ffmpeg -hide_banner -i "$tmpdir/lanczos.mkv" -i "$tmpdir/reference.mkv" \
     -lavfi '[0:v][1:v]ssim=stats_file=/dev/stderr' -f null - 2> "$lanczos_log"
 lanczos_ssim="$(awk -F'All:' '/All:/ {sum += $2; n++} END {if (n) printf "%.6f", sum/n; else print "0"}' "$lanczos_log")"
 
@@ -367,7 +501,7 @@ temporal_delta_mean() {
     # inspection or spatial SSIM.
     local video="$1"
     local log="$2"
-    ffmpeg -hide_banner -loglevel error -i "$video" \
+    run_ffmpeg -hide_banner -loglevel error -i "$video" \
         -vf "tblend=all_mode=difference,signalstats,metadata=print:file=${log}" \
         -f null - >/dev/null
     awk -F= '/lavfi.signalstats.YAVG=/ {sum += $2; n++} END {if (n) printf "%.6f", sum / n; else print "0"}' "$log"
@@ -426,7 +560,7 @@ if [[ -n "$temporal_motion_json$temporal_metrics_output$temporal_class" ]]; then
     }
     temporal_reference_dir="$tmpdir/reference_ppm"
     mkdir -p "$temporal_reference_dir"
-    ffmpeg -hide_banner -loglevel error -i "$reference" -frames:v "$frames" \
+    run_ffmpeg -hide_banner -loglevel error -i "$reference" -frames:v "$frames" \
         -vf "scale=${output_width}:${output_height}:flags=lanczos,format=rgb24,setsar=1" \
         -start_number 0 \
         "$temporal_reference_dir/reference_%04d.ppm"
@@ -472,6 +606,9 @@ copy_artifact_file() {
 
 if [[ -n "$artifact_dir" ]]; then
     mkdir -p "$artifact_dir/fsr_frames"
+    # Keep the player log beside retained frames so a completed capture whose
+    # metric stage fails can still be diagnosed without rerunning it.
+    cp "$tmpdir/player.log" "$artifact_dir/"
     cp "$sequence_dir"/temporal_forge_fsr4_*.ppm "$artifact_dir/fsr_frames/"
     cp "$tmpdir/fsr.mkv" "$tmpdir/reference.mkv" "$tmpdir/lanczos.mkv" \
         "$tmpdir/bilinear.mkv" "$artifact_dir/"

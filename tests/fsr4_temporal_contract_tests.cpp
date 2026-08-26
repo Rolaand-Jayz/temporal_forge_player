@@ -109,9 +109,32 @@ int main() {
     // Opt-in first-dispatch tracing must identify the last completed GPU stage
     // without changing the default render path or image-quality behavior.
     CHECK(harness.find("TFORGE_FSR4_DISPATCH_TRACE") != std::string::npos);
-    CHECK(harness.find("dispatch trace: prepass begin") != std::string::npos);
+    // The prepass input can be sampled only through an explicit diagnostic;
+    // normal playback must never pay for this readback.
+    CHECK(harness.find("TFORGE_FSR4_DUMP_PREPASS_INPUT") !=
+          std::string::npos);
+    CHECK(harness.find("dispatch trace: prepass {}") != std::string::npos);
+    CHECK(harness.find("prepassDisabled") != std::string::npos);
     CHECK(harness.find("dispatch trace: native graph complete") != std::string::npos);
     CHECK(harness.find("dispatch trace: queue submitted") != std::string::npos);
+
+    // The motion-aware learned-strength candidate must consume the same
+    // reactive signal already synthesized for the per-frame side buffers.
+    // It is opt-in so the current playback contract remains unchanged until
+    // matched real-scene captures prove that reducing learned history during
+    // active changes improves temporal stability.
+    CHECK(harness.find("reactiveAverage") != std::string::npos);
+    CHECK(harness.find("TFORGE_FSR4_ADAPTIVE_LEARNED_STRENGTH") !=
+          std::string::npos);
+    CHECK(harness.find("confidenceGate") != std::string::npos);
+
+    // Display-color history has a separate opt-in confidence threshold. The
+    // learned-strength gate alone cannot stop a bad codec vector from
+    // pulling stale color into the prepass history image.
+    CHECK(harness.find("TFORGE_FSR4_HISTORY_CONFIDENCE_THRESHOLD") !=
+          std::string::npos);
+    CHECK(prepass.find("historyConfidenceThreshold") != std::string::npos);
+    CHECK(prepass.find("HISTORY_CONFIDENCE_GATE") != std::string::npos);
 
     if (g_failures == 0) {
         std::printf("fsr4_temporal_contract_tests: OK\n");

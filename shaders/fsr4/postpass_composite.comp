@@ -33,13 +33,45 @@ layout(set = 0, binding = 1, std430) readonly buffer WeightBlob {
 };
 
 // The v4.1 postpass region is 222 FP32 values at byte offset 130088. The
-// recovered postpass reads the final eight values as output-composition
-// biases. Keep these constants beside the binding so host tests can prove
-// that the typed contract and shader address map agree.
+// recovered postpass reads two four-float groups inside its native
+// coefficient-decode loop. The local path only has a measured equivalent for
+// the first group; the second group must not be invented as recurrent bias.
 const uint TFORGE_POSTPASS_PARAM_OFFSET = 130088u;
 const uint TFORGE_POSTPASS_PARAM_COUNT = 222u;
 const uint TFORGE_POSTPASS_OUTPUT_BIAS0 = 130944u / 4u;
-const uint TFORGE_POSTPASS_OUTPUT_BIAS1 = 130960u / 4u;
+const uint TFORGE_POSTPASS_RECURRENT_BIAS0 = 130960u / 4u;
+
+// Quality-Lab-only postpass experiment bits.  These are deliberately kept
+// outside the existing playback flags: an unset bit follows the current
+// shader expression exactly, while a set bit selects one isolated candidate.
+const uint TFORGE_POSTPASS_CUSTOM_KERNEL = 4194304u;
+const uint TFORGE_POSTPASS_WIDE_EXPONENT = 8388608u;
+const uint TFORGE_POSTPASS_LEGACY_NORMALIZATION = 16777216u;
+const uint TFORGE_POSTPASS_CURRENT_WEIGHT = 33554432u;
+const uint TFORGE_POSTPASS_SWAP_TAIL_MAPPING = 67108864u;
+const uint TFORGE_POSTPASS_REVERSE_TAIL_CHANNELS = 134217728u;
+// Motion-aware residual A/B. The host supplies the decode-thread reactive
+// average through slot6.x only when this explicit quality probe is enabled.
+const uint TFORGE_POSTPASS_MOTION_AWARE_RESIDUAL = 2097152u;
+// Keep this outside the learned-kernel experiment range. The host sets it
+// only for the recurrent-reset-only probe, so a scene-cut reset cannot also
+// change kernel radius, normalization, or tail mapping.
+const uint TFORGE_POSTPASS_RECURRENT_RESET_ONLY = 268435456u;
+// Raw-normalization A/B. It is separate from the legacy 1e-5 floor bit so the
+// campaign can test both policies independently.
+const uint TFORGE_POSTPASS_RAW_NORMALIZATION = 536870912u;
+// Motion-aware display-base A/B. The host enables this only for an explicit
+// quality experiment; the default current composition does not sample motion
+// in its final blend.
+const uint TFORGE_POSTPASS_MOTION_AWARE_DISPLAY_BASE = 1073741824u;
+// Edge-adaptive learned blending A/B. This uses the existing source tile and
+// never runs unless the host explicitly enables the quality probe.
+const uint TFORGE_POSTPASS_EDGE_ADAPTIVE_LEARNED = 2147483648u;
+// Display-space base A/B. The promoted spatial control normally filters the
+// nonlinear model-space source and then applies the inverse Mu-law transform;
+// this opt-in bit instead uses the already-uploaded display RGB tile so the
+// color-space choice can be measured against the standalone spatial controls.
+const uint TFORGE_POSTPASS_DISPLAY_SPACE_BASE = 512u;
 
 layout(set = 0, binding = 2, std430) readonly buffer DecoderOut {
     float16_t decoderChannels[];
@@ -137,6 +169,21 @@ vec3 encodeOutputTransfer(vec3 srgb, uint transfer, bool preserve) {
 
 float finiteOrZero(float x) {
     return (isnan(x) || isinf(x)) ? 0.0 : x;
+}
+
+// Read one existing four-float tail group without introducing a second
+// parameter source. The reverse order is an opt-in mapping probe; the
+// default order is exactly the recovered channel order.
+vec4 loadPostpassTailGroup(uint base, bool reverse) {
+    return reverse
+        ? vec4(finiteOrZero(weightParams[base + 3u]),
+               finiteOrZero(weightParams[base + 2u]),
+               finiteOrZero(weightParams[base + 1u]),
+               finiteOrZero(weightParams[base + 0u]))
+        : vec4(finiteOrZero(weightParams[base + 0u]),
+               finiteOrZero(weightParams[base + 1u]),
+               finiteOrZero(weightParams[base + 2u]),
+               finiteOrZero(weightParams[base + 3u]));
 }
 
 
@@ -417,7 +464,13 @@ vec3 learnedColorAt(ivec2 targetCoord, vec2 invScale, vec2 scale,
                               ivec2(int(dispatchW) - 1, int(dispatchH) - 1));
     const vec2 sourcePos = (-vec2(0.5) + invScale * 0.5 +
                             vec2(coord) * invScale) + slot1.xy;
-    const ivec2 sourceCoord = clamp(ivec2(round(sourcePos)), ivec2(0),
+    // The native postpass anchors its learned 3x3 footprint at floor(sourcePos)
+    // and visits the surrounding floor-1..floor+1 pixels. Keep this helper
+    // aligned with the main reconstruction path for optional CAS sampling.
+    const bool legacyRound = (slot0.z & 2048u) != 0u;
+    const ivec2 sourceCoord = clamp(ivec2(legacyRound ? round(sourcePos)
+                                                      : floor(sourcePos)),
+                                    ivec2(0),
                                     ivec2(int(srcW) - 1, int(srcH) - 1));
     const uint decoderOffset = slot0.w +
                                (uint(coord.y) * dispatchW +
@@ -434,6 +487,9 @@ vec3 learnedColorAt(ivec2 targetCoord, vec2 invScale, vec2 scale,
     const float scaleX2 = scaleX * scaleX;
     const float scaleY2 = scaleY * scaleY;
     const float scaleXY = scaleX * scaleY;
+    const bool customKernel = (slot0.z & TFORGE_POSTPASS_CUSTOM_KERNEL) != 0u;
+    const float kernelRadius = customKernel ? clamp(slot4.z, 0.25, 4.0) : 1.0;
+    const float kernelSigma = customKernel ? max(slot4.w, 0.1) : 0.47;
 
     vec3 reconstructed = vec3(0.0);
     float totalWeight = 0.0;
@@ -443,16 +499,32 @@ vec3 learnedColorAt(ivec2 targetCoord, vec2 invScale, vec2 scale,
                                   ivec2(int(srcW) - 1, int(srcH) - 1));
             const float xDist = (float(q.x) - sourcePos.x) * scale.x;
             const float yDist = (float(q.y) - sourcePos.y) * scale.y;
-            const float exponent = -0.5 / (0.47 * 0.47) *
-                (xDist * xDist * scaleX2 +
-                 2.0 * correlation * xDist * yDist * scaleXY +
-                 yDist * yDist * scaleY2);
-            const float weight = exp(clamp(exponent, -80.0, 0.0));
+            const float scaledX = xDist * kernelRadius;
+            const float scaledY = yDist * kernelRadius;
+            const float exponent = customKernel
+                ? -0.5 / (kernelSigma * kernelSigma) *
+                      (scaledX * scaledX * scaleX2 +
+                       2.0 * correlation * scaledX * scaledY * scaleXY +
+                       scaledY * scaledY * scaleY2)
+                : -0.5 / (0.47 * 0.47) *
+                      (xDist * xDist * scaleX2 +
+                       2.0 * correlation * xDist * yDist * scaleXY +
+                       yDist * yDist * scaleY2);
+            const float weight = (slot0.z & TFORGE_POSTPASS_WIDE_EXPONENT) != 0u
+                ? exp(clamp(exponent, -120.0, 0.0))
+                : exp(clamp(exponent, -80.0, 0.0));
             reconstructed += loadSourceCached(q, tileBase) * weight;
             totalWeight += weight;
         }
     }
-    const vec3 upscaledColor = reconstructed / max(totalWeight, 1.0e-35);
+    const float normalizationFloor =
+        (slot0.z & TFORGE_POSTPASS_LEGACY_NORMALIZATION) != 0u
+            ? 1.0e-5
+            : 1.0e-35;
+    const vec3 upscaledColor = reconstructed /
+        ((slot0.z & TFORGE_POSTPASS_RAW_NORMALIZATION) != 0u
+             ? max(totalWeight, 1.0e-35)
+             : max(totalWeight, normalizationFloor));
 
     const vec4 current = sampleCurrentModel(sourcePos, scale, tileBase);
     // The prepass already published the exact causal target-grid resolve.
@@ -462,7 +534,12 @@ vec3 learnedColorAt(ivec2 targetCoord, vec2 invScale, vec2 scale,
         imageLoad(u_reprojectedColor, coord).rgb;
     const float historyBlend =
         1.0 / (1.0 + exp(-clamp(params.w, -16.0, 16.0)));
-    const vec3 modelColor = mix(upscaledColor, reprojectedColor, historyBlend);
+    const vec3 temporalModelColor = (slot0.z & 1024u) != 0u
+        ? upscaledColor
+        : mix(upscaledColor, reprojectedColor, historyBlend);
+    const vec3 modelColor = (slot0.z & TFORGE_POSTPASS_CURRENT_WEIGHT) != 0u
+        ? mix(temporalModelColor, current.rgb, clamp(slot5[0], 0.0, 1.0))
+        : temporalModelColor;
     return removeMuLaw(modelColor);
 }
 
@@ -535,7 +612,14 @@ void main() {
     const ivec2 coord = ivec2(px, py);
     const vec2 sourcePos = (-vec2(0.5) + invScale * 0.5 +
                             vec2(px, py) * invScale) + slot1.xy;
-    const ivec2 sourceCoord = clamp(ivec2(round(sourcePos)), ivec2(0),
+    // Native FSR anchors the learned 3x3 footprint at the integer pixel just
+    // below sourcePos. Using round() here shifts the footprint by one source
+    // pixel whenever the fractional coordinate crosses 0.5, so it no longer
+    // matches the native floor-1..floor+1 neighborhood.
+    const bool legacyRound = (slot0.z & 2048u) != 0u;
+    const ivec2 sourceCoord = clamp(ivec2(legacyRound ? round(sourcePos)
+                                                      : floor(sourcePos)),
+                                    ivec2(0),
                                     ivec2(int(srcW) - 1, int(srcH) - 1));
 
     // The last decoder layer is FP16 at source resolution. Its first four
@@ -550,20 +634,26 @@ void main() {
         finiteOrZero(decoderChannels[decoderOffset + 2u]),
         finiteOrZero(decoderChannels[decoderOffset + 3u]));
     vec4 recurrentBias = vec4(0.0);
-    // The native FSR 4.1 postpass loads these eight FP32 values from the
-    // initializer tail before consuming the decoder output. The host always
-    // sets bit 64 after the matched campaign verified this correction.
+    // The native FSR 4.1 postpass loads these values inside its scratch/LUT
+    // coefficient-decode loop. This local contract lacks those native
+    // feature-plane bindings, so only the first four have a measured local
+    // equivalent. The host sets bit 64 for that verified correction.
     if ((slot0.z & 64u) != 0u) {
-        params += vec4(
-            finiteOrZero(weightParams[TFORGE_POSTPASS_OUTPUT_BIAS0 + 0u]),
-            finiteOrZero(weightParams[TFORGE_POSTPASS_OUTPUT_BIAS0 + 1u]),
-            finiteOrZero(weightParams[TFORGE_POSTPASS_OUTPUT_BIAS0 + 2u]),
-            finiteOrZero(weightParams[TFORGE_POSTPASS_OUTPUT_BIAS0 + 3u]));
-        recurrentBias = vec4(
-            finiteOrZero(weightParams[TFORGE_POSTPASS_OUTPUT_BIAS1 + 0u]),
-            finiteOrZero(weightParams[TFORGE_POSTPASS_OUTPUT_BIAS1 + 1u]),
-            finiteOrZero(weightParams[TFORGE_POSTPASS_OUTPUT_BIAS1 + 2u]),
-            finiteOrZero(weightParams[TFORGE_POSTPASS_OUTPUT_BIAS1 + 3u]));
+        const bool swapTailMapping =
+            (slot0.z & TFORGE_POSTPASS_SWAP_TAIL_MAPPING) != 0u;
+        const uint outputBiasBase = swapTailMapping
+            ? TFORGE_POSTPASS_RECURRENT_BIAS0
+            : TFORGE_POSTPASS_OUTPUT_BIAS0;
+        const uint recurrentBiasBase = swapTailMapping
+            ? TFORGE_POSTPASS_OUTPUT_BIAS0
+            : TFORGE_POSTPASS_RECURRENT_BIAS0;
+        const bool reverseTailChannels =
+            (slot0.z & TFORGE_POSTPASS_REVERSE_TAIL_CHANNELS) != 0u;
+        params += loadPostpassTailGroup(outputBiasBase, reverseTailChannels);
+        if ((slot0.z & 4096u) != 0u) {
+            recurrentBias = loadPostpassTailGroup(recurrentBiasBase,
+                                                  reverseTailChannels);
+        }
     }
     // Exact recovered filter parameterization. Clamp only the exponent input
     // to avoid overflow; at +/-16 the sigmoid/tanh are already saturated.
@@ -574,6 +664,9 @@ void main() {
     const float scaleX2 = scaleX * scaleX;
     const float scaleY2 = scaleY * scaleY;
     const float scaleXY = scaleX * scaleY;
+    const bool customKernel = (slot0.z & TFORGE_POSTPASS_CUSTOM_KERNEL) != 0u;
+    const float kernelRadius = customKernel ? clamp(slot4.z, 0.25, 4.0) : 1.0;
+    const float kernelSigma = customKernel ? max(slot4.w, 0.1) : 0.47;
 
     vec3 reconstructed = vec3(0.0);
     float totalWeight = 0.0;
@@ -583,11 +676,20 @@ void main() {
                                   ivec2(int(srcW) - 1, int(srcH) - 1));
             const float xDist = (float(q.x) - sourcePos.x) * scale.x;
             const float yDist = (float(q.y) - sourcePos.y) * scale.y;
-            const float exponent = -0.5 / (0.47 * 0.47) *
-                (xDist * xDist * scaleX2 +
-                 2.0 * correlation * xDist * yDist * scaleXY +
-                 yDist * yDist * scaleY2);
-            const float weight = exp(clamp(exponent, -80.0, 0.0));
+            const float scaledX = xDist * kernelRadius;
+            const float scaledY = yDist * kernelRadius;
+            const float exponent = customKernel
+                ? -0.5 / (kernelSigma * kernelSigma) *
+                      (scaledX * scaledX * scaleX2 +
+                       2.0 * correlation * scaledX * scaledY * scaleXY +
+                       scaledY * scaledY * scaleY2)
+                : -0.5 / (0.47 * 0.47) *
+                      (xDist * xDist * scaleX2 +
+                       2.0 * correlation * xDist * yDist * scaleXY +
+                       yDist * yDist * scaleY2);
+            const float weight = (slot0.z & TFORGE_POSTPASS_WIDE_EXPONENT) != 0u
+                ? exp(clamp(exponent, -120.0, 0.0))
+                : exp(clamp(exponent, -80.0, 0.0));
             const vec3 sourceModel = loadSourceCached(q, sourceTileBase);
             reconstructed += sourceModel * weight;
             totalWeight += weight;
@@ -596,14 +698,26 @@ void main() {
     // The exponent is clamped to -80, so a valid nine-tap kernel can have a
     // total weight around 1e-35 at a saturated learned scale. A 1e-5 floor
     // turns those valid kernels into black pixels instead of normalizing them.
-    const vec3 upscaledColor = reconstructed / max(totalWeight, 1e-35);
+    const float normalizationFloor =
+        (slot0.z & TFORGE_POSTPASS_LEGACY_NORMALIZATION) != 0u
+            ? 1.0e-5
+            : 1.0e-35;
+    const vec3 upscaledColor = reconstructed /
+        ((slot0.z & TFORGE_POSTPASS_RAW_NORMALIZATION) != 0u
+             ? max(totalWeight, 1.0e-35)
+             : max(totalWeight, normalizationFloor));
 
     const vec4 current = sampleCurrentModel(sourcePos, scale, sourceTileBase);
     // Consume the same prepass-published resolve used by the model features.
     const vec3 reprojectedColor = imageLoad(u_reprojectedColor, coord).rgb;
     const float historyBlend = 1.0 /
         (1.0 + exp(-clamp(params.w, -16.0, 16.0)));
-    const vec3 modelColor = mix(upscaledColor, reprojectedColor, historyBlend);
+    const vec3 temporalModelColor = (slot0.z & 1024u) != 0u
+        ? upscaledColor
+        : mix(upscaledColor, reprojectedColor, historyBlend);
+    const vec3 modelColor = (slot0.z & TFORGE_POSTPASS_CURRENT_WEIGHT) != 0u
+        ? mix(temporalModelColor, current.rgb, clamp(slot5[0], 0.0, 1.0))
+        : temporalModelColor;
     const vec3 learnedColor = removeMuLaw(modelColor);
     const bool qualityEnabled = slot7.y > 0.5;
     const bool experimentalComposition = qualityEnabled && slot3.x != 0u;
@@ -618,20 +732,49 @@ void main() {
     const vec2 currentBaseSourcePos = (slot0.z & 32u) != 0u
         ? sourcePos
         : sourcePos - slot1.xy;
-    const vec3 modelBaseColor = (slot0.z & 8u) != 0u
-        ? removeMuLaw(sampleSourceBilinear(currentBaseSourcePos,
-                                           sourceTileBase))
-        : removeMuLaw(sampleSourceBicubic(currentBaseSourcePos,
-                                          sourceTileBase));
+    // Quality Lab's current composition is still the normal learned/base
+    // blend, but its selected base filter must actually affect this base
+    // resolve. When the lab is disabled, retain the legacy environment
+    // override and Catmull-Rom fallback exactly as before.
+    const bool useQualityCurrentBase = qualityEnabled &&
+                                       slot3.x == 0u;
+    const vec3 modelBaseColor = useQualityCurrentBase
+        ? removeMuLaw(sampleSourceBase(
+              currentBaseSourcePos, sourceTileBase, slot3.y, slot4.x, slot4.y))
+        : ((slot0.z & 8u) != 0u
+               ? removeMuLaw(sampleSourceBilinear(currentBaseSourcePos,
+                                                  sourceTileBase))
+               : removeMuLaw(sampleSourceBicubic(currentBaseSourcePos,
+                                                 sourceTileBase)));
     const float displayBaseStrength = (slot0.z & 4u) != 0u
         ? clamp(slot4.z, 0.0, 1.0)
         : 0.0;
     vec3 currentBaseColor = modelBaseColor;
     if (displayBaseStrength > 0.0) {
+        float effectiveDisplayBaseStrength = displayBaseStrength;
+        const bool motionAwareDisplayBase =
+            (slot0.z & TFORGE_POSTPASS_MOTION_AWARE_DISPLAY_BASE) != 0u;
+        if (motionAwareDisplayBase) {
+            // u_motion is source-resolution RG16F. Map the output pixel back
+            // through the same source coordinate used by the base resolve so
+            // the experiment never reads outside the motion image at upscale
+            // ratios. Moving regions favor the current display-space base;
+            // static regions retain the learned/history blend that preserves
+            // temporal detail.
+            const ivec2 motionSize = imageSize(u_motion);
+            const ivec2 sourceMotionPos = clamp(
+                ivec2(floor(currentBaseSourcePos)), ivec2(0), motionSize - 1);
+            const vec2 sourceMotion =
+                imageLoad(u_motion, sourceMotionPos).xy;
+            const float motionWeight =
+                smoothstep(0.5, 4.0, length(sourceMotion));
+            effectiveDisplayBaseStrength = mix(
+                displayBaseStrength, 1.0, motionWeight);
+        }
         currentBaseColor = mix(
             modelBaseColor,
             sampleDisplaySourceBicubic(currentBaseSourcePos, sourceTileBase),
-            displayBaseStrength);
+            effectiveDisplayBaseStrength);
     }
     vec3 finalColor;
     if (!experimentalComposition) {
@@ -639,10 +782,38 @@ void main() {
         // resolution-aware strength, sRGB blend, and fixed source-derived
         // sharpen exactly as they were before the Quality Lab.
         const float learnedBlend = clamp(slot1.w, 0.0, 1.0);
+        float adaptiveLearnedBlend = learnedBlend;
+        const bool edgeAdaptiveLearned =
+            (slot0.z & TFORGE_POSTPASS_EDGE_ADAPTIVE_LEARNED) != 0u;
+        if (edgeAdaptiveLearned) {
+            // Measure the source edge in display RGB after the same inverse
+            // model transform used by the base resolve. Strong edges retain
+            // more of the spatial base; smooth regions retain the full
+            // learned/history contribution.
+            const ivec2 sourceSize = imageSize(u_sourceColor);
+            const ivec2 edgeCoord = clamp(
+                ivec2(floor(currentBaseSourcePos)), ivec2(0), sourceSize - 1);
+            const vec3 edgeCenter =
+                removeMuLaw(loadSourceCached(edgeCoord, sourceTileBase));
+            const vec3 edgeRight = removeMuLaw(loadSourceCached(
+                clamp(edgeCoord + ivec2(1, 0), ivec2(0), sourceSize - 1),
+                sourceTileBase));
+            const vec3 edgeDown = removeMuLaw(loadSourceCached(
+                clamp(edgeCoord + ivec2(0, 1), ivec2(0), sourceSize - 1),
+                sourceTileBase));
+            const vec3 luma = vec3(0.2126, 0.7152, 0.0722);
+            const float edgeStrength = max(
+                abs(dot(edgeRight - edgeCenter, luma)),
+                abs(dot(edgeDown - edgeCenter, luma)));
+            const float edgeWeight = smoothstep(0.02, 0.18, edgeStrength);
+            const float edgeAdaptiveStrength = clamp(slot5[3], 0.0, 1.0);
+            adaptiveLearnedBlend =
+                learnedBlend * (1.0 - edgeAdaptiveStrength * edgeWeight);
+        }
         const vec3 blendedColor = (slot0.z & 16u) != 0u
             ? linearToSrgb(mix(srgbToLinear(currentBaseColor),
-                               srgbToLinear(learnedColor), learnedBlend))
-            : mix(currentBaseColor, learnedColor, learnedBlend);
+                               srgbToLinear(learnedColor), adaptiveLearnedBlend))
+            : mix(currentBaseColor, learnedColor, adaptiveLearnedBlend);
         finalColor = applyLegacyEdgeAwareRcas(
             blendedColor, currentBaseSourcePos, invScale, sourceTileBase,
             clamp(slot4.w, 0.0, 1.0));
@@ -652,12 +823,29 @@ void main() {
         // turns the anti-aliasing sequence into visible frame-to-frame
         // shimmer. Keep the learned/recurrent path jittered, but make the
         // stable spatial control sample the unjittered source coordinate.
-        const vec2 baseSourcePos = slot3.x == 1u
+        const bool experimentalUnjitteredBase = (slot0.z & 128u) != 0u;
+        const vec2 baseSourcePos = (slot3.x == 1u ||
+                                    experimentalUnjitteredBase)
             ? sourcePos - slot1.xy
             : sourcePos;
-        const vec3 baseColor = removeMuLaw(sampleSourceBase(
-            baseSourcePos, sourceTileBase, slot3.y, slot4.x, slot4.y));
+        const vec3 baseColor = (slot0.z & TFORGE_POSTPASS_DISPLAY_SPACE_BASE) != 0u
+            ? sampleDisplaySourceBicubic(baseSourcePos, sourceTileBase)
+            : removeMuLaw(sampleSourceBase(
+                baseSourcePos, sourceTileBase, slot3.y, slot4.x, slot4.y));
         vec3 composedColor = baseColor;
+        const bool stackedResidual = slot3.x == 4u ||
+                (slot3.x == 3u && slot5.y > 0.0);
+        float effectiveResidualStrength = slot5.y;
+        const bool motionAwareResidual =
+            (slot0.z & TFORGE_POSTPASS_MOTION_AWARE_RESIDUAL) != 0u;
+        if (motionAwareResidual) {
+            // Reactive average is a cheap frame-change signal. Keep the
+            // high-frequency residual on stable frames, then taper it out as
+            // source change rises so reconstructed detail cannot shimmer.
+      const float reactive = clamp(slot6.x, 0.0, 1.0);
+      effectiveResidualStrength *=
+          1.0 - smoothstep(0.005, 0.025, reactive);
+        }
         if (slot3.x == 2u) {
             composedColor = learnedColor;
         } else if (slot3.x == 3u) {
@@ -665,13 +853,26 @@ void main() {
             const vec3 learnedLinear = srgbToLinear(learnedColor);
             composedColor = linearToSrgb(mix(
                 baseLinear, learnedLinear, clamp(slot5.x, 0.0, 1.0)));
+            // Direct learned blending and the high-frequency residual are
+            // independent controls. Keeping the residual after the blend
+            // lets a weak learned contribution be stabilized by the same
+            // low-frequency suppression used by detail_residual.
+            if (stackedResidual) {
+                const vec3 lowLearned = learnedLowpass3x3(
+                    coord, invScale, scale, sourceTileBase);
+                composedColor = linearToSrgb(clamp(
+                        srgbToLinear(composedColor) +
+                        (learnedLinear - lowLearned) * effectiveResidualStrength,
+                    vec3(0.0), vec3(1.0)));
+            }
         } else if (slot3.x == 4u) {
             const vec3 baseLinear = srgbToLinear(baseColor);
             const vec3 learnedLinear = srgbToLinear(learnedColor);
             const vec3 lowLearned = learnedLowpass3x3(
                 coord, invScale, scale, sourceTileBase);
             composedColor = linearToSrgb(clamp(
-                baseLinear + (learnedLinear - lowLearned) * slot5.y,
+                baseLinear + (learnedLinear - lowLearned) *
+                    effectiveResidualStrength,
                 vec3(0.0), vec3(1.0)));
         }
         composedColor = applyQualityTone(
@@ -692,14 +893,22 @@ void main() {
     // slot2.z carries the input transfer and slot2.w is the explicit HDR
     // output opt-in. SDR remains the default because Qt's normal RGBA8 path
     // is an sRGB presentation target.
-    const vec3 encodedOutput = encodeOutputTransfer(
-        finalColor, slot2.z, slot2.w != 0u);
+    const bool hdrOutput = slot2.w != 0u;
+    // The recovered-linear experiment is deliberately limited to the final
+    // SDR store. It does not alter finalColor, HDR transfer encoding, model
+    // history, recurrent state, or any intermediate reconstruction stage.
+    const vec3 encodedOutput =
+        !hdrOutput && (slot0.z & 256u) != 0u
+            ? srgbToLinear(finalColor)
+            : encodeOutputTransfer(finalColor, slot2.z, hdrOutput);
     const float parameterTrace = slot7.y > 1.5
         ? postpassParameterTrace()
         : 0.0;
     imageStore(u_output, coord, vec4(encodedOutput, parameterTrace));
     imageStore(u_historyOut, coord, vec4(modelColor, 1.0));
-    if ((slot0.z & 2u) == 0u) {
+    const bool recurrentResetOnly =
+        (slot0.z & TFORGE_POSTPASS_RECURRENT_RESET_ONLY) != 0u;
+    if ((slot0.z & 2u) == 0u && !recurrentResetOnly) {
         const vec4 recurrentLogits = vec4(
             finiteOrZero(decoderChannels[decoderOffset + 4u]),
             finiteOrZero(decoderChannels[decoderOffset + 5u]),
@@ -708,5 +917,10 @@ void main() {
         const vec4 recurrent = 1.0 / (1.0 + exp(-clamp(
             recurrentLogits + recurrentBias, vec4(-16.0), vec4(16.0))));
         imageStore(u_recurrentOut, coord, recurrent);
+    } else if (recurrentResetOnly) {
+        // Opt-in recurrent-only reset. The normal hard-reset path remains
+        // unchanged; this branch prevents old ping-pong state from
+        // reappearing after a scene-cut reset experiment.
+        imageStore(u_recurrentOut, coord, vec4(0.0));
     }
 }

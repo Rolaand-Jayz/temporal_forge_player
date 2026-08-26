@@ -1,0 +1,25 @@
+{
+  "schema": 1,
+  "status": "diagnostic_not_promoted",
+  "candidate": "generic_postpass_tail_reverse_channels",
+  "control": "generic_postpass_tail_default_channels",
+  "settings": {
+    "input": "426x240 high crf12",
+    "output": "1920x1080",
+    "genericPath": true,
+    "softwareDecode": true,
+    "warmupFrames": 2,
+    "scoredFrames": 4,
+    "qualityLabConfig": "benchmarks/quality_sweeps/swarm/agent_recheck_current/config.json",
+    "candidateEnvironment": {
+      "TFORGE_FSR4_POSTPASS_REVERSE_TAIL_CHANNELS": "1"
+    }
+  },
+  "pairs": [
+    {"scene": "tos_daylight", "control": {"ssim": 0.853773, "temporalError": 1.595870}, "candidate": {"ssim": 0.853773, "temporalError": 1.595907}},
+    {"scene": "tos_debris", "control": {"ssim": 0.938010, "temporalError": 0.021566}, "candidate": {"ssim": 0.938009, "temporalError": 0.021546}},
+    {"scene": "sintel_rooftop", "control": {"ssim": 0.800783, "temporalError": 0.577034}, "candidate": {"ssim": 0.800783, "temporalError": 0.577034}},
+    {"scene": "sintel_cave", "control": {"ssim": 0.989673, "temporalError": 0.110164}, "candidate": {"ssim": 0.989673, "temporalError": 0.110163}}
+  ],
+  "decision": "Reject promotion. Reversing the active tail channels is effectively neutral on the matched four-scene run; it does not explain the quality gap or provide a reliable gain. Keep the existing default mapping unchanged."
+}

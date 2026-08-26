@@ -93,7 +93,8 @@ set_tests_properties(fsr4_motion_contract_tests PROPERTIES
 # is accepted and keeps metadata, chroma phase, and high-bit-depth handling
 # from regressing behind a passing shader compile.
 tforge_add_test(color_metadata_contract_tests
-    SOURCES color_metadata_contract_tests.cpp)
+    SOURCES color_metadata_contract_tests.cpp
+            ../src/render/upload/YuvConstants.cpp)
 set_tests_properties(color_metadata_contract_tests PROPERTIES
     WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
 

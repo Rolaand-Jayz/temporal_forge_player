@@ -148,12 +148,45 @@ reference controls. Set `TFORGE_TEMPORAL_ARTIFACT_DIR` to preserve the PPMs,
 encoded sequences, and metric logs for visual review.
 To exercise all FSR-enabled user-facing presets, use
 `run_temporal_quality_matrix.sh` with the same three media arguments and an
-output directory.
+output directory. The matrix wrapper gives every preset and retry its own
+artifact directory, preserves failed captures, and copies only the successful
+attempt to the familiar `<preset>.csv` path. Use `--retries N` to retry a
+failed preset, or `--dry-run` to print the planned preset/attempt layout
+without launching the player:
 
-For controlled temporal experiments, the runner passes only these optional
-player variables through to each capture: `TFORGE_FSR4_LEARNED_STRENGTH`,
-`TFORGE_FSR4_DRS`, `TFORGE_FSR4_DISABLE_FUSED_INT8`, and
-`TFORGE_FSR4_ENABLE_FUSED_INT8`. This keeps unrelated desktop environment
-state out of quality comparisons. For example, use
-`TFORGE_FSR4_LEARNED_STRENGTH=0` to measure a no-learned-history control; it
-does not change the normal default.
+```bash
+./benchmarks/video_corpus/run_temporal_quality_matrix.sh \
+  ./build/temporal_forge_player input.mkv reference.mkv /tmp/temporal-matrix 8 \
+  --retries 2 --dry-run
+```
+
+For controlled experiments, the runners pass only an explicit allowlist of
+player variables through to each capture. This keeps unrelated desktop
+environment state out of quality comparisons. The motion/history candidates
+are opt-in and leave the current path unchanged when unset:
+
+- `TFORGE_FSR4_EXPERIMENTAL_MOTION_SIGN=invert` negates the sampled codec
+  motion before history reprojection. Unset (or `normal`) keeps the current
+  sign.
+- `TFORGE_FSR4_EXPERIMENTAL_MOTION_SCALE=<number>` multiplies the sampled
+  motion after source-to-target scaling. Valid values are `0` through `8`.
+- `TFORGE_FSR4_EXPERIMENTAL_MOTION_ROUNDING=floor|ceil` changes only the
+  source coordinate used to fetch the motion and coverage fields. Unset keeps
+  round-to-nearest.
+- `TFORGE_FSR4_EXPERIMENTAL_HISTORY_INTERPOLATION=bilinear|nearest` selects
+  the history sampler. Unset keeps Catmull-Rom.
+- `TFORGE_FSR4_EXPERIMENTAL_RECURRENT_RESET_ONLY=1` clears recurrent state on
+  a detected/reset frame while retaining color history. Unset keeps the normal
+  coupled reset.
+
+The same five controls are forwarded by both `run_quality.sh` and
+`run_temporal_quality.sh`, so spatial and temporal captures can be paired
+without relying on ambient shell state. Other existing controls remain
+available through the same explicit allowlist; for example,
+`TFORGE_FSR4_LEARNED_STRENGTH=0` measures a no-learned-history control without
+changing normal playback.
+
+The motion-validity A/B control `TFORGE_FSR4_DISABLE_MOTION_VALIDITY=1` is
+also forwarded by both quality runners. It exists only to reproduce the old
+zero-motion fallback for matched evidence; the default path uses explicit
+codec-block coverage.

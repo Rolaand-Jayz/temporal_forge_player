@@ -22,6 +22,7 @@ layout(std430, binding = 1) buffer Owners {
 };
 
 layout(binding = 2, rg16f) writeonly uniform image2D motionImage;
+layout(binding = 3, r8) writeonly uniform image2D validityImage;
 
 layout(push_constant) uniform Push {
     uvec4 dimensions; // width, height, vector count, vector base
@@ -54,6 +55,8 @@ void resolvePixels() {
     uint owner = owners[p.y * pc.dimensions.x + p.x];
     vec2 motion = owner == 0u ? vec2(0.0) : vectors[owner - 1u].motion;
     imageStore(motionImage, ivec2(p), vec4(motion, 0.0, 0.0));
+    imageStore(validityImage, ivec2(p),
+               vec4(owner == 0u ? 0.0 : 1.0, 0.0, 0.0, 1.0));
 }
 
 void main() {

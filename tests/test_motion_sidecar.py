@@ -46,8 +46,74 @@ def _valid_sidecar() -> dict[str, object]:
     }
 
 
+def _sparse_zero_motion_sidecar() -> dict[str, object]:
+    """Return a sparse field where uncovered pixels resemble valid zero motion."""
+
+    return {
+        "schema": "temporal_forge.codec_motion.v1",
+        "coordinateDomain": "current_destination_to_previous_reference",
+        "motionUnits": "source_pixels",
+        "sampleConvention": "destination_plus_motion",
+        "sourceWidth": 8,
+        "sourceHeight": 4,
+        "targetWidth": 8,
+        "targetHeight": 4,
+        "frames": [
+            {
+                "frameIndex": 0,
+                "ptsUs": 0,
+                "reset": True,
+                "motionAvailable": False,
+                "vectors": [],
+            },
+            {
+                "frameIndex": 1,
+                "ptsUs": 33333,
+                "reset": False,
+                "motionAvailable": True,
+                "vectors": [
+                    {
+                        "dstX": 0,
+                        "dstY": 0,
+                        "mvX": 0.0,
+                        "mvY": 0.0,
+                        "w": 4,
+                        "h": 4,
+                        "source": -1,
+                    }
+                ],
+            },
+        ],
+    }
+
+
 class MotionSidecarTests(unittest.TestCase):
     """Prevent ambiguous or non-causal motion from entering M6 evidence."""
+
+    def test_sparse_expansion_exposes_validity_separate_from_zero_motion(self) -> None:
+        """Uncovered pixels must not become valid identity correspondence."""
+        from benchmarks.quality_sweeps.motion_sidecar import load_motion_fields
+
+        fields = load_motion_fields(
+            _sparse_zero_motion_sidecar(),
+            expected_frames=2,
+            target_width=8,
+            target_height=4,
+        )
+
+        self.assertIsNotNone(fields[1])
+        assert fields[1] is not None
+        validity = fields[1].validity
+
+        # The covered block is static, so zero motion is still valid motion.
+        self.assertEqual(fields[1][0][0], (0.0, 0.0))
+        self.assertTrue(validity[0][0])
+        self.assertTrue(validity[3][3])
+
+        # The uncovered half must carry an independent invalidity signal.
+        self.assertEqual(fields[1][0][7], (0.0, 0.0))
+        self.assertFalse(validity[0][7])
+        self.assertFalse(validity[3][7])
 
     def test_sidecar_expands_source_pixels_to_the_captured_target_grid(self) -> None:
         from benchmarks.quality_sweeps.motion_sidecar import load_motion_fields

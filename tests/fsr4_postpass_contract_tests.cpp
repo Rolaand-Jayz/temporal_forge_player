@@ -94,16 +94,246 @@ int main() {
     CHECK(!decodeFsr4PostpassParams(blob.data(), blob.size()).has_value());
 
     const std::string shader = readPostpassShader();
+    const std::string harnessSource =
+        readSourceFile("src/render/Fsr4DispatchHarness.cpp");
+    const std::string playbackQualitySource =
+        readSourceFile("src/core/PlaybackEngine.cpp");
     CHECK(!shader.empty());
+    // The measured base-only candidate is scale-aware: it is the normal
+    // policy only for severe upscales, while explicit lab JSON remains able
+    // to request any composition for a controlled experiment.
+    CHECK(playbackQualitySource.find("defaultScaleAwareQualityLab") !=
+          std::string::npos);
+    CHECK(playbackQualitySource.find("TFORGE_QUALITY_LAB_CONFIG") !=
+          std::string::npos);
+    CHECK(playbackQualitySource.find("passScale < 3.0f") != std::string::npos);
+    CHECK(playbackQualitySource.find("passQualityLabConfig.enabled = false") !=
+          std::string::npos);
+    // A true 1:1 selection must preserve the uploaded native image instead of
+    // sending it through neural reconstruction. The runtime contract also
+    // requires the native path to publish the raw image and finish uploads
+    // synchronously before the render thread can consume it.
+    CHECK(playbackQualitySource.find("nativePassthrough") !=
+          std::string::npos);
+    CHECK(playbackQualitySource.find("fsr4NativePassthrough_") !=
+          std::string::npos);
+    CHECK(playbackQualitySource.find("rawPresentationImage()") !=
+          std::string::npos);
+    CHECK(playbackQualitySource.find(
+              "endFrameUploads(nativePassthrough ? nullptr") !=
+          std::string::npos);
+    CHECK(playbackQualitySource.find(
+              "std::vector<MvEntry> temporalMotion") !=
+          std::string::npos);
+    const size_t nativeMotionGuard =
+        playbackQualitySource.find("if (!nativePassthrough)");
+    CHECK(nativeMotionGuard != std::string::npos);
+    if (nativeMotionGuard != std::string::npos) {
+        const size_t nativeMotionUpload =
+            playbackQualitySource.find("uploadMotion", nativeMotionGuard);
+        CHECK(nativeMotionUpload != std::string::npos);
+    }
     const size_t declaration = shader.find("float weightParams[]");
     CHECK(declaration != std::string::npos);
     CHECK(shader.find("weightParams[", declaration + 1) != std::string::npos);
     CHECK(shader.find("TFORGE_POSTPASS_PARAM_OFFSET") != std::string::npos);
     CHECK(shader.find("postpassParameterTrace") != std::string::npos);
     CHECK(shader.find("TFORGE_POSTPASS_OUTPUT_BIAS0") != std::string::npos);
-    CHECK(shader.find("TFORGE_POSTPASS_OUTPUT_BIAS1") != std::string::npos);
+    CHECK(shader.find("TFORGE_POSTPASS_OUTPUT_BIAS1") == std::string::npos);
+    CHECK(shader.find("recurrentLogits + recurrentBias") != std::string::npos);
+    CHECK(shader.find("slot0.z & 4096u") != std::string::npos);
     CHECK(shader.find("slot0.z & 64u") != std::string::npos);
 
+    // The postpass-tail experiment is host-only plumbing.  By default the
+    // existing bit-64 enable must remain active; the opt-in environment
+    // variable may suppress that one host flag and must not alter the other
+    // postpass flag assignments nearby.
+    const char *tailDisableEnvironment =
+        "TFORGE_FSR4_EXPERIMENTAL_DISABLE_POSTPASS_TAIL";
+    CHECK(harnessSource.find(tailDisableEnvironment) != std::string::npos);
+    const size_t tailFlag = harnessSource.find("pp.slot0[2] |= 64u;");
+    CHECK(tailFlag != std::string::npos);
+    if (tailFlag != std::string::npos) {
+        const size_t tailControlStart = harnessSource.rfind(
+            "if (", tailFlag);
+        CHECK(tailControlStart != std::string::npos);
+        if (tailControlStart != std::string::npos) {
+            const std::string tailControl = harnessSource.substr(
+                tailControlStart, tailFlag - tailControlStart +
+                                      std::strlen("pp.slot0[2] |= 64u;"));
+            CHECK(tailControl.find(tailDisableEnvironment) !=
+                  std::string::npos);
+            CHECK(tailControl.find("!std::getenv") != std::string::npos);
+            CHECK(tailControl.find("pp.slot0[2] |= 64u;") !=
+                  std::string::npos);
+            CHECK(tailControl.find("128u") == std::string::npos);
+            CHECK(tailControl.find("32u") == std::string::npos);
+        }
+    }
+
+    // The recovered-linear-output experiment is a final-store-only A/B. It
+    // must be opt-in, must use a distinct postpass bit, must affect only SDR
+    // output, and must leave the model-domain history write untouched.
+    const char *linearOutputEnvironment =
+        "TFORGE_FSR4_EXPERIMENTAL_RECOVERED_LINEAR_OUTPUT";
+    CHECK(harnessSource.find(linearOutputEnvironment) != std::string::npos);
+    const size_t linearOutputFlag = harnessSource.find(
+        "pp.slot0[2] |= 256u;");
+    CHECK(linearOutputFlag != std::string::npos);
+    if (linearOutputFlag != std::string::npos) {
+        const size_t linearControlStart = harnessSource.rfind(
+            "if (", linearOutputFlag);
+        CHECK(linearControlStart != std::string::npos);
+        if (linearControlStart != std::string::npos) {
+            const std::string linearControl = harnessSource.substr(
+                linearControlStart, linearOutputFlag - linearControlStart +
+                                      std::strlen("pp.slot0[2] |= 256u;"));
+            CHECK(linearControl.find(linearOutputEnvironment) !=
+                  std::string::npos);
+            CHECK(linearControl.find("256u") != std::string::npos);
+            CHECK(linearControl.find("64u") == std::string::npos);
+            CHECK(linearControl.find("128u") == std::string::npos);
+        }
+    }
+    CHECK(shader.find("const bool hdrOutput = slot2.w != 0u") !=
+          std::string::npos);
+    CHECK(shader.find("(slot0.z & 256u) != 0u") != std::string::npos);
+    CHECK(shader.find("srgbToLinear(finalColor)") != std::string::npos);
+    CHECK(shader.find("imageStore(u_historyOut, coord, vec4(modelColor, 1.0))") !=
+          std::string::npos);
+
+    // The motion-aware display-base candidate is opt-in only. It must sample
+    // the source-resolution motion image through the same source coordinate
+    // used by the postpass, then raise display-base weight only where motion
+    // evidence is present; absent plumbing must leave the default branch
+    // unchanged.
+    const char *motionAwareDisplayEnvironment =
+        "TFORGE_FSR4_MOTION_AWARE_DISPLAY_BASE";
+    CHECK(harnessSource.find(motionAwareDisplayEnvironment) !=
+          std::string::npos);
+    CHECK(harnessSource.find("pp.slot0[2] |= 1073741824u;") !=
+          std::string::npos);
+    CHECK(shader.find(
+              "TFORGE_POSTPASS_MOTION_AWARE_DISPLAY_BASE = 1073741824u") !=
+          std::string::npos);
+    CHECK(shader.find("imageLoad(u_motion") != std::string::npos);
+    CHECK(shader.find("sourceMotionPos") != std::string::npos);
+    CHECK(shader.find("smoothstep(0.5, 4.0") != std::string::npos);
+    CHECK(shader.find("motionAwareDisplayBase") != std::string::npos);
+
+    // Display-space base resolution is an isolated Quality Lab probe. It
+    // must be opt-in and must select the separately uploaded display RGB tile
+    // only inside experimental composition, leaving the model-space default
+    // untouched.
+    CHECK(harnessSource.find("TFORGE_FSR4_QUALITY_LAB_DISPLAY_BASE") !=
+          std::string::npos);
+    CHECK(harnessSource.find("pp.slot0[2] |= 512u;") != std::string::npos);
+    CHECK(shader.find("TFORGE_POSTPASS_DISPLAY_SPACE_BASE = 512u") !=
+          std::string::npos);
+    CHECK(shader.find("sampleDisplaySourceBicubic(baseSourcePos") !=
+          std::string::npos);
+
+    // Edge-adaptive learned blending is another isolated A/B. It must derive
+    // an edge signal from the existing source tile, reduce learned weight only
+    // near strong source edges, and remain unreachable unless its explicit
+    // environment switch sets a distinct postpass flag.
+    const char *edgeAdaptiveEnvironment =
+        "TFORGE_FSR4_EDGE_ADAPTIVE_LEARNED";
+    CHECK(harnessSource.find(edgeAdaptiveEnvironment) != std::string::npos);
+    CHECK(harnessSource.find("pp.slot0[2] |= 2147483648u;") !=
+          std::string::npos);
+    CHECK(shader.find(
+              "TFORGE_POSTPASS_EDGE_ADAPTIVE_LEARNED = 2147483648u") !=
+          std::string::npos);
+    CHECK(shader.find("edgeAdaptiveLearned") != std::string::npos);
+    CHECK(shader.find("edgeStrength") != std::string::npos);
+    CHECK(shader.find("smoothstep(0.02, 0.18") != std::string::npos);
+    CHECK(shader.find("adaptiveLearnedBlend") != std::string::npos);
+    CHECK(harnessSource.find(
+              "TFORGE_FSR4_EDGE_ADAPTIVE_LEARNED_STRENGTH") !=
+          std::string::npos);
+    CHECK(harnessSource.find("edgeAdaptiveStrength") != std::string::npos);
+    CHECK(shader.find("edgeAdaptiveStrength") != std::string::npos);
+
+    // The single-history-blend diagnostic is opt-in host plumbing. It must
+    // have a named environment switch, a distinct flag bit, and shader-side
+    // handling in both the normal learned composition and its detail-residual
+    // helper; default playback remains unchanged when the switch is absent.
+    const char *singleHistoryEnvironment =
+        "TFORGE_FSR4_EXPERIMENTAL_SINGLE_HISTORY_BLEND";
+    CHECK(harnessSource.find(singleHistoryEnvironment) != std::string::npos);
+    CHECK(harnessSource.find("pp.slot0[2] |= 1024u;") != std::string::npos);
+    const std::string singleHistoryFlag = "(slot0.z & 1024u) != 0u";
+    CHECK(shader.find(singleHistoryFlag) != std::string::npos);
+    const size_t firstSingleHistoryFlag = shader.find(singleHistoryFlag);
+    CHECK(shader.find(singleHistoryFlag, firstSingleHistoryFlag + 1) !=
+          std::string::npos);
+
+    // Legacy regression probes are opt-in only. They let the campaign compare
+    // the dirty-tree defaults against the prior round-anchor and recurrent
+    // bias behavior without silently changing normal playback.
+    CHECK(harnessSource.find(
+              "TFORGE_FSR4_EXPERIMENTAL_LEGACY_ROUND") != std::string::npos);
+    CHECK(harnessSource.find(
+              "TFORGE_FSR4_EXPERIMENTAL_LEGACY_RECURRENT_BIAS") !=
+          std::string::npos);
+    CHECK(shader.find("slot0.z & 2048u") != std::string::npos);
+    CHECK(shader.find("TFORGE_POSTPASS_RECURRENT_BIAS0") !=
+          std::string::npos);
+
+    // The remaining postpass candidates must use only the existing constant
+    // fields and the two already identified tail groups. They are all opt-in:
+    // absent environment variables leave the current shader branches and
+    // host values untouched.
+    for (const char *environment : {
+             "TFORGE_FSR4_EXPERIMENTAL_LEARNED_KERNEL_RADIUS",
+             "TFORGE_FSR4_EXPERIMENTAL_LEARNED_KERNEL_SIGMA",
+             "TFORGE_FSR4_EXPERIMENTAL_LEARNED_KERNEL_WIDE_EXPONENT",
+             "TFORGE_FSR4_EXPERIMENTAL_LEARNED_KERNEL_LEGACY_NORMALIZATION",
+             "TFORGE_FSR4_EXPERIMENTAL_LEARNED_KERNEL_RAW_NORMALIZATION",
+             "TFORGE_FSR4_EXPERIMENTAL_POSTPASS_CURRENT_WEIGHT",
+             "TFORGE_FSR4_EXPERIMENTAL_POSTPASS_SWAP_TAIL_MAPPING",
+             "TFORGE_FSR4_EXPERIMENTAL_POSTPASS_REVERSE_TAIL_CHANNELS"}) {
+        CHECK(harnessSource.find(environment) != std::string::npos);
+    }
+    CHECK(shader.find("TFORGE_POSTPASS_CUSTOM_KERNEL") !=
+          std::string::npos);
+    CHECK(shader.find("TFORGE_POSTPASS_WIDE_EXPONENT") !=
+          std::string::npos);
+    CHECK(shader.find("TFORGE_POSTPASS_LEGACY_NORMALIZATION") !=
+          std::string::npos);
+    CHECK(shader.find("TFORGE_POSTPASS_CURRENT_WEIGHT") !=
+          std::string::npos);
+    CHECK(shader.find("TFORGE_POSTPASS_SWAP_TAIL_MAPPING") !=
+          std::string::npos);
+    CHECK(shader.find("TFORGE_POSTPASS_REVERSE_TAIL_CHANNELS") !=
+          std::string::npos);
+    CHECK(shader.find("TFORGE_POSTPASS_CUSTOM_KERNEL = 4194304u") !=
+          std::string::npos);
+    CHECK(shader.find("TFORGE_POSTPASS_CURRENT_WEIGHT = 33554432u") !=
+          std::string::npos);
+    CHECK(harnessSource.find("pp.slot0[2] |= 4194304u;") !=
+          std::string::npos);
+    CHECK(harnessSource.find("pp.slot0[2] |= 33554432u;") !=
+          std::string::npos);
+    CHECK(shader.find("TFORGE_POSTPASS_RECURRENT_RESET_ONLY") !=
+          std::string::npos);
+    CHECK(shader.find("const float kernelRadius = customKernel") !=
+          std::string::npos);
+    CHECK(shader.find("const float kernelSigma = customKernel") !=
+          std::string::npos);
+    CHECK(shader.find("mix(temporalModelColor, current.rgb") !=
+          std::string::npos);
+    CHECK(shader.find("outputBiasBase") != std::string::npos);
+    CHECK(shader.find("recurrentBiasBase") != std::string::npos);
+    CHECK(shader.find("loadPostpassTailGroup(outputBiasBase") !=
+          std::string::npos);
+    CHECK(shader.find("loadPostpassTailGroup(recurrentBiasBase") !=
+          std::string::npos);
+    CHECK(shader.find("max(totalWeight, normalizationFloor)") !=
+          std::string::npos);
+    CHECK(harnessSource.find("readExperimentalFloat") !=
+          std::string::npos);
     // CAS is a postpass over the selected composition. It must consume the
     // incoming color; otherwise it silently replaces every experimental
     // composition with an unrelated source-only resolve.
@@ -130,10 +360,94 @@ int main() {
         CHECK(baseBody.find("loadDisplaySourceCached") == std::string::npos);
     }
 
+    // The current default anchors the learned footprint at floor(sourcePos).
+    // The legacy round() anchor is retained only behind the explicit
+    // regression-probe bit, so both alternatives must be visibly guarded.
+    CHECK(shader.find("floor(sourcePos)") != std::string::npos);
+    CHECK(shader.find("round(sourcePos)") != std::string::npos);
+    CHECK(shader.find("slot0.z & 2048u") != std::string::npos);
+
+    // A learned blend may need the residual, tone, sharpen, and CAS stages
+    // together. The residual stage must therefore be explicitly stackable
+    // with direct_blend; otherwise a weak learned candidate can be rejected
+    // only because its stabilizing/detail stage was unavailable.
+    CHECK(shader.find("const bool stackedResidual = slot3.x == 4u ||") !=
+          std::string::npos);
+    CHECK(shader.find("slot3.x == 3u && slot5.y > 0.0") !=
+          std::string::npos);
+
+    // The motion-aware residual candidate is capture-only. It must use the
+    // existing per-frame reactive signal, reduce learned residual strength
+    // only when explicitly enabled, and leave the default detail-residual
+    // branch unchanged when the environment switch is absent.
+    const char *motionAwareResidualEnvironment =
+        "TFORGE_FSR4_MOTION_AWARE_RESIDUAL";
+    CHECK(harnessSource.find(motionAwareResidualEnvironment) !=
+          std::string::npos);
+    CHECK(harnessSource.find("pp.slot0[2] |= 16777216u;") !=
+          std::string::npos);
+    CHECK(shader.find(
+              "TFORGE_POSTPASS_MOTION_AWARE_RESIDUAL = 2097152u") !=
+          std::string::npos);
+  CHECK(shader.find("motionAwareResidual") != std::string::npos);
+  CHECK(shader.find("slot6.x") != std::string::npos);
+  CHECK(shader.find("smoothstep(0.005, 0.025") != std::string::npos);
+  CHECK(shader.find("reactiveAverage") == std::string::npos);
+
+    // When Quality Lab is enabled in the normal current composition, its
+    // selected base filter must reach the current base resolve. Disabled lab
+    // mode must retain the legacy environment-controlled bilinear/Catmull
+    // branch so ordinary playback is unchanged.
+    CHECK(shader.find("const bool useQualityCurrentBase = qualityEnabled &&") !=
+          std::string::npos);
+    CHECK(shader.find("useQualityCurrentBase\n        ? removeMuLaw(sampleSourceBase(") !=
+          std::string::npos);
+    CHECK(shader.find("sampleSourceBase(\n              currentBaseSourcePos") !=
+          std::string::npos);
+    CHECK(shader.find("useQualityCurrentBase\n        ? removeMuLaw(sampleSourceBase(") !=
+          std::string::npos);
+
+    // The confidence blend is an opt-in control over the history policy. Zero
+    // keeps the confidence gate, one reproduces the explicit ungated path,
+    // and intermediate values interpolate the learned contribution without
+    // changing the decoder, history format, or default behavior.
+    const char *confidenceBlendEnvironment =
+        "TFORGE_FSR4_LEARNED_CONFIDENCE_BLEND";
+    CHECK(harnessSource.find(confidenceBlendEnvironment) !=
+          std::string::npos);
+    CHECK(harnessSource.find(
+              "std::clamp(std::strtof(value, nullptr), 0.0f, 1.0f)") !=
+          std::string::npos);
+    CHECK(harnessSource.find("1.0f - confidenceBlend") !=
+          std::string::npos);
+    CHECK(harnessSource.find("confidenceBlend +") !=
+          std::string::npos);
+
+    // Experimental composition normally preserves the historical ungated
+    // quality-lab path.  A separate opt-in must be available for experiments
+    // that want learned contribution to respect codec/history confidence;
+    // this keeps the product path unchanged while making that comparison
+    // independently testable.
+    CHECK(harnessSource.find(
+              "TFORGE_FSR4_ENABLE_EXPERIMENTAL_CONFIDENCE_GATE") !=
+          std::string::npos);
+    CHECK(harnessSource.find(
+              "experimentalComposition && !enableExperimentalConfidenceGate") !=
+          std::string::npos);
+    CHECK(harnessSource.find("pp.slot5[0] = experimentalComposition") !=
+          std::string::npos);
+    CHECK(harnessSource.find("learnedStrength * effectiveConfidence") !=
+          std::string::npos);
+
     const std::string harnessHeader =
         readSourceFile("src/render/Fsr4DispatchHarness.hpp");
-    const std::string harnessSource =
-        readSourceFile("src/render/Fsr4DispatchHarness.cpp");
+    // Spatial controls must be able to compare a learned branch against the
+    // same unjittered base resolve used by base_only.  This is opt-in because
+    // it changes only diagnostic composition; the host flag and shader bit
+    // must remain explicit so normal playback cannot change accidentally.
+    CHECK(shader.find("experimentalUnjitteredBase") != std::string::npos);
+    CHECK(harnessSource.find("TFORGE_FSR4_EXPERIMENTAL_BASE_UNJITTERED") !=
+          std::string::npos);
     const std::string uploaderHeader =
         readSourceFile("src/render/GpuImageUploader.hpp");
     const std::string playbackSource =

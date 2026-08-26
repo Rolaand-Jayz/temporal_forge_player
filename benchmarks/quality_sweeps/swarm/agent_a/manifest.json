@@ -1,0 +1,23 @@
+{
+  "name": "swarm-agent-a-direct-residual",
+  "preset": "Quality",
+  "dimensions": "1280x720",
+  "outputDimensions": "1280x720",
+  "frame": 60,
+  "quality": "high",
+  "clipRegex": "^(tos_daylight|tos_debris|sintel_rooftop|sintel_cave)$",
+  "corpusManifest": "benchmarks/video_corpus/manifest.csv",
+  "jitter": { "mode": "current", "controlledStrength": 1.0 },
+  "baselineCandidateId": "direct_001_residual_000",
+  "experiments": [
+    {"id": "direct_001_residual_000", "config": "direct_001_residual_000.json"},
+    {"id": "direct_001_residual_010", "config": "direct_001_residual_010.json"},
+    {"id": "direct_001_residual_025", "config": "direct_001_residual_025.json"},
+    {"id": "direct_002_residual_000", "config": "direct_002_residual_000.json"},
+    {"id": "direct_002_residual_010", "config": "direct_002_residual_010.json"},
+    {"id": "direct_002_residual_025", "config": "direct_002_residual_025.json"},
+    {"id": "direct_005_residual_000", "config": "direct_005_residual_000.json"},
+    {"id": "direct_005_residual_010", "config": "direct_005_residual_010.json"},
+    {"id": "direct_005_residual_025", "config": "direct_005_residual_025.json"}
+  ]
+}

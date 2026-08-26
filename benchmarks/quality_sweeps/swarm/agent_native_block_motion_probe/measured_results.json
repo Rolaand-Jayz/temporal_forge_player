@@ -1,0 +1,25 @@
+{
+  "candidate": "opt-in-analysis-luma-block-motion",
+  "baseline": "same-path-zero-motion-fallback",
+  "scope": {
+    "scenes": ["tos_daylight", "sintel_cave"],
+    "input": "426x240",
+    "output": "1920x1080",
+    "native_graph": "native-int8",
+    "generic_control": "TFORGE_FSR4_DISABLE_NATIVE_INT8=1",
+    "warmup_frames": 12,
+    "scored_frames": 12,
+    "software_decode_required": true
+  },
+  "native_software_decode": [
+    {"scene":"tos_daylight", "default_ssim":0.855391, "block_motion_ssim":0.855391, "default_temporal_error":1.510194, "block_motion_temporal_error":1.510207},
+    {"scene":"sintel_cave", "default_ssim":0.935503, "block_motion_ssim":0.935503, "default_temporal_error":0.659834, "block_motion_temporal_error":0.659834}
+  ],
+  "generic_software_decode": [
+    {"scene":"tos_daylight", "default_ssim":0.854879, "block_motion_ssim":0.854879, "default_temporal_error":1.464553, "block_motion_temporal_error":1.464553},
+    {"scene":"sintel_cave", "default_ssim":0.935424, "block_motion_ssim":0.935424, "default_temporal_error":0.661199, "block_motion_temporal_error":0.661199}
+  ],
+  "fallback_runtime": "336 blocks per frame observed with software decode; hardware decode produced zero blocks because analysis luma is unavailable",
+  "decision": "retain-opt-in-not-promoted",
+  "default_changed": false
+}

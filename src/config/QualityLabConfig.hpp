@@ -26,6 +26,11 @@ enum class QualityBaseFilterMode : unsigned char {
     Lanczos2,
 };
 
+enum class QualityBaseColorSpace : unsigned char {
+    Model,
+    Display,
+};
+
 enum class QualityResidualLowpassMode : unsigned char {
     Box3x3,
     Gaussian3x3,
@@ -51,6 +56,7 @@ struct QualityLabConfig {
     float residualStrength = 1.0f;
 
     QualityBaseFilterMode baseFilterMode = QualityBaseFilterMode::CatmullRom;
+    QualityBaseColorSpace baseColorSpace = QualityBaseColorSpace::Model;
     float baseB = 1.0f / 3.0f;
     float baseC = 1.0f / 3.0f;
 
@@ -84,6 +90,7 @@ QualityLabConfig loadQualityLabConfig(const std::filesystem::path &path);
 
 std::string qualityCompositionModeName(QualityCompositionMode mode);
 std::string qualityBaseFilterModeName(QualityBaseFilterMode mode);
+std::string qualityBaseColorSpaceName(QualityBaseColorSpace space);
 std::string qualityResidualLowpassModeName(QualityResidualLowpassMode mode);
 std::string qualitySharpenModeName(QualitySharpenMode mode);
 std::string qualityPresentationFilterName(QualityPresentationFilter filter);

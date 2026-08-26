@@ -53,6 +53,7 @@ static void test_nested_values_and_clamps() {
     CHECK(std::fabs(config.learnedStrength - 1.0f) < 1e-6f);
     CHECK(std::fabs(config.residualStrength - 0.0f) < 1e-6f);
     CHECK(config.baseFilterMode == QualityBaseFilterMode::Mitchell);
+    CHECK(config.baseColorSpace == QualityBaseColorSpace::Model);
     CHECK(std::fabs(config.baseB - 0.25f) < 1e-6f);
     CHECK(config.residualLowpassMode == QualityResidualLowpassMode::Gaussian3x3);
     CHECK(std::fabs(config.residualRadius - 2.0f) < 1e-6f);
@@ -63,9 +64,22 @@ static void test_nested_values_and_clamps() {
     std::filesystem::remove(path, ec);
 }
 
+static void test_checked_in_quality_default_is_scale_aware_candidate() {
+    const auto config = loadQualityLabConfig(
+        std::filesystem::path(TFORGE_SOURCE_ROOT) / "config" /
+        "quality_lab.json");
+    CHECK(config.enabled);
+    CHECK(config.compositionMode == QualityCompositionMode::BaseOnly);
+    CHECK(config.baseFilterMode == QualityBaseFilterMode::Bilinear);
+    CHECK(config.baseColorSpace == QualityBaseColorSpace::Model);
+    CHECK(config.sharpenMode == QualitySharpenMode::None);
+    CHECK(std::fabs(config.toneExposureEV + 0.015f) < 1e-6f);
+}
+
 int main() {
     test_missing_file_is_disabled_control();
     test_nested_values_and_clamps();
+    test_checked_in_quality_default_is_scale_aware_candidate();
     if (g_failures == 0) {
         std::printf("quality_lab_config_tests: OK\n");
         return 0;

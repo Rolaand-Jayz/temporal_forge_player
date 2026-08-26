@@ -1,0 +1,15 @@
+{
+  "status": "opt_in_candidate_mixed_temporal_result",
+  "graph": "native_int8",
+  "input": "426x240",
+  "output": "1920x1080",
+  "frames": 8,
+  "decode": "software",
+  "candidate": "TFORGE_FSR4_LEARNED_STRENGTH=0.10",
+  "scenes": {
+    "tos_daylight": {"fsr_ssim": 0.855564, "temporal_error": 1.427661},
+    "tos_debris": {"fsr_ssim": 0.937731, "temporal_error": 0.021745},
+    "sintel_rooftop": {"fsr_ssim": 0.801139, "temporal_error": 0.604428},
+    "sintel_cave": {"fsr_ssim": 0.989681, "temporal_error": 0.113794}
+  }
+}

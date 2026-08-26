@@ -1,0 +1,42 @@
+{
+  "schema": 1,
+  "status": "diagnostic_not_promoted",
+  "candidate": "generic_learned_strength_recheck",
+  "control": "current_generic_postpass_swap",
+  "settings": {
+    "input": "426x240 high crf12",
+    "output": "1920x1080",
+    "genericPath": true,
+    "softwareDecode": true,
+    "warmupFrames": 2,
+    "scoredFrames": 4,
+    "qualityLabConfig": "benchmarks/quality_sweeps/swarm/agent_recheck_current/config.json"
+  },
+  "pairs": [
+    {
+      "scene": "tos_daylight",
+      "control": {"ssim": 0.853774, "temporalError": 1.595870},
+      "learned0": {"ssim": 0.853658, "temporalError": 1.628727},
+      "learned015": {"ssim": 0.853720, "temporalError": 1.465837}
+    },
+    {
+      "scene": "tos_debris",
+      "control": {"ssim": 0.938010, "temporalError": 0.021566},
+      "learned0": {"ssim": 0.937906, "temporalError": 0.002783},
+      "learned015": {"ssim": 0.938014, "temporalError": 0.046680}
+    },
+    {
+      "scene": "sintel_rooftop",
+      "control": {"ssim": 0.800783, "temporalError": 0.577034},
+      "learned0": {"ssim": 0.800475, "temporalError": 0.534000},
+      "learned015": {"ssim": 0.801179, "temporalError": 0.652667}
+    },
+    {
+      "scene": "sintel_cave",
+      "control": {"ssim": 0.989673, "temporalError": 0.110164},
+      "learned0": {"ssim": 0.989648, "temporalError": 0.136602},
+      "learned015": {"ssim": 0.989684, "temporalError": 0.057261}
+    }
+  ],
+  "decision": "Reject global promotion. learned015 improves SSIM slightly on debris, rooftop, and cave and improves temporal error on daylight and cave, but regresses temporal error on debris and rooftop. learned0 lowers SSIM on every scene and is not a quality win. Keep the current default unchanged."
+}
