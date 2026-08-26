@@ -1752,10 +1752,26 @@ void PlaybackEngine::videoDecodeLoop() {
           fsrTargetViewportH_.load(std::memory_order_acquire));
       const LumaBuffer analysisLuma = makeAnalysisLuma(df);
       std::vector<MvEntry> pastMotion = pastReferenceMotion(df.motionVectors);
+      // Diagnostic-only correspondence ablation: replace codec vectors with
+      // the existing causal luma block matcher even when codec side data is
+      // present. This isolates whether the decoder's sparse vectors are the
+      // quality limiter; the normal path remains codec-first and unchanged.
+      // Upstream: decoded frames plus the previous analysis luma. Downstream:
+      // motion confidence, dense motion expansion, and FSR history sampling.
+      if (!reset && std::getenv("TFORGE_FSR4_EXPERIMENTAL_REPLACE_MOTION")) {
+        pastMotion = sideBufferSynth_.estimateFallbackMotion(
+            analysisLuma, static_cast<uint32_t>(std::max(0, df.width)),
+            static_cast<uint32_t>(std::max(0, df.height)));
+        if (profileUploadEnv) {
+          logInfo("PlaybackEngine: replacement block motion frame={} blocks={}",
+                  df.frameIndex, pastMotion.size());
+        }
+      }
       // Optional cheap correction for codec vectors. The decoder vectors stay
       // the seed and the analysis-luma matcher only searches a one/two-pixel
       // neighborhood around each seed; the default path is unchanged.
       if (!pastMotion.empty() && !reset &&
+          !std::getenv("TFORGE_FSR4_EXPERIMENTAL_REPLACE_MOTION") &&
           std::getenv("TFORGE_FSR4_EXPERIMENTAL_REFINE_MOTION")) {
         int refinementRadius = 1;
         if (const char *env = std::getenv("TFORGE_FSR4_MOTION_REFINE_RADIUS")) {

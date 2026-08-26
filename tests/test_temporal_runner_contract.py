@@ -210,6 +210,7 @@ class TemporalRunnerContractTests(unittest.TestCase):
         self.assertIn("temporal_metrics_output", source)
         self.assertIn("temporal_static_mask_json", source)
         self.assertIn("TFORGE_FSR4_DUMP_MOTION_SIDECAR=1", source)
+        self.assertIn("TFORGE_FSR4_EXPERIMENTAL_REPLACE_MOTION", source)
 
     def test_requested_sidecar_path_entry_cannot_be_a_dangling_symlink(self) -> None:
         """A preexisting symlink is not a fresh output namespace."""

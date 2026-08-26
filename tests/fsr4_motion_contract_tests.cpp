@@ -57,6 +57,8 @@ int main() {
           std::string::npos);
     CHECK(playback.find("TFORGE_FSR4_EXPERIMENTAL_REFINE_MOTION") !=
           std::string::npos);
+    CHECK(playback.find("TFORGE_FSR4_EXPERIMENTAL_REPLACE_MOTION") !=
+          std::string::npos);
     CHECK(playback.find("refineCodecMotion") != std::string::npos);
     CHECK(sideSynthHeader.find("refineCodecMotion") != std::string::npos);
     CHECK(sideSynth.find("localSad") != std::string::npos);
