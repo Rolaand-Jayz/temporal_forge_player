@@ -15,13 +15,29 @@ from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
-from .temporal_metrics import MotionField
-
-
 SCHEMA = "temporal_forge.codec_motion.v1"
 COORDINATE_DOMAIN = "current_destination_to_previous_reference"
 MOTION_UNITS = "source_pixels"
 SAMPLE_CONVENTION = "destination_plus_motion"
+
+
+class MotionFieldWithValidity(list[list[tuple[float, float]]]):
+    """Dense motion rows plus explicit per-pixel block coverage.
+
+    The list base class preserves the existing ``field[y][x]`` API used by
+    temporal metrics and callers that consume a ``MotionField`` directly.
+    ``validity`` is deliberately separate from the vector values: a covered
+    static block has valid ``(0, 0)`` motion, while an uncovered target pixel
+    also retains the zero-initialized vector but is marked invalid.
+    """
+
+    def __init__(
+        self,
+        rows: Sequence[Sequence[tuple[float, float]]],
+        validity: Sequence[Sequence[bool]],
+    ) -> None:
+        super().__init__([list(row) for row in rows])
+        self.validity = [list(row) for row in validity]
 
 
 def _mapping(value: object, name: str) -> Mapping[str, Any]:
@@ -95,13 +111,17 @@ def _expand_frame(
     source_height: int,
     target_width: int,
     target_height: int,
-) -> MotionField:
+) -> MotionFieldWithValidity:
     """Expand source-space sparse blocks into a target-space dense field."""
 
     scale_x = target_width / source_width
     scale_y = target_height / source_height
     field: list[list[tuple[float, float]]] = [
         [(0.0, 0.0) for _ in range(target_width)]
+        for _ in range(target_height)
+    ]
+    validity = [
+        [False for _ in range(target_width)]
         for _ in range(target_height)
     ]
     for item in vectors:
@@ -121,7 +141,8 @@ def _expand_frame(
         for y in range(start_y, end_y):
             for x in range(start_x, end_x):
                 field[y][x] = motion
-    return field
+                validity[y][x] = True
+    return MotionFieldWithValidity(field, validity)
 
 
 def load_motion_fields(
@@ -130,7 +151,7 @@ def load_motion_fields(
     expected_frames: int,
     target_width: int,
     target_height: int,
-) -> list[MotionField | None]:
+) -> list[MotionFieldWithValidity | None]:
     """Validate a sidecar object and return output-grid temporal fields.
 
     ``None`` is allowed only for frame zero, which has no previous frame.  A
@@ -163,7 +184,7 @@ def load_motion_fields(
     if not isinstance(frames, list) or len(frames) != expected_frames:
         raise ValueError("motion sidecar.frames must match the captured frame count")
 
-    result: list[MotionField | None] = []
+    result: list[MotionFieldWithValidity | None] = []
     for index, item in enumerate(frames):
         frame = _mapping(item, f"motion sidecar.frames[{index}]")
         if _nonnegative_integer(frame.get("frameIndex"), f"frames[{index}].frameIndex") != index:
@@ -261,7 +282,7 @@ def read_motion_fields(
     expected_frames: int,
     target_width: int,
     target_height: int,
-) -> list[MotionField | None]:
+) -> list[MotionFieldWithValidity | None]:
     """Read one JSON sidecar file and pass it through the strict validator."""
 
     try:
@@ -277,4 +298,9 @@ def read_motion_fields(
     )
 
 
-__all__ = ["assemble_motion_sidecar", "load_motion_fields", "read_motion_fields"]
+__all__ = [
+    "MotionFieldWithValidity",
+    "assemble_motion_sidecar",
+    "load_motion_fields",
+    "read_motion_fields",
+]
