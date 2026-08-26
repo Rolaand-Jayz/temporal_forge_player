@@ -58,6 +58,9 @@ class ReviewHarnessContractTests(unittest.TestCase):
                 "tos_daylight_input854x480_to1280x720_opt-in-1.png",
                 "tos_daylight_input1280x720_to1920x1080_bicubic.png",
                 "tos_daylight_input1920x1080_to3840x2160_temporal-forge.png",
+                "tos_daylight_640x360_to1920x1080_temporal-forge_frame06.png",
+                "tos_daylight_640x360_to1920x1080_native-reference_frame06.png",
+                "tos_daylight_640x360_to1920x1080_lanczos_frame06.png",
                 "synthetic_motion_426x240_to1920x1080_temporal_forge_review.png",
             )
             for name in names:
@@ -108,7 +111,7 @@ class ReviewHarnessContractTests(unittest.TestCase):
                 {"native", "temporal-forge", "candidate-1", "opt-in-1", "opt-in-2", "opt-in-3", "opt-in-4"}
                 <= techniques
             )
-            contextual_reference = next(asset for asset in manifest if asset["technique"] == "native")
+            contextual_reference = next(asset for asset in manifest if asset["assetName"] == "tos_daylight_reference_1280x720_f48.png")
             self.assertEqual(contextual_reference["inputResolution"], "640x360")
             self.assertEqual(contextual_reference["outputResolution"], "1280x720")
             candidate = next(asset for asset in manifest if asset["technique"] == "candidate-1")
@@ -127,7 +130,22 @@ class ReviewHarnessContractTests(unittest.TestCase):
             self.assertEqual(tier_candidate_six["technique"], "candidate-6")
             tier_opt_in = next(asset for asset in manifest if asset["assetName"].endswith("input854x480_to1280x720_opt-in-1.png"))
             self.assertEqual(tier_opt_in["technique"], "opt-in-1")
-            legacy_assets = [asset for asset in manifest if asset["assetName"].startswith("tos_daylight_640x360") or asset["assetName"].startswith("sintel_")]
+            easy_temporal = next(asset for asset in manifest if asset["assetName"].endswith("640x360_to1920x1080_temporal-forge_frame06.png"))
+            self.assertEqual(easy_temporal["inputResolution"], "640x360")
+            self.assertEqual(easy_temporal["outputResolution"], "1920x1080")
+            self.assertEqual(easy_temporal["technique"], "temporal-forge")
+            easy_reference = next(asset for asset in manifest if asset["assetName"].endswith("640x360_to1920x1080_native-reference_frame06.png"))
+            self.assertEqual(easy_reference["technique"], "native")
+            easy_lanczos = next(asset for asset in manifest if asset["assetName"].endswith("640x360_to1920x1080_lanczos_frame06.png"))
+            self.assertEqual(easy_lanczos["technique"], "lanczos")
+            legacy_assets = [asset for asset in manifest if asset["assetName"] in {
+                "tos_daylight_640x360_high_crf12_f48.png",
+                "tos_daylight_640x360_high_crf12_f48_cross_control.png",
+                "tos_daylight_640x360_high_crf12_f48_cas0p00.png",
+                "tos_daylight_640x360_high_crf12_f48_cas0p02.png",
+                "tos_daylight_640x360_high_crf12_f48_cross_direct_unjittered.png",
+                "tos_daylight_640x360_high_crf12_f48_cross_jitter_off.png",
+            }]
             self.assertTrue(all(asset["inputResolution"] == "640x360" for asset in legacy_assets))
             self.assertTrue(all(asset["outputResolution"] == "1280x720" for asset in legacy_assets))
             self.assertNotIn("Candidate #1", html.split("const assetManifest", 1)[0])

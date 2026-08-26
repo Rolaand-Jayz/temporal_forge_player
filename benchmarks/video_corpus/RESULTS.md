@@ -2343,4 +2343,11 @@ These artifacts are under
 `/mnt/external/Temporal Forge/quality-campaign/phase1/single_history_motion_replace_rooftop_20260826`,
 and `/mnt/external/Temporal Forge/quality-campaign/phase1/single_history_motion_direction_rooftop_20260826`.
 
-No default reconstruction behavior was promoted by this audit.
+Following explicit approval, single-history resolve was promoted to the default
+host policy. `TFORGE_FSR4_EXPERIMENTAL_RESTORE_DOUBLE_HISTORY_BLEND=1` restores
+the former double-blend behavior for regression comparisons, while
+`TFORGE_FSR4_EXPERIMENTAL_SINGLE_HISTORY_BLEND=1` remains a compatibility alias.
+The promoted build was recaptured at 640x360 -> 1920x1080 for all four scenes;
+its eight-frame metrics reproduce the validated single-blend arm within capture
+variation. No shader reconstruction math, motion generation, sharpening, or
+model logic was changed by the promotion.

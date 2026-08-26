@@ -3394,13 +3394,14 @@ Fsr4DispatchHarness::dispatchFrame(const FrameDispatchInput &in) {
       // independently through slot2.w below.
       if (std::getenv("TFORGE_FSR4_EXPERIMENTAL_RECOVERED_LINEAR_OUTPUT"))
         pp.slot0[2] |= 256u;
-      // Quality-lab only: let a capture bypass the postpass's second blend
-      // with the prepass-published current/history resolve. The prepass has
-      // already combined current color and reprojected history before writing
-      // u_reprojectedColor; this bit tests whether blending that composite a
-      // second time is attenuating learned detail. The default path remains
-      // unchanged unless this explicit diagnostic variable is set.
-      if (std::getenv("TFORGE_FSR4_EXPERIMENTAL_SINGLE_HISTORY_BLEND"))
+      // The prepass has already combined current color and reprojected history
+      // before writing u_reprojectedColor. The matched real-scene campaign
+      // showed that blending this resolve a second time harms temporal error,
+      // so single-blend is now the default. Keep an explicit restore switch
+      // for reproducing the old path, while retaining the prior opt-in name as
+      // a compatibility alias for selecting single-blend.
+      if (!std::getenv("TFORGE_FSR4_EXPERIMENTAL_RESTORE_DOUBLE_HISTORY_BLEND") ||
+          std::getenv("TFORGE_FSR4_EXPERIMENTAL_SINGLE_HISTORY_BLEND"))
         pp.slot0[2] |= 1024u;
       // Quality-lab only: restore the pre-existing decoder-footprint anchor
       // for a matched regression A/B. The current default remains floor().

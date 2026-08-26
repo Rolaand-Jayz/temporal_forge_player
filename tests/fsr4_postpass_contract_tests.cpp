@@ -255,13 +255,20 @@ int main() {
     CHECK(harnessSource.find("edgeAdaptiveStrength") != std::string::npos);
     CHECK(shader.find("edgeAdaptiveStrength") != std::string::npos);
 
-    // The single-history-blend diagnostic is opt-in host plumbing. It must
-    // have a named environment switch, a distinct flag bit, and shader-side
-    // handling in both the normal learned composition and its detail-residual
-    // helper; default playback remains unchanged when the switch is absent.
+    // Single-history resolve is now the default because the matched real-scene
+    // campaign showed that the postpass's second blend harms temporal error.
+    // The old behavior must remain available through an explicit restore switch
+    // for regression comparisons, and the original opt-in name remains a
+    // compatibility alias for selecting the single-blend path.
     const char *singleHistoryEnvironment =
         "TFORGE_FSR4_EXPERIMENTAL_SINGLE_HISTORY_BLEND";
     CHECK(harnessSource.find(singleHistoryEnvironment) != std::string::npos);
+    const char *restoreDoubleHistoryEnvironment =
+        "TFORGE_FSR4_EXPERIMENTAL_RESTORE_DOUBLE_HISTORY_BLEND";
+    CHECK(harnessSource.find(restoreDoubleHistoryEnvironment) !=
+          std::string::npos);
+    CHECK(harnessSource.find("!std::getenv(\"TFORGE_FSR4_EXPERIMENTAL_RESTORE_DOUBLE_HISTORY_BLEND\")") !=
+          std::string::npos);
     CHECK(harnessSource.find("pp.slot0[2] |= 1024u;") != std::string::npos);
     const std::string singleHistoryFlag = "(slot0.z & 1024u) != 0u";
     CHECK(shader.find(singleHistoryFlag) != std::string::npos);

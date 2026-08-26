@@ -100,7 +100,7 @@ const reviewFamilyForName = name => {
   // the provenance boundary that keeps the large historical result pool out
   // of the human-facing harness while allowing 480p/720p/1080p tiers and all
   // requested output sizes to coexist in one manifest.
-  if (/_input\d+x\d+_(?:to\d+x\d+_)?(?:native-input|native-reference|temporal-forge|candidate-[1-6]|opt-in-[1-4]|lanczos|bicubic)(?:\.|_)/i.test(name)) return 'curated';
+  if (/(?:_input|_)\d+x\d+_(?:to\d+x\d+_)?(?:native-input|native-reference|temporal-forge|candidate-[1-6]|opt-in-[1-4]|lanczos|bicubic)(?:\.|_)/i.test(name)) return 'curated';
   return null;
 };
 // Feature-stack order is part of the manifest key contract.  The UI uses the
@@ -199,8 +199,8 @@ const parseAssetMetadata = (name, sourcePath) => {
   else if (/_input\d+x\d+_(?:to\d+x\d+_)?candidate-6(?:\.|_)/i.test(lower)) technique = 'candidate-6';
   else if (/_input\d+x\d+_(?:to\d+x\d+_)?opt-in-([1-4])(?:\.|_)/i.test(lower)) technique = `opt-in-${lower.match(/opt-in-([1-4])/)?.[1]}`;
   else if (/lanczos_native_fsr_review\.png$/i.test(lower)) technique = 'lanczos-native-fsr';
-  else if (/lanczos(?:_review)?\.png$/i.test(lower) || /_input\d+x\d+_(?:to\d+x\d+_)?lanczos(?:\.png|_)/i.test(lower)) technique = 'lanczos';
-  else if (/bicubic(?:_review)?\.png$/i.test(lower) || /_input\d+x\d+_(?:to\d+x\d+_)?bicubic(?:\.png|_)/i.test(lower)) technique = 'bicubic';
+  else if (/lanczos(?:_review)?(?:_frame\d+)?\.png$/i.test(lower) || /_(?:input)?\d+x\d+_(?:to\d+x\d+_)?lanczos(?:\.png|_)/i.test(lower)) technique = 'lanczos';
+  else if (/bicubic(?:_review)?(?:_frame\d+)?\.png$/i.test(lower) || /_(?:input)?\d+x\d+_(?:to\d+x\d+_)?bicubic(?:\.png|_)/i.test(lower)) technique = 'bicubic';
   else if (/native-input/i.test(lower)) technique = 'native-input';
   else if (/bilinear(?:_review)?\.png$/i.test(lower)) technique = 'bilinear-control';
   if (!['native', 'native-input', 'lanczos', 'bicubic', 'temporal-forge', 'candidate-1', 'candidate-2', 'candidate-3', 'candidate-4', 'candidate-5', 'candidate-6', 'opt-in-1', 'opt-in-2', 'opt-in-3', 'opt-in-4'].includes(technique)) return null;
