@@ -2315,3 +2315,32 @@ precision. This is not a useful quality lever and remains opt-in only.
 The next investigation remains the generic graph's resolution-specific
 32->64 pointwise boundary. No default reconstruction behavior or benchmark
 image was changed by these checks.
+
+## 2026-08-26 temporal resolve regression audit
+
+The 640x360 -> 1920x1080 campaign was repeated on four real motion scenes with
+software decode, no sharpening, learned strength `0.55`, color history and
+recurrent state enabled. The existing opt-in
+`TFORGE_FSR4_EXPERIMENTAL_SINGLE_HISTORY_BLEND=1` bypasses the postpass blend
+of the prepass-published current/history resolve. This is the only tested
+change that materially reduced temporal error across the corpus: in the
+12-frame capture, absolute temporal error was daylight `0.715638`, debris
+`0.002124`, rooftop `0.595837`, and cave `0.042624`, versus matched spatial
+Lanczos values `1.083776`, `0.017900`, `0.094528`, and `0.133265`.
+
+The result is directionally useful but not a universal win: rooftop remains
+behind Lanczos on temporal error, and the single-blend path is still an opt-in
+diagnostic. Its artifacts are under
+`/mnt/external/Temporal Forge/quality-campaign/phase1/single_history_blend_640_20260826_12`.
+
+An existing history-confidence threshold was then tested with the single-blend
+path. Threshold `0.85` modestly improved the eight-frame temporal error on all
+four scenes, including rooftop (`0.574286` to `0.549643`). A threshold of `1.0`
+did not improve rooftop further. Cheap block-motion replacement and global
+motion inversion were also tested on rooftop; neither improved the result.
+These artifacts are under
+`/mnt/external/Temporal Forge/quality-campaign/phase1/single_history_confidence_085_20260826`,
+`/mnt/external/Temporal Forge/quality-campaign/phase1/single_history_motion_replace_rooftop_20260826`,
+and `/mnt/external/Temporal Forge/quality-campaign/phase1/single_history_motion_direction_rooftop_20260826`.
+
+No default reconstruction behavior was promoted by this audit.
