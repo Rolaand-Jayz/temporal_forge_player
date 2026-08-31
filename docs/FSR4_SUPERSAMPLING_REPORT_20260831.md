@@ -17,7 +17,8 @@ automatic overscaled-FSR mode or a universal 3x setting from this evidence.
 
 ## Reproducibility
 
-- Base commit: `5814e70` (`Complete quality campaign evidence and hardening`).
+- Player binary capture commit: `5814e70` (`Complete quality campaign evidence and hardening`).
+- Experiment harness/report commit: `d214de3` (`Evaluate FSR supersampling for fixed 2x delivery`).
 - Player: `build/temporal_forge_player`.
 - Controls: current Temporal Forge architecture, native/non-generic path where
   available, software decode for repeatability, jitter off, identical source
