@@ -1,0 +1,172 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Temporal Forge · FSR 4/4.1 Video Reconstruction Lab</title>
+  <style>
+    :root { color-scheme: dark; --bg:#090b0e; --panel:#11151a; --panel-2:#171c22; --line:#303943; --muted:#8d99a6; --text:#eef2f5; --red:#e85b61; --cyan:#58d5e4; --amber:#f0b35b; }
+    * { box-sizing:border-box; }
+    html, body { margin:0; min-width:1180px; background:var(--bg); color:var(--text); font:13px/1.4 ui-monospace,SFMono-Regular,Consolas,"Liberation Mono",monospace; }
+    body { padding:26px; }
+    header { max-width:1900px; margin:0 auto 18px; display:flex; justify-content:space-between; gap:24px; align-items:end; border-bottom:1px solid var(--line); padding-bottom:18px; }
+    h1 { margin:0; font:700 30px/1.05 system-ui,sans-serif; letter-spacing:.12em; }
+    h1 span { display:block; color:var(--cyan); font:600 12px/1.8 ui-monospace,monospace; letter-spacing:.18em; }
+    .subtitle { color:var(--muted); max-width:620px; text-align:right; }
+    main { max-width:1900px; margin:auto; }
+    .toolbar, .readouts { background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:14px; }
+    .toolbar { display:flex; gap:12px; align-items:center; flex-wrap:wrap; margin-bottom:14px; }
+    button, select, input { font:inherit; color:var(--text); }
+    button { background:#202831; border:1px solid #3a4651; border-radius:4px; padding:7px 10px; cursor:pointer; }
+    button:hover { border-color:var(--cyan); }
+    button.active { background:#173940; border-color:var(--cyan); color:#fff; }
+    .toolbar button:last-child { margin-left:auto; border-color:var(--red); }
+    .zoom { display:flex; align-items:center; gap:10px; color:var(--muted); }
+    .zoom output { min-width:50px; color:var(--cyan); }
+    input[type=range] { accent-color:var(--cyan); }
+    .comparison-shell { background:#050608; border:1px solid var(--line); border-radius:8px; padding:14px; }
+    .comparison { position:relative; width:100%; max-width:1920px; margin:auto; aspect-ratio:16/9; overflow:hidden; background:#07090b; cursor:grab; }
+    .comparison:active { cursor:grabbing; }
+    .layer { position:absolute; inset:0; overflow:hidden; }
+    .layer img { position:absolute; inset:0; width:100%; height:100%; object-fit:fill; user-select:none; pointer-events:none; transform-origin:center; image-rendering:auto; }
+    .layer.right { clip-path:inset(0 0 0 var(--split)); }
+    .sweep { position:absolute; z-index:4; top:0; bottom:0; left:var(--split); width:2px; background:#fff; box-shadow:0 0 0 1px #000,0 0 12px #000; pointer-events:none; }
+    .sweep-handle { position:absolute; top:50%; left:50%; transform:translate(-50%,-50%); width:38px; height:54px; border:1px solid #fff; border-radius:5px; background:#111a1e; box-shadow:0 0 0 1px #000,0 4px 16px #000; }
+    .sweep-handle::before { content:"◀  ▶"; display:block; margin-top:16px; color:var(--cyan); font-size:11px; text-align:center; }
+    .sweep-input { position:absolute; inset:0; width:100%; height:100%; opacity:0; cursor:ew-resize; z-index:5; }
+    .viewport-label { position:absolute; z-index:3; top:10px; padding:4px 7px; background:#080b0dcc; border:1px solid #52606b; color:#d9e1e6; font-size:11px; pointer-events:none; }
+    .viewport-label.left { left:10px; } .viewport-label.right { right:10px; }
+    .readouts { display:grid; grid-template-columns:1fr 1fr; gap:14px; margin-top:14px; }
+    .panel { background:var(--panel-2); border:1px solid var(--line); border-radius:6px; padding:13px; min-width:0; }
+    .panel h2 { margin:0 0 12px; font:700 13px ui-monospace,monospace; letter-spacing:.12em; }
+    .panel.left-panel h2 { color:var(--red); } .panel.right-panel h2 { color:var(--cyan); }
+    .selectors { display:grid; grid-template-columns:repeat(5,1fr); gap:9px; }
+    .field { min-width:0; } .field label { display:block; color:var(--muted); margin-bottom:5px; font-size:11px; text-transform:uppercase; }
+    .field select { width:100%; background:#0d1115; border:1px solid #3a4651; border-radius:4px; padding:7px; }
+    .state-buttons { display:flex; flex-wrap:wrap; gap:4px; }
+    .state-buttons button { padding:6px 8px; flex:1 0 auto; }
+    .method-field { grid-column:span 3; } .frame-field { grid-column:span 1; }
+    .meta { margin-top:12px; display:grid; grid-template-columns:repeat(2, minmax(0,1fr)); gap:5px 14px; color:var(--muted); }
+    .meta div { overflow-wrap:anywhere; } .meta b { color:var(--text); font-weight:500; }
+    .status.loaded { color:#8de2a8; } .status.missing { color:var(--amber); }
+    .legend { color:var(--muted); margin-top:12px; font-size:11px; }
+    @media (max-width:1300px) { body{padding:14px;} .selectors{grid-template-columns:repeat(3,1fr);} .method-field{grid-column:span 3;} }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>TEMPORAL FORGE<span>FSR 4/4.1 VIDEO RECONSTRUCTION LAB</span></h1>
+    <div class="subtitle">Temporal reconstruction · supersampling · downsampling · video adaptation analysis</div>
+  </header>
+  <main>
+    <section class="toolbar" aria-label="Shared inspection controls">
+      <span>SHARED VIEW</span>
+      <label class="zoom">ZOOM <input id="zoom" type="range" min="50" max="300" step="1" value="100"><output id="zoom-value">100%</output></label>
+      <button id="reset" type="button">RESET VIEW</button>
+      <span id="asset-count" style="color:var(--muted)"></span>
+    </section>
+    <section class="comparison-shell" aria-label="Aligned comparison viewport">
+      <div id="comparison" class="comparison" style="--split:50%;--zoom:1;--pan-x:0px;--pan-y:0px">
+        <div class="layer left"><img id="left-image" alt="Left experiment result"></div>
+        <div class="layer right"><img id="right-image" alt="Right experiment result"></div>
+        <div class="viewport-label left">LEFT</div><div class="viewport-label right">RIGHT</div>
+        <div class="sweep"><div class="sweep-handle"></div></div>
+        <input id="sweep-input" class="sweep-input" type="range" min="0" max="100" value="50" aria-label="Comparison sweep divider">
+      </div>
+      <div class="legend">FIXED INSPECTION VIEWPORT · 1920×1080 NORMALIZED COORDINATES · DRAG TO PAN · SWEEP TO COMPARE</div>
+    </section>
+    <section class="readouts">
+      <article id="left-panel" class="panel left-panel"></article>
+      <article id="right-panel" class="panel right-panel"></article>
+    </section>
+  </main>
+  <script>
+    'use strict';
+    const INPUTS = [360, 480, 540, 720, 1080];
+    const OUTPUTS = [720, 1080, 1440, 2160];
+    const SCENES = [
+      ['tos_daylight','ToS daylight'], ['tos_debris','ToS debris'], ['bbb_grass','BBB grass'],
+      ['bbb_branches','BBB branches'], ['sintel_rooftop','Sintel rooftop'], ['sintel_cave','Sintel cave']
+    ];
+    const METHODS = [
+      ['current_cas20','Current · CAS .20'], ['base_only_bilinear_cas20','Base only bilinear · CAS .20'],
+      ['fsr_direct_cas20','FSR direct · CAS .20'], ['fsr_225x_downsample_cas20_pre','2.25× → CAS .20 → downsample'],
+      ['fsr_225x_downsample_cas20_post','2.25× → downsample → CAS .20'], ['fsr_225x_downsample_no_cas','2.25× → downsample · no CAS'],
+      ['fsr_250x_downsample_cas20_pre','2.50× → CAS .20 → downsample'], ['fsr_250x_downsample_cas20_post','2.50× → downsample → CAS .20'],
+      ['fsr_250x_downsample_no_cas','2.50× → downsample · no CAS'], ['fsr_275x_downsample_cas20_pre','2.75× → CAS .20 → downsample'],
+      ['fsr_275x_downsample_cas20_post','2.75× → downsample → CAS .20'], ['fsr_275x_downsample_no_cas','2.75× → downsample · no CAS'],
+      ['fsr_300x_downsample_cas20_pre','3.00× → CAS .20 → downsample'], ['fsr_300x_downsample_cas20_post','3.00× → downsample → CAS .20'],
+      ['fsr_300x_downsample_no_cas','3.00× → downsample · no CAS'], ['fsr_nativeaa_downsample_cas20_pre','NativeAA → CAS .20 → downsample'],
+      ['fsr_nativeaa_downsample_cas20_post','NativeAA → downsample → CAS .20'], ['fsr_nativeaa_downsample_no_cas','NativeAA → downsample · no CAS'],
+      ['conventional_lanczos','Conventional · Lanczos'], ['conventional_bicubic','Conventional · bicubic']
+    ];
+    const state = {
+      left: {scene:'tos_daylight', frame:'0048', input:720, method:'current_cas20', output:1080},
+      right: {scene:'tos_daylight', frame:'0048', input:720, method:'base_only_bilinear_cas20', output:1080},
+      split:50, zoom:100, panX:0, panY:0
+    };
+    const $ = id => document.getElementById(id);
+    const esc = value => String(value).replace(/[&<>"']/g, char => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[char]));
+    function canonicalFilename(selection) {
+      const scene = selection.scene.toLowerCase().replace(/[^a-z0-9]+/g, '_');
+      const frame = String(selection.frame).padStart(4, '0');
+      if (!/^\d{4}$/.test(frame)) throw new Error('frame must be four digits');
+      if (!INPUTS.includes(Number(selection.input)) || !OUTPUTS.includes(Number(selection.output))) throw new Error('resolution is not in the legal matrix');
+      if (!METHODS.some(([id]) => id === selection.method)) throw new Error('unknown method');
+      return `scene-${scene}__frame-${frame}__in-${selection.input}p__method-${selection.method}__out-${selection.output}p.png`;
+    }
+    window.__tforgeCanonicalFilename = canonicalFilename;
+    function buttonGroup(label, key, values, selected, display = value => value) {
+      return `<div class="field ${key === 'method' ? 'method-field' : ''}"><label>${label}</label><div class="state-buttons" data-key="${key}">${values.map(value => {
+        const raw = Array.isArray(value) ? value[0] : value; const text = Array.isArray(value) ? value[1] : display(value);
+        return `<button type="button" data-value="${esc(raw)}" class="${String(raw) === String(selected) ? 'active' : ''}" aria-pressed="${String(raw) === String(selected)}">${esc(text)}</button>`;
+      }).join('')}</div></div>`;
+    }
+    function selectField(label, key, selected, values) {
+      return `<div class="field"><label>${label}</label><select data-key="${key}">${values.map(value => `<option value="${value}" ${String(value)===String(selected)?'selected':''}>${value}p</option>`).join('')}</select></div>`;
+    }
+    function renderPanel(side) {
+      const target = $(side === 'left' ? 'left-panel' : 'right-panel'); const item = state[side];
+      const name = canonicalFilename(item); const path = `images/${name}`;
+      target.innerHTML = `<h2>${side.toUpperCase()} EXPERIMENT</h2><div class="selectors">
+        ${buttonGroup('Scene','scene',SCENES,item.scene, value => value)}
+        ${buttonGroup('Frame','frame',['0048','0012'],item.frame)}
+        ${selectField('Input resolution','input',item.input,INPUTS)}
+        ${buttonGroup('Method','method',METHODS,item.method)}
+        ${selectField('Output resolution','output',item.output,OUTPUTS)}
+      </div><div class="meta"><div>SCENE <b>${esc(SCENES.find(([id])=>id===item.scene)?.[1] ?? item.scene)}</b></div>
+        <div>FRAME <b>${item.frame}</b></div><div>INPUT <b>${item.input}p</b></div><div>METHOD <b>${esc(item.method)}</b></div><div>OUTPUT <b>${item.output}p</b></div>
+        <div>ACTUAL DIMENSIONS <b data-dimensions>awaiting image</b></div><div>ZOOM <b data-panel-zoom>${state.zoom}%</b></div>
+        <div>FILE <b>${esc(name)}</b></div><div class="status missing" data-status>NO IMAGE</div>
+      </div>`;
+      target.querySelectorAll('button').forEach(button => button.addEventListener('click', () => { state[side][button.closest('[data-key]').dataset.key] = button.dataset.value; render(); }));
+      target.querySelectorAll('select').forEach(select => select.addEventListener('change', () => { state[side][select.dataset.key] = Number(select.value); render(); }));
+    }
+    function loadImage(side) {
+      const item = state[side], image = $(side + '-image'), name = canonicalFilename(item), status = $(side + '-panel').querySelector('[data-status]'), dimensions = $(side + '-panel').querySelector('[data-dimensions]');
+      let missing = false;
+      image.dataset.expected = name; image.onload = () => { if (missing) return; dimensions.textContent = `${image.naturalWidth}×${image.naturalHeight}`; status.textContent = 'LOADED'; status.className = 'status loaded'; };
+      image.onerror = () => { missing = true; image.src = 'images/no_image.svg'; dimensions.textContent = 'unavailable'; status.textContent = 'NO IMAGE'; status.className = 'status missing'; };
+      image.src = `images/${name}`;
+    }
+    function applyView() {
+      $('comparison').style.setProperty('--split', `${state.split}%`); $('comparison').style.setProperty('--zoom', state.zoom / 100); $('comparison').style.setProperty('--pan-x', `${state.panX}px`); $('comparison').style.setProperty('--pan-y', `${state.panY}px`);
+      $('zoom').min = minZoom(); document.querySelectorAll('.layer img').forEach(image => image.style.transform = `translate(${state.panX}px,${state.panY}px) scale(${state.zoom / 100})`);
+      $('zoom').value = state.zoom; $('zoom-value').textContent = `${state.zoom}%`; document.querySelectorAll('[data-panel-zoom]').forEach(node => node.textContent = `${state.zoom}%`);
+    }
+    function render() { renderPanel('left'); renderPanel('right'); clampZoom(); loadImage('left'); loadImage('right'); applyView(); }
+    $('sweep-input').addEventListener('input', event => { state.split = Number(event.target.value); applyView(); });
+    $('zoom').addEventListener('input', event => { state.zoom = Math.max(minZoom(), Number(event.target.value)); applyView(); });
+    function minZoom() { return Math.min(...[state.left.output,state.right.output].map(output => output >= 1440 ? 50 : 100)); }
+    function clampZoom() { state.zoom = Math.max(minZoom(), Math.min(300, state.zoom)); }
+    $('reset').addEventListener('click', () => { state.split=50; state.panX=0; state.panY=0; clampZoom(); $('sweep-input').value=50; applyView(); });
+    let dragging = false, lastX = 0, lastY = 0;
+    $('comparison').addEventListener('pointerdown', event => { if (event.target === $('sweep-input')) return; dragging=true; lastX=event.clientX; lastY=event.clientY; $('comparison').setPointerCapture(event.pointerId); });
+    $('comparison').addEventListener('pointermove', event => { if (!dragging) return; state.panX += event.clientX-lastX; state.panY += event.clientY-lastY; lastX=event.clientX; lastY=event.clientY; applyView(); });
+    $('comparison').addEventListener('pointerup', () => { dragging=false; }); $('comparison').addEventListener('pointercancel', () => { dragging=false; });
+    const params = new URLSearchParams(location.search); if (params.has('left')) state.left.method=params.get('left'); if (params.has('right')) state.right.method=params.get('right');
+    $('asset-count').textContent = 'FILE-BASED · missing results remain selectable';
+    render();
+  </script>
+</body>
+</html>

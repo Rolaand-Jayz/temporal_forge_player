@@ -178,11 +178,10 @@ third-party codecs, and Qt/Vulkan internals are not counted as project behavior.
 | Browser | Static DOM/manifest checks for fast contract feedback | Real Firefox/Chromium interaction for split, selectors, zoom, pan, and URL state |
 | Hardware/GPU | No fake “GPU passed” substitute | If the target GPU gate cannot run, mark the milestone blocked and preserve logs |
 
-The real-browser review-harness check is reproducible without project
-dependencies with `python3 tools/verify_review_harness_browser.py
-<artifact.html>`. It uses Firefox Marionette when the environment permits a
-headless browser; restricted environments must report `blocked` rather than
-substituting a mock browser result.
+The file-based review harness can be opened directly as
+`review_harness/index.html`. Browser-level checks should use installed Firefox
+Marionette when the environment permits a headless browser; restricted
+environments must report `blocked` rather than substituting a mock result.
 
 ## What not to test
 

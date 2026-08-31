@@ -46,9 +46,9 @@ relevant header.
   binds it.
 - Reproducible captures and comparison data: `benchmarks/video_corpus/*` and
   `benchmarks/quality_sweeps/*`.
-- Distributable human review UI: `tools/build_review_harness.mjs` and
-  `tools/embed_review_harness.mjs`. It consumes result metadata; it must not
-  change reconstruction behavior.
+- Distributable human review UI: `review_harness/index.html` and its sibling
+  `review_harness/images/` directory. It consumes canonical result filenames;
+  it must not change reconstruction behavior.
 
 ## Comment contract
 
@@ -72,13 +72,11 @@ update the nearby comment in the same patch.
 - `build/` is a separate Debug build for local diagnosis.
 - `benchmarks/video_corpus/run_quality.sh` and the quality sweep scripts are
   capture workflows; they can produce large ignored media under `results/`.
-- `tools/build_review_harness.mjs` creates the standalone reviewer, and
-  `tools/embed_review_harness.mjs` creates the single-file shareable reviewer.
-  For a large corpus, place same-basename lossless `.webp` sidecars in a
-  separate directory and set `TFORGE_REVIEW_WEBP_ROOT` while embedding. The
-  embedder stores duplicate payloads once, keeps the manifest names intact,
-  and enforces `TFORGE_REVIEW_MAX_MIB` (512 MiB by default). These sidecars and
-  the generated HTML are review artifacts; benchmark PNGs are never rewritten.
+- `review_harness/index.html` is the standalone shareable reviewer and opens
+  directly from the filesystem. Place canonical PNG results in
+  `review_harness/images/`; missing combinations intentionally show the
+  included `no_image.svg` state. `tools/export_review_image.py` validates and
+  writes result names without rewriting benchmark sources.
 - `external/` is vendored or imported dependency material. Do not rewrite it
   to add local commentary; document the integration boundary in our files.
 

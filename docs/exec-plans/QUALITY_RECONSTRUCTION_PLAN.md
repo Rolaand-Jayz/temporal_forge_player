@@ -3861,3 +3861,19 @@ controls. The provisional 3x winner was followed by a reduction-filter sweep:
 bicubic and Lanczos were effectively tied, so no filter promotion was made.
 Longer foliage/hair/repeating-texture coverage remains future evidence if this
 mode is revisited.
+
+## 2026-08-31 — replacement portable review harness
+
+The obsolete generated/embedded review implementation was removed. The new
+`review_harness/` was built from blank as a portable, direct-file viewer with a
+single self-contained `index.html`, sibling `images/` result store, canonical
+filename construction, independent left/right experiment controls, aligned
+sweep comparison, synchronized zoom/pan, fixed 1920x1080 inspection geometry,
+and explicit `NO IMAGE` fallback. `tools/export_review_image.py` is the
+canonical validating result writer and records actual PNG dimensions at export.
+
+Static, JavaScript syntax, Firefox headless rendering, and Marionette checks
+passed for panel/control construction, independent selection state, loaded
+asset status, missing-asset fallback, and 720p zoom clamping. The harness is
+portable by design: it has no framework, build step, backend, database, or
+network dependency.

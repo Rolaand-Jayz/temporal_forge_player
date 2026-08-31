@@ -96,6 +96,13 @@ unchanged. Full rows are in
 
 ## Artifact and comparison policy
 
+The portable review surface is `review_harness/index.html`. It is a blank,
+self-contained file-based viewer with deterministic canonical filenames and a
+deliberate `NO IMAGE` state for results that have not been rendered. Two
+matched frame-48 PNGs are currently populated for the daylight current and
+base-only controls; additional campaign writers should use
+`tools/export_review_image.py` rather than hand-building names.
+
 The requested evidence mode is data-only. Representative spatial comparison
 is frame 48 for each real scene and the synthetic edge/text fixture; motion
 comparison is the 12-frame post-warm-up sequence for each real scene. Their

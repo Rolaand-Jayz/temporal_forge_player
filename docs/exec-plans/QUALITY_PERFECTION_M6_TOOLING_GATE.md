@@ -141,11 +141,9 @@ boundaries, or static masks were inferred from stills.
   embedded JavaScript passed a `vm.Script` syntax check. A real Firefox
   Marionette pass loaded both artifacts, confirmed both mirrored selector
   structures and both image loads, changed LEFT without changing RIGHT,
-  swept the divider, opened the split inspection view, exercised 1:1, zoom,
-  fit-to-view, pan, and restored the URL hash. This is reproducible with
-  `python3 tools/verify_review_harness_browser.py
-  temporal-forge-frame55-review-standalone.html` and the same command with
-  `temporal-forge-frame55-review-single-file.html`. The sandboxed browser
+  swept the divider, opened the split inspection view, exercised zoom and pan,
+  and verified the file-based harness state. The current portable artifact is
+  `review_harness/index.html`; the sandboxed browser
   launch still crashes before automation starts; the evidence was collected
   with the same installed Firefox outside that sandbox boundary. The runner is
   intentionally standard-library-only and reports an environmental browser

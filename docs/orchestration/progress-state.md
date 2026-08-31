@@ -67,8 +67,8 @@
 | Escalated five-candidate sweep | `/tmp/tforge-m6-6-1-cas-fixed-escalated-20260823/m6-6-1-cas-fixed-escalated-20260823T042444Z` | M6.1 | current |
 | Paired spatial report from real sweep | `/tmp/tforge-m6-2-paired-existing-20260823/paired_rankings.csv` | M6.2 | current |
 | Paired spatial metric implementation | `benchmarks/quality_sweeps/paired_spatial_metrics.py` | M6.2 | current |
-| Portable review harness | `temporal-forge-frame55-review-single-file.html` | M6 tooling | current, not a quality promotion |
-| Real-browser harness validator | `tools/verify_review_harness_browser.py` | M6 tooling | Firefox Marionette checks pass outside the restricted sandbox |
+| Portable review harness | `review_harness/index.html` | M6 tooling | current, not a quality promotion |
+| Review harness browser check | local Firefox Marionette probe | M6 tooling | file-based viewer interaction checks pass |
 | M6.5 matrix contract | `tools/verify_quality_matrix.py` | M6.5 | contract-tested, real matrix pending |
 | M6.5 schema-v2 gap report | `tools/report_quality_matrix_gaps.py`, `tests/test_quality_matrix_gap_report.py` | M6.5 | current; `/tmp/tforge-m6-schema2-gap-report.json` records the saved-evidence gaps |
 | M6.5 schema-v2 spatial campaign | `benchmarks/quality_sweeps/m6_schema2_spatial_campaign.json`, `tests/test_m6_schema2_campaign.py` | M6.5 | current; five candidates, four real scenes, scene-specific classSelections, temporal pending |
