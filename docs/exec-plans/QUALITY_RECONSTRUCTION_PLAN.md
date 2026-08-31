@@ -3903,3 +3903,12 @@ The retained CSV is `benchmarks/quality_sweeps/fsr_downscale_cas_placement_20260
 This closes the still-image placement diagnostic for this condition, but the
 post-reduction arm is not renderer-integrated and temporal placement coverage
 remains open.
+
+The temporal placement follow-up is retained in
+`benchmarks/quality_sweeps/fsr_downscale_cas_placement_temporal_20260831.csv`.
+It covers 12 scored frames after a 12-frame warmup for all four scenes and
+both reducers. Resolve-side CAS and no-CAS were close in mean SSIM, while the
+external post-reduction CAS arm was lower for both reducers and had a much
+larger temporal-delta signal. This rejects the external post-reduction arm for
+the tested condition; it does not claim renderer-integrated post-downsample
+CAS coverage.

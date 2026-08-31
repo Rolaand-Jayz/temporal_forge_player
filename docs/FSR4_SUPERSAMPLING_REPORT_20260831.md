@@ -139,6 +139,17 @@ bicubic in this slice, so it does not support adding a final sharpening stage.
 This is still a still-image diagnostic; renderer-integrated post-reduction CAS
 and a longer temporal placement matrix remain open.
 
+The temporal follow-up is retained in
+`benchmarks/quality_sweeps/fsr_downscale_cas_placement_temporal_20260831.csv`.
+It covers 12 scored frames after a 12-frame warmup for the same four scenes,
+four placements, and two reducers. Resolve-side CAS and no-CAS remained close:
+mean SSIM was 0.943144/0.944414 for resolve-side CAS and 0.943366/0.944384
+for no-CAS with Lanczos/bicubic respectively. External post-reduction CAS was
+lower at 0.940866/0.942596 and produced a much larger temporal-delta signal
+(44.938459/44.839386 versus 6.183832/6.147938 for no-CAS). This metric result
+does not support post-reduction sharpening and does not substitute for a
+renderer-integrated post-downsample stage.
+
 ## True downscaling follow-up
 
 The first controlled true-downscaling slice is retained under
