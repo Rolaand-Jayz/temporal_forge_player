@@ -1,0 +1,9 @@
+scene,scale,filter,frames,ssim_mean,ssim_min,temporal_delta_mean
+tos_daylight,3.00,bicubic,12,0.927432,0.917296,3.190932
+tos_daylight,3.00,lanczos,12,0.927261,0.917143,3.196462
+tos_debris,3.00,bicubic,12,0.966180,0.964058,5.015095
+tos_debris,3.00,lanczos,12,0.966097,0.964009,5.014238
+sintel_rooftop,3.00,bicubic,12,0.853963,0.822193,15.155555
+sintel_rooftop,3.00,lanczos,12,0.854547,0.822833,15.152864
+sintel_cave,3.00,bicubic,12,0.766951,0.749507,1.146157
+sintel_cave,3.00,lanczos,12,0.766826,0.749356,1.149436

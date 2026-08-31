@@ -3798,3 +3798,66 @@ keeping the current path as default, retaining `base_only_bilinear` as a
 runtime-selectable spatial control, and avoiding a universal temporal-quality
 claim. M7 may proceed only as a separately scoped equivalence/default-policy
 review; no quality candidate is promoted by this campaign.
+
+## 2026-08-31 — FSR 4.1 output supersampling for fixed 2x delivery
+
+Hypothesis:
+
+Reconstructing at 2.25x–3.00x and reducing to a fixed 2.00x delivery grid may
+improve temporal stability and discard unstable high-frequency errors relative
+to direct 2.00x reconstruction.
+
+Configuration:
+
+The existing current Temporal Forge architecture was held constant. Each arm
+used `TFORGE_FSR4_FORCE_SCALE` and `TFORGE_FSR4_FORCE_VIEWPORT` to produce a
+real intermediate FSR output, with jitter off, software decode, and no changes
+to motion, history, color, sharpening, residual, generic-graph/FP8, or weights.
+Supersampled arms were reduced with Lanczos to 2560x1440. The direct arm was
+captured directly at 2560x1440. Exact runners and CSVs are recorded in
+`docs/FSR4_SUPERSAMPLING_REPORT_20260831.md`.
+
+Corpus subset:
+
+Tears of Steel daylight and debris, Sintel rooftop and cave, all high-quality
+1280x720 inputs with a 2560x1440 final output. A synthetic edge/text fixture
+was additionally tested at 640x360 to 1280x720. Spatial frame 48 was measured
+for all arms; temporal captures used 12 warm-up and 12 scored frames at source
+cadence.
+
+Metrics:
+
+Across the four real scenes, 3.00x had the best aggregate spatial SSIM
+(`0.877217`) and temporal SSIM (`0.878683`) and the lowest temporal delta
+error signal (`6.128250`). However, Sintel cave did not follow that result,
+and the synthetic edge/text fixture favored 2.25x on edge-SSIM and direct 2x
+on SSIM. The 3x aggregate edge-SSIM (`0.837970`) was below every lower-scale
+arm. Peak discrete-GPU VRAM was approximately 4.12, 4.46, 4.82, 5.26, and
+4.29 GB for 2.00x through 3.00x.
+
+Visual observations:
+
+The campaign used the data-only evidence policy. Frame and motion identities,
+dimensions, hashes, and metric outputs are retained; image payloads are not
+required, and no visual claim is made from absent image inspection.
+
+Performance:
+
+Representative steady-state GPU samples on Tears of Steel daylight were
+22.6, 27.4, 32.8, 38.7, and 8.4 ms for 2.00x through 3.00x. The 3x result is
+the existing fixed native shape; 2.25x–2.75x use the slower generic path.
+
+Conclusion:
+
+INCONCLUSIVE as a universal quality promotion. The core hypothesis is
+partially supported on the real-scene aggregate but fails the repeatability,
+difficult-material, edge-detail, and broad performance gates.
+
+Decision:
+
+Reject automatic overscaled-FSR promotion and keep direct 2x as the production
+default. Retain independent reconstruction/delivery dimensions as diagnostic
+controls. The provisional 3x winner was followed by a reduction-filter sweep:
+bicubic and Lanczos were effectively tied, so no filter promotion was made.
+Longer foliage/hair/repeating-texture coverage remains future evidence if this
+mode is revisited.
