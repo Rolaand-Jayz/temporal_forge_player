@@ -3892,3 +3892,13 @@ scenes. It also lost temporal SSIM and had higher temporal-delta absolute
 error than Lanczos on every scene. This rejects NativeAA-assisted downscaling
 for 1920x1080 → 1280x720; it does not close the remaining resolution-ratio
 matrix or the CAS placement experiment.
+
+The follow-up placement runner then tested the 2.00x-above-source pipeline with
+CAS .20 before reduction, CAS .20 after the FSR resolve but before reduction,
+and no CAS, using both
+Lanczos and bicubic. Across 24 finite rows, CAS-before scored below the other
+two placements after reduction; CAS-after and no-CAS were effectively tied.
+The retained CSV is `benchmarks/quality_sweeps/fsr_downscale_cas_placement_20260831.csv`.
+This closes only the still-image pre-reduction diagnostic for this condition;
+it does not validate CAS after downsampling, and temporal placement coverage
+remains open.
