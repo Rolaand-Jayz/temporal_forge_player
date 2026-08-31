@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Measure CAS placement on an above-source FSR result before reduction."""
+"""Measure CAS placement around an above-source FSR result and reduction."""
 
 from __future__ import annotations
 
@@ -14,6 +14,7 @@ import subprocess
 MODES = {
     "cas20_pre": {"TFORGE_FSR4_PRE_CAS": "1", "TFORGE_BENCHMARK_SHARPNESS": "0.20", "TFORGE_FSR4_DISABLE_CAS": "1"},
     "cas20_resolve": {"TFORGE_REVIEW_FSR_CAS": "0.20"},
+    "cas20_post": {"TFORGE_FSR4_DISABLE_CAS": "1"},
     "no_cas": {"TFORGE_FSR4_DISABLE_CAS": "1"},
 }
 FILTERS = {"lanczos": "lanczos", "bicubic": "bicubic"}
@@ -80,7 +81,11 @@ def main() -> int:
             for filter_name, flags in FILTERS.items():
                 reduced = scene_root / f"candidate_{filter_name}.png"
                 run(["ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-i", str(high), "-vf", f"scale=1280:720:flags={flags}", "-frames:v", "1", str(reduced)], env, root)
-                psnr, ssim = score(reduced, reference, root)
+                candidate = reduced
+                if mode == "cas20_post":
+                    candidate = scene_root / f"candidate_{filter_name}_cas20_post.png"
+                    run(["ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-i", str(reduced), "-vf", "cas=strength=0.20", "-frames:v", "1", str(candidate)], env, root)
+                psnr, ssim = score(candidate, reference, root)
                 logs = "\n".join(path.read_text(errors="replace") for path in scene_root.glob("quality_logs/*.log"))
                 gpu = re.findall(r"GPU=([0-9.]+)ms", logs)
                 rows.append({"scene": scene, "cas_placement": mode, "cas_strength": "0.20" if mode != "no_cas" else "0.00", "reconstruction_resolution": "3840x2160", "source_resolution": "1920x1080", "final_resolution": "1280x720", "downsample": filter_name, "frame": str(args.frame), "psnr_db": psnr, "ssim": ssim, "gpu_ms": gpu[-1] if gpu else "", "binary_sha256": binary_hash, "source_sha256": raw["control_source_sha256"]})

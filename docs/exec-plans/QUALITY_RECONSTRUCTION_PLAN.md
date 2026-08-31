@@ -3895,10 +3895,11 @@ matrix or the CAS placement experiment.
 
 The follow-up placement runner then tested the 2.00x-above-source pipeline with
 CAS .20 before reduction, CAS .20 after the FSR resolve but before reduction,
-and no CAS, using both
-Lanczos and bicubic. Across 24 finite rows, CAS-before scored below the other
-two placements after reduction; CAS-after and no-CAS were effectively tied.
+CAS .20 after reduction via an external FFmpeg CAS filter, and no CAS, using
+both Lanczos and bicubic. Across 32 finite rows, pre-CAS scored below the other
+placements after reduction; resolve-side CAS and no-CAS were effectively tied,
+while external post-reduction CAS remained below no-CAS in this slice.
 The retained CSV is `benchmarks/quality_sweeps/fsr_downscale_cas_placement_20260831.csv`.
-This closes only the still-image pre-reduction diagnostic for this condition;
-it does not validate CAS after downsampling, and temporal placement coverage
+This closes the still-image placement diagnostic for this condition, but the
+post-reduction arm is not renderer-integrated and temporal placement coverage
 remains open.

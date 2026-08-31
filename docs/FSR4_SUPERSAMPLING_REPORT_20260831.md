@@ -118,21 +118,26 @@ verified findings.
 The placement runner evaluated 2.00x reconstruction above the 1920x1080
 source, reduction to 1280x720, and both Lanczos and bicubic reducers across
 the four real scenes. It compared CAS 0.20 before reduction, CAS 0.20 in the
-Temporal Forge post-resolve pass (still before reduction), and no CAS. The 24
-finite rows are in
+Temporal Forge post-resolve pass (still before reduction), CAS 0.20 applied by
+FFmpeg after reduction, and no CAS. The 32 finite rows are in
 `benchmarks/quality_sweeps/fsr_downscale_cas_placement_20260831.csv` and the
-runner records the effective pre-reduction placement in every row.
+runner records the effective placement in every row. The post-reduction arm is
+an external CAS diagnostic, not the renderer's CAS implementation.
 
 | placement | Lanczos mean SSIM | bicubic mean SSIM |
 |---|---:|---:|
 | CAS .20 before reduction | 0.928103 | 0.929559 |
 | CAS .20 after FSR resolve, before reduction | 0.930604 | 0.931502 |
+| CAS .20 after reduction (external FFmpeg) | 0.929713 | 0.931300 |
 | no CAS | 0.930656 | 0.931505 |
 
-On this source/output condition, CAS-before is worse after reduction. CAS-after
-is effectively tied with no-CAS, so the data does not support promoting either
-placement. This is a still-image, pre-reduction diagnostic; a true
-CAS-after-downsample arm and a longer temporal placement matrix remain open.
+On this source/output condition, CAS-before is worse after reduction. The
+resolve-side CAS arm is effectively tied with no-CAS, so the data does not
+support promoting either renderer-side placement. The external post-reduction
+arm is below no-CAS on Lanczos and
+bicubic in this slice, so it does not support adding a final sharpening stage.
+This is still a still-image diagnostic; renderer-integrated post-reduction CAS
+and a longer temporal placement matrix remain open.
 
 ## True downscaling follow-up
 
