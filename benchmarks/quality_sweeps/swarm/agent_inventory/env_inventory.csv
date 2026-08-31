@@ -79,3 +79,4 @@ TFORGE_TEMPORAL_CLASS,temporal-provenance,script,string,run_temporal_quality.sh,
 TFORGE_TEMPORAL_CONFIG_ID,temporal-provenance,script,string,run_temporal_quality.sh,benchmarks/video_corpus/run_temporal_quality.sh
 TFORGE_TEMPORAL_SCENE,temporal-provenance,script,string,run_temporal_quality.sh,benchmarks/video_corpus/run_temporal_quality.sh
 TFORGE_TEMPORAL_START_FRAME,temporal-provenance,script,integer,run_temporal_quality.sh,benchmarks/video_corpus/run_temporal_quality.sh
+TFORGE_FSR4_EXPERIMENTAL_HISTORY_JITTER_DELTA,quality-config,player+runner,presence=1,run_temporal_quality.sh,src/render/Fsr4DispatchHarness.cpp;shaders/fsr4/prepass_pq_eotf.comp

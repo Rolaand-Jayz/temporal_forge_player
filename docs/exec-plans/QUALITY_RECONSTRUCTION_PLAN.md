@@ -98,6 +98,12 @@ It is complete only when all of the following are true:
 
 ### 5.1 Runtime configurability
 
+Campaign evidence may be recorded as `metrics_only` when the numeric results,
+configuration identity, binary identity, timing, and temporal provenance are
+available without retaining image payloads. This relaxes storage of review
+images only; it does not relax any matrix coverage, metric, provenance, or
+temporal validation requirement.
+
 Do **not** hardcode experimental constants and rebuild for every experiment.
 
 Build a centralized **Quality Lab** configuration system first.
@@ -177,7 +183,8 @@ Before changing image behavior:
 - [x] Record edge SSIM.
 - [x] Record mean luminance.
 - [x] Record useful luminance percentiles if practical.
-- [x] Preserve representative stills.
+- [x] Preserve representative stills when available; metrics-only campaign
+  closure does not require retaining image payloads.
 - [x] Preserve exact baseline configuration.
 - [x] Do not overwrite existing benchmark results.
 
@@ -1245,6 +1252,26 @@ SUPPORTED / REJECTED / INCONCLUSIVE
 Decision:
 ...
 
+## 2026-08-29 — Refined motion was previously disconnected from live decode
+
+The first traced 1280x720 → 3840x2160 refined-motion run exposed a real
+integration failure: the runtime selected `codec_refined`, but every frame
+reported `seeds=0`, `accepted=0`, and `refined=0`. The decoder only treated
+`TFORGE_FSR4_MOTION_ESTIMATOR` as a request for software decode; the capture
+runner supplied `TFORGE_FSR4_MOTION_ABLATION=refined` instead. VAAPI therefore
+remained enabled and its DRM handoff discarded `AV_FRAME_DATA_MOTION_VECTORS`.
+
+The decoder now applies the same environment precedence as the estimator and
+also recognizes `MOTION_ABLATION=refined`, forcing software decode only for
+explicit codec/refined motion captures. The normal hardware-decoded path is
+unchanged. The motion contract test and build pass.
+
+The corrected four-frame trace confirms the fix: software decode is selected;
+subsequent frames contain 3,704–5,961 accepted codec seeds with confidence
+statistics and approximately 0.5–0.9 ms CPU estimator time. The short 4K
+diagnostic produced SSIM `0.930108`; it is not a quality decision. A matched
+36-warmup/24-scored A/B is required next.
+
 Next action:
 ...
 ```
@@ -2030,9 +2057,945 @@ Next action:
 No further quality code changes are justified by the completed evidence. Keep
 the review HTML and benchmark artifacts available for handoff.
 
+## 2026-08-29 — M6-EV1 candidate-linked cave event capture
+
+Hypothesis:
+
+The M6 event gap can be closed at the evidence boundary by retaining an
+authoritative runtime event trace and its threshold provenance beside a
+candidate-linked real-corpus sequence, without deriving the event from residuals,
+stills, or the motion `reset` field.
+
+Configuration:
+
+`base_only_bilinear`, Sintel cave, captured frames 42–59, 426x240 → 1920x1080.
+The real corpus frames were not synthesized; a 500 ms PTS offset was applied from
+captured frame 9 onward so the runtime PTS-gap detector saw a known event. The
+exact commands and runtime environment are retained in
+`benchmarks/video_corpus/results/m6_event_sintel_cave_20260829T060839Z/capture_commands.txt`.
+
+Runtime evidence:
+
+The authoritative event is captured frame 9, transition index 8, PTS 875000 us.
+The PTS delta is 541.666992 ms against an expected interval of 41.6667633 ms,
+triggering only `pts_gap` under the runtime rule
+`ptsGapMs > expectedFrameIntervalMs * 2.5`. Histogram delta 0 and motion
+confidence 0.960797012 did not trigger their detector thresholds. The raw runtime
+label remains `detector_scene_cut`; classification does not overwrite it. Ghost
+and reset metric thresholds are explicitly 0.02 from the capture arguments.
+
+Metrics:
+
+`static_flicker=0.000403991`, `edge_variance=0.000000538`,
+`motion_compensated_error=0.002451593`, `ghost_duration_frames=0`, and
+`reset_recovery_frames=1`. The full event validator is
+`benchmarks/video_corpus/results/m6_event_sintel_cave_20260829T060839Z/capture_validation.json`.
+
+Validation:
+
+The assembled trace and sidecars passed the official M6 event-matrix field
+validators. Focused event, temporal, motion, and runner checks passed with 53
+Python tests and three subtests. The configured build-fast CTest suite passed 18
+enabled tests; one was skipped and three remained disabled by build
+configuration. `git diff --check` passed. The capture wrapper exited 0 and
+retained 18 candidate and 18 reference 1920x1080 frames beside the evidence.
+As an explicit gate check, `tools/verify_quality_matrix.py` was run against an
+intentionally empty combined-matrix stub and exited 2 with
+`spatial matrix must be a non-empty list`; the status is retained at
+`benchmarks/video_corpus/results/m6_event_sintel_cave_20260829T060839Z/matrix_verifier_gate_status.txt`.
+
+Conclusion:
+
+SUPPORTED for the requested event-slice capture. This is one coverage key and is
+not strict-matrix completion; `tools/verify_quality_matrix.py` has not passed the
+complete spatial-plus-temporal matrix. No default promotion and no M7 work are
+authorized by this evidence.
+
+A supplementary ToS faces-hair-skin capture is retained under
+`benchmarks/video_corpus/results/m6_event_tos_faces_hair_skin_20260829T022730Z`.
+It also produced a runtime PTS-gap trace at captured frame 9 and measured
+`static_flicker=0.008755100`, `edge_variance=0.000029068`,
+`motion_compensated_error=0.014858980`, `ghost_duration_frames=0`, and
+`reset_recovery_frames=1`. It is not part of the cave-only separate event-matrix
+contract and is retained as exploratory evidence only.
+
+Next action:
+
+Capture the remaining four Sintel-cave candidates with the same grounded
+trace/provenance procedure, then produce and verify the complete real
+candidate × scene × class matrix.
+
+## 2026-08-29 — Motion/jitter ablation correction on Sintel rooftop and ToS debris
+
+Hypothesis:
+
+The previous “zero-motion” Sintel-rooftop control was incomplete because its
+default variable Halton jitter remained active. A true no-correspondence
+control must remove both motion vectors and synthetic color jitter before the
+motion arms can be interpreted.
+
+Configuration:
+
+Sintel rooftop, 1280x720 medium-CRF23 input, 3840x2160 output, 12 frames,
+native INT8 graph, current composition, software decode, zero motion-vector
+ablation, and explicit `TFORGE_FSR4_JITTER_MODE=off`. The authoritative
+capture and exact command are retained under
+`benchmarks/video_corpus/results/temporal_sintel_rooftop_4k_zero_mv_zero_jitter_swdecode_20260829/`.
+Its environment file records the zero ablation, disabled jitter, forced viewport,
+current Quality Lab configuration, software decode, and profiling controls.
+Matched codec and refined arms with jitter off were then captured under
+`temporal_sintel_rooftop_4k_codec_mv_zero_jitter_20260829` and
+`temporal_sintel_rooftop_4k_refined_mv_zero_jitter_20260829`. Each run retained
+exactly 12 PPM frames and its exact command/environment provenance.
+`validation.txt` in the zero-control directory checks all six frame counts and
+environment combinations.
+
+A second complete motion/jitter matrix used the same runner, frame count,
+current composition, and 1280x720 → 3840x2160 dimensions on Tears of Steel
+debris. Its six artifacts and exact commands are retained under
+`temporal_tos_debris_4k_{zero_mv,codec_mv,refined_mv}_{zero_jitter,variable_jitter}_20260829`.
+`motion_jitter_ablation_summary.csv` and `validation.txt` beside the zero
+control record the paired metrics and environment checks.
+
+Metrics:
+
+| Arm | SSIM mean | SSIM minimum | Temporal absolute error |
+|---|---:|---:|---:|
+| Zero MV + zero jitter | 0.937722 | 0.934426 | 0.346464 |
+| Codec MV + zero jitter | 0.937730 | 0.934426 | 0.347528 |
+| Refined MV + zero jitter | 0.937729 | 0.934426 | 0.347482 |
+| Zero MV + variable Halton jitter | 0.939435 | 0.916825 | 0.502146 |
+| Codec MV + variable Halton jitter | 0.939270 | 0.915637 | 0.504655 |
+| Refined MV + variable Halton jitter | 0.939274 | 0.915664 | 0.504618 |
+
+Per-frame SSIM range was 0.005882 with jitter off versus 0.042779–0.044085
+with variable jitter. The corrected control's steady native-graph sample was
+5.65 ms GPU in this capture; this is one timing sample rather than a new
+performance average. A comparison CSV is retained beside the corrected capture
+as `motion_jitter_ablation_summary.csv`.
+
+Conclusion:
+
+The earlier interpretation is corrected: the apparent correspondence gain was
+confounded with variable synthetic jitter. With jitter off, codec and refined
+motion differ from true zero motion by only `+0.000008` and `+0.000007` mean
+SSIM respectively, while their temporal errors are marginally worse. Variable
+jitter raises mean SSIM slightly but sharply increases frame-to-frame SSIM
+variation and temporal-delta error. Codec and refined motion are effectively
+equivalent on this scene. No estimator or jitter promotion is justified by this
+result. Future promotion decisions require this paired motion/jitter matrix on
+additional real-motion scenes; variable-jitter arms must not be compared against
+a nominally zero-motion arm that still jitters.
+
+ToS debris results were:
+
+| Arm | SSIM mean | SSIM minimum | Temporal absolute error |
+|---|---:|---:|---:|
+| Zero MV + zero jitter | 0.983422 | 0.982923 | 0.105120 |
+| Codec MV + zero jitter | 0.983447 | 0.982951 | 0.106164 |
+| Refined MV + zero jitter | 0.983447 | 0.982951 | 0.106162 |
+| Zero MV + variable Halton jitter | 0.983588 | 0.981006 | 0.060997 |
+| Codec MV + variable Halton jitter | 0.983552 | 0.980890 | 0.057905 |
+| Refined MV + variable Halton jitter | 0.983554 | 0.980898 | 0.058005 |
+
+On ToS debris, variable jitter improves both mean SSIM and temporal-delta error,
+unlike Sintel rooftop. Motion with variable jitter slightly lowers mean SSIM
+but improves temporal error by about `0.003`; codec and refined remain
+effectively identical. The two scenes therefore show scene-dependent jitter
+behavior and no consistent motion/refinement gain, so neither is promoted from
+these 12-frame samples.
+
 ---
 
-# 23. Best-Known Configuration
+# 23. Motion/Jitter Isolation Update (2026-08-29)
+
+The previous motion A/B control was not fully isolated. Motion ablation was
+applied before `SideBufferSynth::update()`, so clearing the vector list also
+changed the confidence passed to scene-cut detection. That could restart the
+variable jitter sequence and make the two arms use different temporal phases.
+
+The benchmark boundary now preserves the pre-ablation confidence for the
+zero-motion arm while still clearing the uploaded vector payload. This keeps
+reset and jitter scheduling aligned between motion arms. Focused motion,
+temporal, jitter, and side-buffer contract tests pass.
+
+Matched Sintel rooftop capture, 1280x720 -> 3840x2160, 12 frames, native INT8:
+
+```text
+zero motion + zero jitter:
+  SSIM 0.937735
+  temporal delta absolute error 0.347582
+
+codec-refined motion + zero jitter:
+  SSIM 0.937729
+  temporal delta absolute error 0.347482
+  refinement CPU cost approximately 0.3-0.6 ms per frame
+```
+
+Conclusion: the cheap refinement stage is active and inexpensive, but this
+scene does not yet show a material quality gain from refinement itself. The
+short tested default-jitter run improved SSIM versus jitter-off, but increased
+temporal delta error, so jitter remains an experiment rather than a proven
+universal default. Longer and more varied motion footage is still required.
+
+## 23.1 Variable-jitter lifecycle correction (2026-08-29)
+
+The matched captures exposed a real integration defect even though the
+rendered frames did not show a whole-frame shift: SideBufferSynth::update()
+selected the current variable-jitter phase before the FSR model/output pair
+for that frame was installed. A scale or viewport change therefore selected
+the phase count from the previous pair, then reset the sequence after the
+frame had already consumed its sample.
+
+The sizing calculation is now shared by the pre-update setup and dispatch
+path. The current model/output pair is installed before update() chooses
+the phase. This changes jitter bookkeeping only; it does not change motion
+vectors, FSR graph behavior, color processing, or reconstruction parameters.
+The source-order contract test explicitly guards this boundary.
+
+Validation:
+
+    cmake --build build-fast -j8                         PASS
+    5 focused motion/temporal/jitter tests               PASS
+    git diff --check                                     PASS
+
+The existing visual inspection remains applicable: variable jitter changes
+fine edges without a visible whole-frame translation, and the retained
+Sintel rooftop frames do not show a warm-tone shift. This fix makes future
+resolution/scale A/B captures causally comparable; it is not evidence that
+variable jitter is a universal quality win.
+
+## 23.2 Controlled post-fix capture (2026-08-29)
+
+The first post-fix rerun was rejected because it used the repository default
+Quality Lab configuration instead of the campaign control. Both arms were
+then rerun with the exact control configuration: current composition,
+Catmull-Rom base, model color space, no sharpening, and tone EV 0.000.
+
+Sintel rooftop, 1280x720 input, 3840x2160 output, 12 frames, native INT8,
+codec-refined motion:
+
+| Arm | SSIM mean | SSIM minimum | Temporal absolute error | GPU sample |
+|---|---:|---:|---:|---:|
+| Refined motion + zero jitter | 0.937729 | 0.934426 | 0.347482 | 8.409 ms |
+| Refined motion + variable jitter | 0.939926 | 0.916488 | 0.478100 | 5.699 ms |
+
+The zero-jitter result is identical to the earlier matched control, confirming
+that the pair-install change did not alter the zero-jitter path. Variable
+jitter gains mean SSIM by 0.002197 relative to zero jitter, but has a lower
+worst-frame SSIM and a larger temporal error. Independent visual inspection
+found the two arms aligned, with identical warm/amber tone, no visible crop or
+double contour, and no clear visible quality advantage for variable jitter in
+frames 0000, 0005, or 0011.
+
+Conclusion: the pair-order correction is validated as a lifecycle/integration
+fix, but variable jitter remains scene- and metric-dependent and is not
+promoted as a universal default. The capture runner now also retains the exact
+Quality Lab JSON beside future artifacts so temporary config paths cannot
+silently undermine provenance.
+
+## 23.3 Controlled post-fix ToS debris capture (2026-08-29)
+
+The same corrected binary and exact campaign control were tested on the
+30-frame Tears of Steel debris sequence at 1280x720 input and 3840x2160
+output.
+
+| Arm | SSIM mean | SSIM minimum | Temporal absolute error | GPU sample |
+|---|---:|---:|---:|---:|
+| Refined motion + zero jitter | 0.982880 | 0.980966 | 0.125245 | 8.177 ms |
+| Refined motion + variable jitter | 0.982686 | 0.978358 | 0.091246 | 8.148 ms |
+
+Variable jitter improves temporal-delta agreement by 0.034, but lowers mean
+SSIM by 0.000194 and worst-frame SSIM by 0.002608. Independent visual review
+found no visible difference in alignment, color, edge detail, ghosting, or
+shimmer in frames 0000, 0015, and 0029.
+
+Conclusion: across the two corrected real-motion scenes, variable jitter is
+not a universal spatial-quality win. It can improve temporal agreement on the
+debris sequence while reducing spatial scores, and it can raise spatial SSIM
+on the rooftop sequence while worsening temporal agreement. Keep it
+runtime-selectable and continue investigating the temporal contract; do not
+make it the unconditional default.
+
+The cave event control was then recaptured with the variable mode explicitly
+recorded rather than relying on the implementation default:
+
+```text
+benchmarks/video_corpus/results/m6_event_sintel_cave_current_variable_explicit_20260829T144922/
+```
+
+This artifact contains `TFORGE_FSR4_JITTER_MODE=current`, codec-refined motion,
+the enabled `current_control.json`, and 18 frames at 1920x1080. Its measured
+event values are static flicker `0.000573600`, edge variance `0.000000723`,
+motion-compensated error `0.002623443`, ghost duration `0`, and reset recovery
+`1` frame. This is the authoritative explicit variable-jitter cave capture;
+the otherwise equivalent run whose mode was implicit from the runtime default
+is retained only as provenance history.
+
+## 23.4 Deep-research report review (2026-08-29)
+
+`docs/deep-research-report(14).md` was reviewed as external hypothesis input.
+Its useful contract checks agree with this implementation: motion supplied to
+FSR must be current-to-previous screen-space displacement, motion estimation
+must use unjittered decoded frames, and codec vectors are approximate block
+seeds rather than renderer ground truth. Its recommendation to use zero or
+minimal synthetic jitter is not accepted as a campaign conclusion: the
+corrected captures already show scene-dependent spatial and temporal tradeoffs.
+Keep variable jitter runtime-selectable and compare it directly against zero
+jitter on the same frames/configuration before changing the default.
+
+The motion-reference filter was also tightened after a test-first audit:
+`pastReferenceMotion()` now accepts only FFmpeg `source == -1`. Ambiguous
+`source == 0`, older past references such as `-2`, and positive future
+references fail closed because the causal player owns only the immediately
+previous history image. The real captured corpus contained only `source=-1`,
+so this does not discard any observed usable vectors. The new regression test
+failed against `source <= 0`, then passed after the narrow production change.
+
+## 23.5 Transfer-function A/B (2026-08-29)
+
+The FSR input-transfer hypothesis was tested on the matched 18-frame
+Sintel-cave current-control sequence at 426x240 input and 1920x1080 output,
+with codec-refined motion and jitter explicitly off. Only the input transfer
+override changed:
+
+| Arm | SSIM mean | SSIM minimum | Motion-compensated error | Static flicker |
+|---|---:|---:|---:|---:|
+| Default transfer | 0.970817 | 0.936259 | 0.002386432 | 0.000042868 |
+| Explicit Rec.709 | 0.951834 | 0.919241 | 0.002589626 | 0.000059210 |
+
+The Rec.709 arm also produced a visible magenta/purple cast in near-black cave
+regions without revealing additional reliable detail. It is rejected as a
+quality fix. The default transfer remains the better arm for this corpus;
+the input-transfer override remains available only for controlled diagnostics.
+
+Artifacts:
+
+```text
+benchmarks/video_corpus/results/m6_event_sintel_cave_current_zero_postref_fix_20260829T154716/
+benchmarks/video_corpus/results/m6_event_sintel_cave_current_zero_rec709_postref_fix_20260829T154811/
+```
+
+The matched Sintel-cave event A/B was then completed with the same
+codec-refined motion, current-control configuration, 18 frames, and
+1920x1080 output. Only jitter mode changed:
+
+| Arm | Static flicker | Edge variance | Motion-compensated error | Reset recovery |
+|---|---:|---:|---:|---:|
+| Variable jitter (`current`) | 0.000573600 | 0.000000723 | 0.002623443 | 1 frame |
+| Zero jitter (`off`) | 0.000045359 | 0.000000128 | 0.002387623 | 1 frame |
+
+Artifacts:
+
+```text
+benchmarks/video_corpus/results/m6_event_sintel_cave_current_variable_explicit_20260829T144922/
+benchmarks/video_corpus/results/m6_event_sintel_cave_current_zero_explicit_20260829T153308/
+```
+
+The first result is better on all three measured cave signals, while reset
+behavior is unchanged. This is evidence against variable jitter for this
+low-light/shadow-detail scene, not yet a global default decision; the rooftop
+and debris captures remain scene-dependent.
+
+Artifacts:
+
+```text
+benchmarks/video_corpus/results/temporal_sintel_rooftop_4k_zero_motion_zero_jitter_fixed_20260829/quality.csv
+benchmarks/video_corpus/results/temporal_sintel_rooftop_4k_refined_zero_jitter_long_20260829/quality.csv
+benchmarks/video_corpus/results/temporal_sintel_rooftop_4k_refined_variable_jitter_pairfix_control_20260829/quality.csv
+benchmarks/video_corpus/results/temporal_sintel_rooftop_4k_refined_zero_jitter_pairfix_control_20260829/quality.csv
+```
+
+## 23.6 — Causal reference and jitter submission lifecycle (2026-08-29)
+
+The dense replay adapter now accepts only `source=-1`, the immediately
+previous-reference marker used by the causal player. Ambiguous `source=0`,
+older negative references, and future positive references are rejected. Motion
+components are also bounded by the replay's declared source dimensions before
+conversion to the runtime float representation.
+
+Synthetic jitter is now transactionally staged: `SideBufferSynth::update()`
+selects a candidate phase, an in-scope guard rolls it back on wait, abort,
+initialization, upload, or dispatch failure, and the existing commit occurs
+only after a successful submitted FSR chain. This prevents variable-jitter
+phase skips when a decoded frame never reaches FSR. The guard does not alter
+motion estimation or FSR dispatch semantics.
+
+Validation:
+
+```text
+ctest --test-dir build-fast --output-on-failure -R \
+  '^(fsr4_motion_contract_tests|fsr4_temporal_contract_tests|jitter_policy_tests|jitter_tests|sidebuffer_tests|motion_estimator_tests|color_metadata_contract_tests)$'
+python3 -m unittest tests/test_motion_sidecar.py tests/test_temporal_runner_contract.py
+```
+
+Result: 7/7 CTest targets passed; 41/41 Python tests passed; `git diff --check`
+passed. The change is a correctness fix, not a quality promotion. The
+variable-jitter cave A/B remains rejected by the measured and visual evidence
+already recorded above.
+
+## 23.7 — Validity-aware temporal metrics (2026-08-29)
+
+The temporal metric adapter now honors the per-pixel validity mask attached to
+`MotionFieldWithValidity`. Uncovered pixels are excluded from both NumPy and
+pure-Python calculations, while plain legacy motion fields remain compatible
+and are treated as fully valid. A transition with no valid in-bounds samples
+still fails rather than becoming fabricated identity-motion evidence.
+
+This corrects campaign measurement only; it does not change the runtime motion
+texture or the FSR reconstruction path. The new contract is covered by
+`tests/test_motion_validity_metrics_contract.py`.
+
+Validation: 53 Python tests passed, including the new partial-coverage and
+all-invalid transition cases; `git diff --check` passed.
+
+## 23.8 — Post-guard 720p jitter confirmation (2026-08-29)
+
+A fresh matched 12-frame Sintel-cave capture was run after the submission
+guard, using the same 1280x720 high-quality input, 3840x2160 output, refined
+codec-motion mode, and lossless reference. Only jitter mode differed:
+
+```text
+benchmarks/video_corpus/results/m6_event_sintel_cave_jitter_guard_20260829/zero/
+benchmarks/video_corpus/results/m6_event_sintel_cave_jitter_guard_20260829/variable/
+```
+
+The variable arm measured mean SSIM `0.992667` versus `0.991885` with zero
+jitter, and temporal absolute error `0.083655` versus `0.221824`. Both runs
+completed with 12 frames and identical output dimensions. This is a guarded
+positive on this short cave slice, not a global jitter promotion: earlier
+rooftop, debris, and cave captures remain mixed, so the mode stays runtime
+selectable pending the full temporal matrix.
+
+## 23.9 — Causal source-policy alignment (2026-08-29)
+
+The motion estimator and Python sidecar validator now use the same strict
+source policy as the runtime replay adapter: only `source=-1` is admitted for
+the causal current-to-previous path. Ambiguous `source=0` and older past
+references such as `source=-2` are rejected before refinement or metric
+assembly. This prevents different pipeline stages from interpreting the same
+codec vector differently.
+
+The native passthrough upload boundary was also corrected so synthetic jitter
+is disabled when no FSR jitter metadata is submitted. Temporal FSR paths retain
+the existing matched sampling/metadata behavior.
+
+Validation: source-policy estimator, sidecar, motion-contract, and native
+jitter-boundary tests pass. The full CTest suite then passed 19 runnable tests;
+one test was skipped and three GPU diagnostics remain disabled by design. The
+repository-wide Python discovery run is not green because several older M6
+tests reference deleted historical `/tmp` artifacts and missing legacy review
+images; those are evidence-retention failures, not failures of this change.
+
+## 23.10 — Known-translation decoder probe (2026-08-29)
+
+The rebuilt player decoded a small H.264 P-frame clip containing a white block
+translated 2 source pixels to the right per frame. Its exported, filtered
+sidecar is retained at:
+
+```text
+benchmarks/video_corpus/results/motion_contract_probe_20260829_run2/player_motion.json
+```
+
+In the translated region, the observed X vectors include `-2.0`, matching the
+expected current-pixel-to-previous-pixel direction for rightward motion. The
+probe also shows block quantization and zero vectors in parts of the simple
+scene, so it validates the sign convention only provisionally; it does not
+prove dense boundary accuracy or exact FSR behavior. A deterministic vertical
+translation and GPU warp-residual check remain required before claiming the
+full motion contract empirically validated.
+
+The companion vertical probe is retained at:
+
+```text
+benchmarks/video_corpus/results/motion_contract_probe_20260829_run3/player_motion.json
+```
+
+It moves a white block 2 source pixels downward per frame. The moving-region
+sidecar contains negative Y vectors (including `-2.0`), which is consistent
+with current-to-previous sampling toward the block's prior, higher position.
+Together the horizontal and vertical probes provisionally confirm both axis
+signs through FFmpeg extraction, normalization, filtering, and sidecar export.
+They still do not replace a GPU warp-residual test.
+
+## 23.11 — Known-translation GPU dense-field residual (2026-08-29)
+
+The controlled horizontal-translation clip was replayed with the dense GPU
+motion and validity textures dumped from the runtime. The dump is the actual
+320x180 RG16F field plus an R8 validity texture, not a reconstruction from the
+sparse sidecar. Comparing the warped previous frame against a zero-motion
+control produced:
+
+```text
+frame 1: full 0.656 vs zero 0.633; moving ROI 5.672 vs 5.479
+frame 2: full 0.417 vs zero 0.417; moving ROI 3.894 vs 3.894
+frame 3: full 0.288 vs zero 0.633; moving ROI 2.490 vs 5.479
+```
+
+The field therefore improves the final probe frame but worsens the first and
+does not improve the second. This is evidence that extraction/sign handling is
+not the only remaining problem: dense-field initialization, coverage, or
+boundary reconstruction is still inconsistent on a simple known translation.
+No temporal-quality promotion is made from this probe. The raw artifacts are
+retained under:
+
+```text
+benchmarks/video_corpus/results/motion_contract_probe_20260829_run2/gpu_motion_artifacts/
+```
+
+The next motion gate is to isolate seed rasterization/refinement from dense
+upsampling and compare each stage against the known translation before using
+the field for a broader FSR quality claim.
+
+## 23.12 — Jitter coordinate reset on render-size changes (2026-08-29)
+
+The jitter audit found that a decoded render-size change reset the phase
+policy but could leave `hasPreviousJitter` set. That allowed the next frame to
+subtract a prior jitter expressed in a different source-pixel coordinate
+space. The decode loop now detects a render-width/height change, clears the
+stored prior jitter, and includes the change in the existing temporal reset
+decision. This is a lifecycle correctness fix; it adds no sampling pass and
+does not alter reconstruction algorithms.
+
+Validation: the new failing-first contract assertion now passes in
+`fsr4_motion_contract_tests`; the rebuilt player target and `git diff --check`
+also pass. Async fence failure rollback remains an open lifecycle audit item.
+
+## 23.13 — Reduced-model motion magnitude contract (2026-08-29)
+
+The FSR audit found that sparse motion coverage was remapped into model
+coordinates while `mvX/mvY` remained in decoded source-pixel units. The
+prepass subsequently multiplied those values by `output/model`, which
+over-scaled motion whenever the neural model was smaller than the decoded
+frame. `scaleMotionCoverageToModel()` now scales vector magnitudes by the same
+source-to-model factors as block positions and extents. The prepass remains
+unchanged and still performs the model-to-output conversion exactly once.
+
+This affects only temporal motion input preparation; no FSR shader, model, or
+reconstruction algorithm was changed. The new contract is covered by the
+failing-first motion test and the rebuilt target. A reduced-model real-video
+capture is still required before claiming a quality improvement.
+
+## 23.14 — Reduced-model runtime validation (2026-08-29)
+
+A four-frame real Sintel-cave capture was run with a 1280x720 decoded input,
+forced 4x scale, zero jitter, and a 3840x2160 target. The active runtime
+remained at `960x540 -> 3840x2160` after initialization; it no longer rebuilt
+the uploader back to `1280x720` on each frame. The capture completed with four
+complete output frames and measured FSR SSIM `0.995105` versus Lanczos
+`0.993943` on this short slice. The output's temporal absolute-error metric
+was `0.049226` against the reference, versus `0.187593` for Lanczos.
+
+Artifact:
+
+```text
+benchmarks/video_corpus/results/m6_reduced_model_motion_contract_20260829_final/
+```
+
+This validates the reduced-model resource wiring and provides a positive
+slice, but it is not a broad quality promotion; the dense boundary-motion
+gate and async-failure lifecycle gate remain open.
+
+## 23.15 — GPU/CPU and aligned-block motion probes (2026-08-29)
+
+The known horizontal probe was captured twice with the actual dense motion
+texture dumped: once through GPU expansion and once through the explicit CPU
+motion path. GPU and CPU behaved differently, confirming that the remaining
+error is not explained by a global sign alone. GPU residuals versus zero-motion
+for frames 1/2/3 were `0.655/0.633`, `0.417/0.417`, and `0.288/0.633`;
+the CPU path was `0.417/0.417`, `0.417/0.417`, and `0.413/0.633`.
+
+An aligned-block P-frame control was also created and its frame types were
+verified as `I P P P`. The dense field covered only half of the moving
+rectangle in each measured frame, so its apparent zero residual is not a
+valid full-object success; the uncovered boundary pixels were excluded by
+validity. This confirms the next fix must address codec-block coverage and
+boundary confidence before dense motion can be promoted. No boundary rule was
+changed from this probe.
+
+Artifacts:
+
+```text
+benchmarks/video_corpus/results/motion_contract_probe_20260829_run5_cpu_motion/
+benchmarks/video_corpus/results/motion_contract_probe_20260829_aligned_blocks_pframes/
+```
+
+## 23.16 — Dense replay source-dimension guard (2026-08-29)
+
+The replay adapter previously validated the dimensions declared by a motion
+sidecar, but did not compare them with the decoded frame dimensions supplied at
+lookup time. A sidecar captured at another input resolution could therefore be
+accepted and applied to a different source frame. The loader now stores the
+validated sidecar dimensions and rejects the replay whenever either dimension
+differs from the actual decoded source. The rejection is fail-closed and leaves
+the caller on its existing no-replay path.
+
+Validation was written first as a failing assertion in
+`fsr4_motion_contract_tests`, then the loader was changed to pass it. The
+focused contract test, rebuilt player, full CTest suite (19 runnable tests; one
+skipped and three disabled GPU diagnostics), relevant Python tests (54/54), and
+`git diff --check` all pass. This closes a data-identity defect but does not
+resolve the separate dense block-boundary coverage problem.
+
+## 23.17 — Async synthetic-jitter commit boundary (2026-08-29)
+
+The async two-slot path returned success at queue submission, while the jitter
+transaction and `previousJitterX/Y` state were committed before the GPU fence
+was known to have completed. A later asynchronous fence failure could therefore
+consume a Halton phase and leave the next FSR frame paired with stale jitter
+metadata. The existing rollback guard could not repair that case because it had
+already been marked committed.
+
+Synthetic-jitter frames now opt out of async slot overlap and use the existing
+blocking dispatch path. This keeps the color sample, jitter metadata, previous
+jitter state, and commit point inside one completed submission boundary. It is a
+small lifecycle guard, not a reconstruction or shader change. Async overlap is
+still available for paths that do not synthesize jitter; the longer-term
+per-in-flight-slot transaction remains a future optimization if needed.
+
+Validation was written first in
+`tests/test_temporal_async_state_contract.py`, then the `asyncSlots` predicate
+was changed to require `!syntheticJitterApplied`. The contract test passes,
+followed by the rebuilt player, full CTest (19 runnable tests; one skipped and
+three disabled GPU diagnostics), 55 relevant Python tests, and
+`git diff --check`.
+
+## 23.18 — Raw FFmpeg seed audit for the aligned-block fixture (2026-08-29)
+
+The raw FFmpeg side-data diagnostic was extended to print non-zero vectors
+instead of only the first twelve entries. On the valid `known_pan.mp4` probe,
+FFmpeg exports `source=-1` vectors with `motion_scale=4`, raw `motion_x=-8`,
+and derived displacement `-2.0` pixels, matching the controlled rightward
+translation. This confirms the extraction and the single source-to-pixel
+conversion for that fixture.
+
+The later `aligned_pan.mp4` fixture is not a valid motion-seed control: all 236
+P-frame vectors are zero even though the decoded white block moves between
+frames. Because the encoder did not emit motion for that synthetic clip, its
+later `-8` dense-field observation cannot identify an expansion or boundary
+ownership defect. It remains useful only as a warning that visual movement in
+decoded frames does not guarantee codec motion metadata. No production motion
+or shader behavior was changed from this audit.
+
+The diagnostic source is `tools/inspect_ffmpeg_mvs.cpp`; it is compiled and
+run against both fixtures as part of the investigation. The valid known-pan
+probe remains the extraction-direction control, while a new boundary test must
+use a fixture whose raw side data contains non-zero vectors before ownership or
+coverage changes are justified.
+
+## 23.19 — Variable-jitter timing audit (2026-08-29)
+
+The default jitter is intentionally variable: `JitterSequence::Halton23`,
+cadence one, and a resolution-dependent phase count. The phase advances only
+for a dispatched FSR frame, resets on seek/cut/timestamp discontinuity and
+source-size changes, and rolls back when dispatch does not complete. This is
+not a random timing source or a per-pixel quality operation.
+
+The current timing cost comes from the correctness guard around that state. A
+nonzero synthetic-jitter frame uses the blocking dispatch path so color
+sampling, reported jitter, prior-jitter metadata, and phase commit share one
+completed submission boundary. Existing 4K logs measure approximately 8.38 ms
+GPU and 8.58 ms CPU wait for variable jitter, with uploads around 0.28 ms and
+motion refinement around 0.3–0.66 ms. The matched jitter-off run is also about
+8.41 ms GPU, so generating Halton samples is not the cost; waiting for the
+temporal dispatch is.
+
+One multi-pass lifecycle defect remains: `previousJitterX/Y` is published after
+the first pass while the transaction is committed only after the full chain.
+That path must be repaired before restoring overlap for any multi-pass temporal
+configuration. No performance relaxation is promoted from this audit.
+
+## 23.20 — Pre-upload seed attribution (2026-08-29)
+
+The new gated pre-upload trace was exercised on the known two-pixel horizontal
+translation. With `TFORGE_FSR4_MOTION_ESTIMATOR=codec` and
+`TFORGE_FSR4_DISABLE_BEST_FINDINGS=1`, the runtime uploads only the expected
+`-2` source-pixel vectors. With the ordinary best-findings refinement enabled,
+the runtime uploads additional `-4` and `+2` vectors. With
+`TFORGE_FSR4_MOTION_ESTIMATOR=codec_refined` and best-findings disabled, the
+same alternate values are produced by the standalone estimator.
+
+This isolates the regression to local refinement, not FFmpeg extraction,
+synthetic jitter, source/model scaling, or the GPU expander. The likely
+mechanism is that a quarter-resolution integer search cannot represent a
+two-source-pixel seed exactly, then accepts a neighboring four-source-pixel
+correction from a small patch. That mechanism still needs a failing-first unit
+fixture and a matched real-scene quality check before changing the acceptance
+rule. The raw-codec path remains the trustworthy control.
+
+Artifacts:
+
+```text
+benchmarks/video_corpus/results/motion_contract_probe_20260829_run7_seed_trace/
+benchmarks/video_corpus/results/motion_contract_probe_20260829_run8_codec_seed_trace/
+benchmarks/video_corpus/results/motion_contract_probe_20260829_run9_raw_codec_seed_trace/
+benchmarks/video_corpus/results/motion_contract_probe_20260829_run10_estimator_refine_seed_trace/
+```
+
+## 23.21 — Conservative refinement correction bound (2026-08-29)
+
+The failing-first estimator test exposed that a quarter-resolution integer
+search could replace a valid codec seed with a multi-source-pixel jump. The
+controlled known-pan trace then confirmed the provenance: raw codec mode
+uploaded the expected `-2` source-pixel vectors, while both refinement entry
+points could inject `-4` or `+2` values.
+
+Both refinement implementations now accept a correction only when its length
+in source-pixel units is within `TFORGE_FSR4_MOTION_MAX_CORRECTION`, whose
+default is `1.0`. An oversized apparent improvement preserves the decoder seed
+and reduces confidence instead of promoting the reduced-grid result. This is a
+conservative correctness guard; it is not yet a universal quality promotion.
+
+The guarded known-pan capture uploaded only the expected `-2` vectors across
+the traced frames. The runner also now clears inherited
+`TFORGE_FSR4_DISABLE_BEST_FINDINGS` state before constructing the child
+environment, then records an explicitly requested value. This prevents raw,
+refined, and best-findings arms from being silently mixed by the caller's
+shell. A separate source-policy correction makes the legacy refiner admit only
+the documented immediate-previous marker, `source=-1`.
+
+Validation:
+
+```text
+build-fast motion_estimator_tests, sidebuffer_tests, and
+fsr4_motion_contract_tests: passed
+CTest: 19 passed, 1 skipped, 3 disabled
+Python focused contracts: 55 passed
+Known-pan guarded trace:
+benchmarks/video_corpus/results/motion_contract_probe_20260829_run11_guarded_refined_seed_trace/
+```
+
+Remaining gate: compare the guarded refinement behavior on representative
+real-world motion footage before deciding whether refinement should remain in
+the promoted temporal path. The raw codec path remains the control.
+
+## 23.22 — Explicit global-fallback provenance (2026-08-29)
+
+The failing-first motion-estimator test also exposed an ambiguity in the
+empty-codec-seed path: the luma-derived global fallback was tagged
+`source=0`, even though it was not copied from a codec reference-picture
+entry. That marker could let a downstream adapter treat a weak internally
+estimated vector as an unverified codec vector.
+
+The fallback now uses the same explicit immediate-previous-frame marker as
+the causal motion contract, `source=-1`, while retaining its confidence cap
+of `0.5`. This changes provenance only; displacement calculation, fallback
+search, FSR units, and reconstruction behavior are unchanged.
+
+Validation:
+
+```text
+motion_estimator_tests: passed, including the source=-1 fallback assertion
+CTest: 19 passed, 1 skipped, 3 disabled
+git diff --check: passed
+```
+
+The aligned-block fixture still cannot serve as a raw-codec motion control:
+its encoder emitted zero motion side-data for a visibly moving block. A new
+post-fix capture is required before judging the fallback's dense-field
+quality.
+
+## 23.23 — Jitter provenance in event traces (2026-08-29)
+
+The runtime event trace now records `jitterX`, `jitterY`, and
+`jitterApplied` for every captured frame. These are the source/render-space
+values selected by the side-buffer stage, so a capture can prove whether a
+variable Halton phase was actually submitted rather than inferring it from
+the final image. The fields are diagnostic only; they do not change color
+sampling, motion vectors, or temporal dispatch.
+
+Validation was written first in
+`tests/test_event_trace_runtime_contract.py`; the contract test passed, then
+the player rebuilt successfully. The existing jitter tests and full CTest
+remain green. The measured campaign bottleneck is still the blocking temporal
+dispatch, not jitter generation.
+
+## 23.24 — Reduced-model jitter coordinate correction (2026-08-29)
+
+The jitter audit identified a correctness issue in the variable-jitter
+metadata path: history reprojection was multiplying a model-space
+jitter delta by the source-to-output ratio. The prepass now uses its existing
+`modelToOutputScale`, so reduced neural models do not receive a second model
+scale. The color sampler and motion estimator remain unchanged.
+
+Validation was written first:
+
+```text
+fsr4_motion_contract_tests: passed
+jitter_tests: passed against the checked-in FidelityFX floor rule
+player rebuild: passed; prepass shader compiled to SPIR-V
+```
+
+The external sign convention still needs a controlled GPU impulse/gradient
+test before variable jitter can be treated as fully proven rather than
+internally consistent.
+
+The rebuilt live proof harness was also run manually on the RX 7900 GRE:
+
+```text
+fsr4_harness_tests: OK
+FSR4 INT8 structural proof: PASSED
+dispatch: 13.579628 ms at 1280x720 → 3840x2160
+NaN/Inf: 0; non-zero samples: 100%
+```
+
+This proves the rebuilt dispatch remains operational, but it is not the
+missing jitter sign test: the existing proof harness uses seeded synthetic
+input and does not exercise `GpuImageUploader::setInputJitter()`.
+
+## 23.25 — Hardware jitter sampling-direction probe (2026-08-29)
+
+A separate disabled GPU probe now exercises the actual decoded YUV420 →
+RGB10/A2 model-color upload path. It uploads a deterministic bright stripe,
+reads the model image back, and compares zero jitter with a fixed positive
+0.5 source-pixel X offset. On the RX 7900 GRE it measured:
+
+```text
+zero jitter centroid X: 15.500000
++0.5px X jitter centroid X: 15.000000
+directional delta: -0.500000 pixels
+```
+
+This proves the production sampler's `p + jitter` direction and its
+half-pixel displacement on hardware, including the RGB10/A2 quantization
+boundary. The probe is intentionally disabled in ordinary CTest because it
+requires a live Vulkan device; run it manually with:
+
+```text
+./build-fast/tests/jitter_gpu_contract_tests
+```
+
+The probe does not yet cover temporal history reprojection or a reduced-model
+source→model→output pair, so those remain separate integration gates.
+
+## 23.26 — Failed-dispatch analysis-history rollback (2026-08-29)
+
+The temporal lifecycle audit found that `SideBufferSynth::update()` advanced
+the previous-luma, histogram, cadence, and validity state before FSR
+submission completed. If upload, dispatch, presentation, or a later chained
+pass failed, jitter was rolled back but the luma history was not. The next
+motion estimate could therefore compare the next successful frame against a
+decoded frame that had never reached FSR history.
+
+The existing abort boundary, `rollbackJitter()`, now restores a transaction
+snapshot of every analysis state component advanced by `update()`. Successful
+dispatches retain the new state as before. A failing-first side-buffer test
+reproduced the stale-frame pairing and now passes after the fix.
+
+Validation:
+
+```text
+sidebuffer_tests: passed, including failed-frame history rollback
+temporal_forge_player: rebuilt successfully
+ctest: 19 runnable tests passed; 1 skipped; 3 GPU/diagnostic tests disabled
+```
+
+This closes a concrete failure path in history pairing, but it does not by
+itself prove that the temporal output beats the spatial baseline on the full
+real-world sequence matrix.
+
+## 23.27 — Pending-frame seek quarantine (2026-08-29)
+
+The history/reset audit also found that the decode loop could opportunistically
+buffer one decoded frame, then consume it after `seekPending_` was raised. That
+frame belongs to the pre-seek sequence and could bypass the intended decoder
+flush/reset boundary.
+
+The pending-frame consumption branch now checks the seek flag before moving the
+frame into the active decode variable. If a seek is pending, it discards the
+buffered frame and exits the current decode batch; the subsequent flush starts
+the new sequence normally. A failing-first source contract test now requires
+this quarantine and passes.
+
+Validation:
+
+```text
+test_temporal_runner_contract.py pending-frame test: passed
+sidebuffer_tests: passed
+temporal_forge_player: rebuilt successfully
+ctest: 19 runnable tests passed; 1 skipped; 3 GPU/diagnostic tests disabled
+```
+
+This closes the stale-pending-frame path. A live interactive seek capture is
+still required before the complete seek/history gate can be called proven.
+
+## 23.28 — Reduced-model motion conversion (2026-08-29)
+
+The reduced-model audit found that motion vectors were uploaded in model-pixel
+units but multiplied in the prepass by `slot1.xy`, the decoded-source→output
+ratio. For a smaller model this under-scaled history displacement by
+`model/source`. The prepass now multiplies uploaded motion by the already
+derived `modelToOutputScale`; source→model remains the lookup/coverage
+conversion used before upload.
+
+Validation:
+
+```text
+failing-first fsr4_motion_contract_tests: failed against slot1.xy
+corrected fsr4_motion_contract_tests: passed
+prepass shader: compiled to SPIR-V
+full runnable CTest: 19 passed; 1 skipped; 3 GPU/diagnostic tests disabled
+```
+
+This fixes a concrete reduced-model coordinate defect. A fresh reduced-model
+real-sequence capture is still needed to measure its visual effect.
+
+The fresh real rooftop capture after this fix (`1280x720 → 3840x2160`, eight
+frames, refined codec motion, zero jitter) completed successfully. It measured
+SSIM `0.938986` for FSR versus `0.936530` for Lanczos, but temporal-delta
+absolute error was `0.571658` versus `0.093115` for Lanczos. This is a small
+spatial win with a clear temporal-stability loss, so the path remains
+unpromoted.
+
+## 23.29 — In-flight temporal submission is opt-in (2026-08-29)
+
+The lifecycle audit found that the two-slot asynchronous path could publish
+jitter, luma, and frame-continuity state at submission time, before the fence
+and presentation scaler reported success. Until that path has a completion-time
+commit boundary, it is now enabled only by the explicit
+`TFORGE_FSR4_ENABLE_INFLIGHT` diagnostic switch. The blocking path remains the
+default for correct temporal state pairing; this is a scheduling guard, not an
+image-quality algorithm change.
+
+Validation:
+
+```text
+failing-first runner contract: passed after the explicit opt-in guard
+temporal_forge_player: rebuilt successfully
+full runnable CTest: 19 passed; 1 skipped; 3 GPU/diagnostic tests disabled
+```
+
+The timed repeat recorded approximately `4.89–4.98 ms` GPU dispatch,
+`0.64–1.30 ms` motion-estimator CPU time, and `8.3–12.0 ms` total dispatch /
+pipeline CPU time after warm-up on the RX 7900 GRE. The retained artifact is
+`benchmarks/video_corpus/results/temporal_rebuild_reduced_motion_rooftop_20260829_timed/`.
+
+## 23.30 — Seek-generation reset and guarded in-flight default (2026-08-29)
+
+The seek audit showed that the demux thread flushes the decoder directly, so
+the decode thread cannot rely on a queued `Packet::isFlush` marker to clear its
+CPU analysis state. A monotonic `seekGeneration_` is now incremented by
+`seekUs()` and consumed by the decode thread. When it changes, the decode loop
+discards any pending old frame, clears `SideBufferSynth` analysis state, resets
+frame continuity/jitter provenance, and starts the next source frame on the
+existing reset path. The reset stays on the decode thread to avoid a data race.
+
+The same audit found that asynchronous two-slot submission committed state
+before fence/presentation completion. It is now disabled by default and can be
+enabled only with `TFORGE_FSR4_ENABLE_INFLIGHT` for a separate throughput
+probe. This preserves the blocking path's correctness while that completion
+boundary remains unimplemented.
+
+Validation:
+
+```text
+failing-first seek-generation contract: passed
+failing-first in-flight opt-in contract: passed
+temporal_forge_player: rebuilt successfully
+full runnable CTest: 19 passed; 1 skipped; 3 GPU/diagnostic tests disabled
+```
+
+# 24. Best-Known Configuration
 
 Update this section after every stage.
 
@@ -2092,7 +3055,521 @@ runtime-selectable because no universal filter winner was measured.
 
 ---
 
-# 24. Final Principle
+# 25. 2026-08-29 temporal-control and off-screen-history follow-up
+
+The matched rooftop controls were rerun after the lifecycle and reduced-model
+motion fixes. Both the zero-motion and codec-refined arms used
+`TFORGE_FSR4_JITTER_MODE=off`, so variable jitter was not part of these
+measurements. The debug artifacts are retained at:
+
+```text
+benchmarks/video_corpus/results/temporal_motion_ablation_zero_debug_20260829/
+benchmarks/video_corpus/results/temporal_motion_ablation_refined_debug_20260829/
+benchmarks/video_corpus/results/temporal_offscreen_history_fix_rooftop_20260829/
+```
+
+The refined arm uploaded non-zero motion seeds on frames 1 and 2 (2583 and
+2428 seeds); the zero arm uploaded zero seeds. Despite that, the matched
+three-frame 1920x1080 quality summaries were identical, so motion was proven
+to reach the upload boundary but not to produce a measurable output change in
+that short control. The eight-frame 3840x2160 post-fix capture retained the
+prior result: FSR SSIM `0.938986` versus Lanczos `0.936530`, while temporal
+delta error was `0.571658` versus `0.093115`. Temporal promotion remains
+blocked.
+
+The read-only shader audit found a concrete history defect: a covered motion
+block whose reprojection landed off-screen left `historyModel` at zero, then
+the prepass blended that zero as black history. The prepass now requires both
+motion coverage and an on-screen reprojection before sampling/blending history;
+the existing invalid-history policy handles the rejected case. A failing-first
+source contract was added and passes, and the shader recompiles successfully.
+
+The capture runner previously forced 24-fps source and reference material
+through a 30-fps conversion and the temporal metric ignores PTS. The runner
+now preserves the input cadence; older artifacts remain warning-only because
+they were captured before that fix.
+
+## 2026-08-29 postpass temporal-bypass audit
+
+The generic graph's host constants were setting postpass bit `1024` whenever
+best-findings mode was active. In `postpass_composite.comp`, that bit selects
+`upscaledColor` directly and bypasses `u_reprojectedColor`, so motion/history
+could not affect the final image even though the prepass tensor changed.
+The host condition is now diagnostic-only:
+`TFORGE_FSR4_EXPERIMENTAL_SINGLE_HISTORY_BLEND` must be explicitly set. The
+regression is covered by `fsr4_postpass_contract_tests`.
+
+The runner also now forwards `TFORGE_FSR4_DISABLE_NATIVE_INT8`; before this
+fix, generic-graph controls silently used the native INT8 graph. The matched
+post-fix short captures still matched at encoded output, so no quality
+promotion is claimed yet. Pre-final tensor statistics differ and the dispatch
+trace confirms the generic graph; the remaining investigation is whether the
+history blend is quantized away or the published output path bypasses the
+changed postpass result.
+
+## 2026-08-29 learned-blend provenance correction
+
+The first postpass trace after the bypass fix exposed a capture-harness error:
+the runner was explicitly loading `config/quality_lab.json`, whose checked-in
+configuration is `base_only` with `learnedStrength: 0.0`. Those runs were
+valid spatial controls, but were mislabeled as temporal output for this A/B.
+
+The harness now has a failing-first contract ensuring that the aggressive
+reactive learned-strength suppression is enabled only by the explicit
+`TFORGE_FSR4_ADAPTIVE_LEARNED_STRENGTH` opt-in. Best-findings mode no longer
+silently enables that diagnostic gate. This prevents a reactive average of
+`1.0` from forcing the final learned blend to zero.
+
+After rerunning with an explicitly disabled Quality Lab configuration, the
+dispatch trace reports `learnedStrength: 0.075`, effective confidence `0.5`,
+and final learned blend `0.0375` on all eight frames. The matched refined and
+zero-motion captures are retained at:
+
+```text
+benchmarks/video_corpus/results/temporal_actual_refined_20260829/
+benchmarks/video_corpus/results/temporal_actual_zero_20260829/
+```
+
+Their dumped FSR frame hashes differ for every frame, proving that the guarded
+motion path now changes the actual published output. This is a wiring and
+provenance correction, not a quality promotion; representative-scene quality,
+temporal stability, and frame-time comparisons remain to be measured.
+
+The first variable-jitter rerun was compared with a command-line alias that
+the runner does not consume (`TFORGE_FSR4_JITTER=0`), so it was not a valid
+jitter-off control. The corrected control uses
+`TFORGE_FSR4_JITTER_MODE=off` and is retained at:
+
+```text
+benchmarks/video_corpus/results/temporal_actual_trueoff_refined_20260829/
+benchmarks/video_corpus/results/temporal_actual_variable_refined_20260829/
+```
+
+Future jitter conclusions must use the canonical mode variable and record the
+per-frame jitter samples separately from frame-time measurements.
+
+A four-frame trace using the corrected variable-jitter control recorded the
+expected changing render-space samples:
+`(0.00000,-0.08519)`, `(-0.12778,0.08519)`, `(0.12778,-0.19877)`, and
+`(-0.19167,-0.02840)`. The same trace kept learned blend at `0.0375` and
+completed in the normal capture path. This confirms that jitter is changing
+the FSR input phase per dispatched frame; it does not by itself establish a
+frame-time regression or a quality win.
+
+Timing isolation at the same 640x360 input and 1920x1080 output shows the
+slow result was graph-selection dependent, not jitter dependent. The forced
+generic graph measured about `37.1–37.6 ms` GPU per frame with jitter on and
+off. The native INT8 graph measured about `1.31–1.43 ms` GPU per frame with
+variable jitter and `1.33–1.43 ms` with jitter off. The generic-graph timing is
+retained as diagnostic evidence; it must not be used as the production
+frametime claim. The native path remains within the fast-path budget in this
+sample.
+
+## 2026-08-29 learned-strength isolation
+
+With jitter off, native INT8, disabled Quality Lab, and the same 640x360 →
+1920x1080 Tears of Steel daylight sequence, a five-point learned-strength
+sweep was captured at
+`benchmarks/video_corpus/results/temporal_learned_strength_sweep_tos_daylight_20260829/`.
+Mean SSIM was `0.894940`, `0.894904`, `0.894850`, `0.894675`, and `0.894301`
+for strengths `0.00`, `0.075`, `0.15`, `0.30`, and `0.50`; the Lanczos control
+was `0.893764` for all rows. The lowest temporal absolute error in this short
+sample was at `0.30` (`1.262657`), while `0.075` was `1.261194` and `0.00`
+was `1.260087`. The differences are small and the metrics trade off, so no
+new strength is promoted from this eight-frame slice. The existing `0.075`
+best-findings default remains reproducible while longer-sequence validation is
+pending.
+
+## 2026-08-29 thirty-frame native temporal matrix
+
+The short four-scene check was extended to 30 frames per arm at 640x360 →
+1920x1080 on the native INT8 path, with separate true-off and variable-jitter
+controls. All 16 captures completed and are retained under
+`benchmarks/video_corpus/results/temporal_native_matrix_640_to_1080_30f_20260829/`.
+
+FSR mean SSIM exceeded the matched Lanczos control in every row: cave
+`0.9569–0.9592` vs `0.9515`, rooftop `0.8295–0.8343` vs `0.8264`, daylight
+`0.8962–0.8977` vs `0.8954`, and debris `0.9557–0.9570` vs `0.9546`.
+Temporal-delta absolute error was scene-dependent: variable-jitter daylight
+was better than Lanczos (`0.8798` vs `1.1530`), but variable-jitter rooftop
+(`0.8399` vs `0.3086`), cave (`0.4042` vs `0.3494`), and debris (`0.1661` vs
+`0.0970`) were worse. Refinement itself was small: it improved the 30-frame
+temporal error over zero motion on rooftop and debris, was nearly neutral on
+cave, and was worse on daylight.
+
+Conclusion: the corrected path is a spatial-quality win in this matrix, but
+the full temporal system is not yet a universal stability win. Motion and
+jitter remain selectable evidence arms; further work must target the scene-
+dependent temporal error rather than adding sharpening or another resampler.
+
+## 2026-08-29 deep-research review and clean motion-control probe
+
+`docs/deep-research-report(14).md` was reviewed against the current Linux/
+Vulkan implementation. Its central caution matches the campaign evidence:
+synthetic jitter can satisfy FSR's input contract when the color sample is
+actually shifted, but it cannot recover renderer-level subpixel information
+from an already rasterized video frame. Variable jitter therefore remains an
+opt-in evidence arm, while true zero jitter remains a required control and
+fallback. No jitter policy was promoted from this report.
+
+A clean four-frame known-pan probe was run with identical settings for
+`codec` and `codec_refined`: best-findings disabled, jitter off, software
+decode, disabled Quality Lab, motion-seed dumps enabled, and bounded
+correction limited to one source pixel. The captures are retained at:
+
+```text
+benchmarks/video_corpus/results/motion_contract_probe_20260829_clean_codec/
+benchmarks/video_corpus/results/motion_contract_probe_20260829_clean_codec_refined/
+```
+
+Both arms admitted the expected current-to-previous seeds (`mv=(-2,0)`) on
+the moving blocks. Refined mode changed confidence on some blocks but did not
+change the four-frame encoded output metrics (`SSIM 0.354757`, temporal error
+about `0.1056`). This is not a quality win and does not prove dense-field
+correctness: the supplied reference is not a valid quality reference for this
+contract fixture, so the result is used only for seed/sign/wiring evidence.
+The next required motion gate is direct dense-field and warped-history
+residual validation on the same fixture.
+
+The first real-world causal A/B after the boundary fix used Sintel rooftop
+`640x360 -> 1920x1080`, eight scored frames, identical disabled Quality Lab,
+`TFORGE_FSR4_JITTER_MODE=off`, and the actual zero-motion ablation
+(`TFORGE_FSR4_MOTION_ABLATION=zero`) versus `codec_refined`. The captures are
+retained at:
+
+```text
+benchmarks/video_corpus/results/motion_quality_ab_rooftop_640_1080_20260829_correct_zero/
+benchmarks/video_corpus/results/motion_quality_ab_rooftop_640_1080_20260829_correct_codec_refined/
+```
+
+The outputs now differ, proving the A/B boundary reaches published pixels.
+Zero motion scored SSIM `0.843903` and temporal absolute error `0.468114`;
+refined motion scored SSIM `0.843905` and temporal absolute error `0.468571`.
+The refined trace confirmed substantial non-zero motion seeds (941, 890, 606,
+458, 389, 537, 299, and 459 on successive captured frames). On this rooftop
+slice refinement is therefore a tiny spatial gain but a tiny temporal loss;
+it is not promoted as a universal policy. The earlier identical A/B was
+invalid because estimator `off` preserved baseline codec vectors rather than
+zeroing them.
+
+As a lower-level check, the dumped GPU dense field from the known-pan capture
+was applied directly to the previous decoded luma frame. On frame 1, whole-
+frame MAE fell from `0.002847` with zero motion to `0.002049` with the GPU
+field; on the valid-motion region it fell from `0.002483` to `0.001618`, and
+on the motion-bearing region it fell from `0.044922` to `0.000000`. Frame 2
+was neutral because the adjacent source pair had no measurable object change;
+frame 3 repeated the frame-1 improvement. This proves the current dense field
+is useful correspondence on the fixture even though that benefit does not yet
+translate into a universal FSR-quality win on real footage.
+
+## 2026-08-29 publication-boundary and provenance fixes
+
+The follow-up audit found two lifecycle defects that could make a valid
+comparison look wrong even when the reconstruction dispatch itself completed:
+neural publication did not clear the prior native-passthrough selector, and
+history ping-pong advanced before the final presentation scaler had succeeded.
+Both are now fixed in `PlaybackEngine.cpp`. Native passthrough is cleared at
+neural publication, and every pass commits history only after the complete
+chain and presentation scaler succeed. The in-flight retirement path follows
+the same ordering.
+
+The dispatch trace was also corrected: it now reports `native-int8 graph
+complete` or `generic-split graph complete` instead of labeling both paths as
+native. This matters because the generic path is roughly 37 ms in the retained
+diagnostic profile while the native path is roughly 1.3--1.4 ms.
+
+The failing-first temporal contract test caught all three regressions before
+the implementation changes. The rebuilt binary passed the full runnable CTest
+set: 19/19 passed, with the existing GPU/tensormap tests skipped or disabled.
+A live rebuilt known-pan capture retained dense motion readback with frames
+1--3 having median `mv=(-2,0)` and the corrected `native-int8` trace label:
+
+```text
+benchmarks/video_corpus/results/motion_contract_probe_20260829_lifecycle_fixed/
+```
+
+The dumped `RG16F` dense field was compared against the exact accepted seed
+rectangles from that same capture, not against a differently tiled optical-flow
+sidecar. Frames 1--3 matched the CPU seed expansion exactly over all covered
+pixels (median and P95 vector error `0.0`; 100% of covered pixels within
+`0.01` px). This proves sparse-to-dense GPU expansion and sign preservation on
+the fixture. It still does not prove that the resulting correspondence is the
+best history field for real-world FSR output, so the quality gate remains open.
+
+## 2026-08-29 dense-replay fail-closed capture boundary
+
+The temporal runner previously allowed an explicitly supplied dense replay
+sidecar to omit a requested capture-relative frame. `PlaybackEngine` correctly
+cleared replay motion on that miss, but the runner continued and emitted normal
+metrics, making the diagnostic capture look complete while no longer measuring
+the requested replay. The runner now validates the sidecar before launching the
+player and rejects missing or duplicate required relative frame indices. This
+is diagnostic-only: normal captures and the player's normal motion/FSR path are
+unchanged. A failing-first runner contract test proves the fake player is not
+started for a partial sidecar.
+
+The previously retained complete dense replay requested eight scored frames and
+contained relative frames `0..7`; its player log's later frame-9 warning came
+from an extra decode after the runner had already observed the requested eight
+PPMs and is not part of the scored capture. Its metrics remain diagnostic
+evidence only: FSR SSIM `0.843911` versus Lanczos `0.841515`, with temporal
+absolute error `0.469600` versus `0.205071`.
+
+The clean rerun extended the sidecar through decoder read-ahead and completed
+the same eight-frame comparison without a replay-miss warning:
+
+```text
+benchmarks/video_corpus/results/motion_quality_rooftop_dense_replay_20260829_clean/
+```
+
+Variable synthetic jitter was also checked against true jitter-off on the same
+640x360 -> 1920x1080 path. The synchronous GPU means were `1.319 ms` with
+variable jitter and `1.326 ms` with jitter off, a `0.008 ms` difference within
+measurement noise; both used one FSR pass. This does not establish throughput
+parity for the optional in-flight path, because the current implementation
+disables in-flight overlap when synthetic jitter is active. That scheduling
+question remains a separate performance gate, not evidence that jitter adds
+extra reconstruction work.
+
+## 2026-08-29 — stateless jitter throughput guard
+
+The no-readback throughput probe isolated the scheduling cost left open above.
+With two-slot in-flight submission enabled and persistent color/recurrent
+history disabled, jitter-off measured a median CPU pipeline time of `0.086 ms`;
+variable jitter measured `0.074 ms`. GPU time stayed near `1.35 ms` in both
+arms. The old unconditional `!syntheticJitterEnabled` predicate was therefore
+needlessly serializing stateless playback.
+
+The async predicate now blocks only when persistent temporal state is enabled;
+stateless jitter may use the existing explicit in-flight opt-in. A short
+stateful probe still measured serialized presentation/wait work (pipeline
+median `7.511 ms`), so this change does not alternate independent history
+slots or weaken the stateful temporal contract. The failing-first async
+contract test and full runnable CTest pass. This is a scheduling fix only; no
+shader, reconstruction, motion, or jitter algorithm changed.
+
+## 2026-08-29 — clean 24-fps motion/jitter comparison
+
+The metric audit rejected the older rooftop/debris pairfix results because
+they were retimed to 30 fps, included startup frames, and used only the legacy
+whole-frame `tblend` signal. A clean replacement was captured at the source
+24 fps with 36 warmup frames and 24 scored frames, using the same enabled
+current-composition control at 1280x720 -> 3840x2160. The four arms are kept
+separate under:
+
+```text
+benchmarks/video_corpus/results/temporal_audit_clean_20260829/
+```
+
+For rooftop, codec-refined motion and zero motion were effectively tied:
+SSIM `0.915101` vs `0.915100`, and temporal-delta error `0.176348` vs
+`0.176259`; neither is a motion win. Variable jitter raised mean SSIM to
+`0.917562` but worsened temporal-delta error to `0.211743`, so it is not a
+stable improvement on this scene.
+
+For Tears of Steel debris, refined and zero motion were again effectively tied:
+SSIM `0.980434` for both and temporal-delta error `0.129253` vs `0.129274`.
+Variable jitter slightly improved temporal-delta error to `0.128541` but
+reduced SSIM to `0.979823`. The result is scene-dependent, not a universal
+promotion. These captures are valid legacy temporal evidence, but still do not
+claim validity-masked motion quality because no scene-specific validity masks
+exist for these two clips.
+
+## 2026-08-29 — stateful variable-jitter frame-time attribution
+
+A focused audit separated synthetic-jitter work from temporal-state scheduling.
+After warmup, variable jitter on the stateless two-slot path measured `0.074 ms`
+median CPU pipeline time and `1.366 ms` median GPU time; jitter-off measured
+`0.088 ms` and `1.360 ms`. The earlier slow variable-jitter run measured
+`9.582 ms` CPU pipeline time while GPU work remained `1.347 ms`, proving that
+the delay was synchronization rather than jitter generation or reconstruction.
+
+The stateful path correctly disables slot alternation because color/recurrent
+history must remain causal. It then waits for the FSR submission and submits a
+separate presentation scaler, waiting again. The presentation image is reused
+between frames and normal playback performs no readback, so neither allocation
+nor readback explains the delay. The remaining performance work is to fuse the
+presentation dispatch into the FSR submission while preserving the existing
+FSR→presentation ordering and publishing history only after both complete.
+Until that has pixel/hash and history-order validation, no stateful async bypass
+will be enabled.
+
+The fused record-only seam was then implemented for the stateful single-pass
+path. The uploader owns a dedicated presentation descriptor set, and the FSR
+harness records `FSR postpass -> presentation scaler -> publication barrier`
+before its existing fence submission. Chained passes and stateless in-flight
+dispatch retain their existing paths. A 640x360 -> 3840x2160 variable-jitter
+pixel A/B produced identical presentation PPM hashes:
+
+```text
+6852fde244926276479519a5028423c7d98b93272199af82e48c4da702e03980
+```
+
+The short runtime probe measured approximately `7.0–8.4 ms` total for the
+fused 4K stateful path versus `8.3–8.5 ms` unfused on the same machine. The
+gain is modest at 4K because the scaler GPU work remains real, but the second
+submission/wait is removed without changing pixels. The explicit
+`TFORGE_FSR4_DISABLE_FUSED_PRESENTATION` switch remains available for future
+matched A/B captures.
+
+## 2026-08-29 — post-pause clean cadence cave probe
+
+After the interactive workload pause was lifted, a bounded real-corpus probe
+was run before resuming broader campaign work. It used the existing `current`
+configuration on Sintel cave at 640x360 input and 1920x1080 output, with 36
+warmup frames followed by 24 scored frames, source cadence preserved, hardware
+decode disabled, refined motion selected, and synthetic jitter explicitly off.
+The capture completed without failure under:
+
+```text
+benchmarks/video_corpus/results/temporal_cadence_sintel_cave_current_20260829/
+```
+
+The FSR arm measured mean SSIM `0.902643` versus `0.899246` for the matched
+Lanczos control. That spatial result is accompanied by worse temporal-delta
+absolute error: `0.637098` for FSR versus `0.510511` for Lanczos. The result is
+therefore retained as cadence-clean evidence only; it does not justify
+promoting the temporal path. The runtime trace reports one FSR pass at about
+`2.571 ms` GPU dispatch time. No reconstruction or image-quality algorithm was
+changed for this probe.
+
+## 2026-08-29 — confidence-gate and second-scene probe
+
+The cave capture was repeated with the same 36-frame warmup, 24 scored frames,
+source cadence, 640x360 input, 1920x1080 output, refined motion, jitter off,
+history/recurrent state, and CAS `0.20`, changing only the history-confidence
+threshold. The default best-findings arm uses the confidence map and its
+`0.85` scalar gate. A threshold of `0` changed every retained FSR frame and
+raised cave SSIM from `0.902643` to `0.903015`, but worsened the legacy temporal
+delta error from `0.637098` to `0.650557`. This confirms the gate affects the
+published image, but does not justify removing or weakening it.
+
+The same default-versus-pre-campaign comparison was then run on Tears of Steel
+daylight under:
+
+```text
+benchmarks/video_corpus/results/temporal_cadence_tos_daylight_current_20260829/
+benchmarks/video_corpus/results/temporal_cadence_tos_daylight_pre_campaign_20260829/
+```
+
+Both arms used one FSR pass and the same source cadence/warmup protocol. The
+default arm measured SSIM `0.899036` and legacy temporal error `1.139774`; the
+pre-campaign arm measured SSIM `0.899094` and temporal error `1.160375`.
+The small spatial difference and scene-dependent temporal loss provide no
+evidence for changing the default confidence policy. These legacy delta values
+remain diagnostic because they are not motion-compensated and do not carry
+per-frame source-PTS identity.
+
+The existing candidate-linked cave event captures were also rechecked before
+using them as campaign evidence. All five arms use the same real input and
+reference files, source frame range `42–59`, output dimensions `1920x1080`, and
+18 assembled event records. Their stronger class-attributed metric rows are
+therefore directly joinable for this slice: base-only bilinear
+`motion_compensated_error=0.002451593`, current `0.002577616`, Mitchell
+`0.002539297`, Catmull-Rom `0.002603184`, and Lanczos2 `0.002604329`.
+These values remain one scene/class evidence, not a campaign-wide promotion.
+
+The previously promising learned-strength `0.55` arm was rechecked on the same
+fresh cadence protocol at 640x360 input and 1920x1080 output. It measured cave
+SSIM `0.903044` versus the fresh default `0.902643`, but daylight SSIM
+`0.896574` versus `0.899036`; its daylight legacy temporal error was `1.135140`
+versus `1.139774`, while cave temporal error was `0.634350` versus `0.637098`.
+The spatial regression at this lower input tier means the earlier 426x240 and
+1280x720 sweep cannot support global promotion. This is concrete evidence that
+learned strength is resolution-dependent; no default was changed.
+
+The next M6 event slice was then captured for the `current` arm on Tears of
+Steel daylight, using the existing real 42–59 PTS-gap input/reference pair and
+the grounded `faces-hair-skin` mask. The 18-frame capture retained causal
+motion and event sidecars and completed at `1920x1080` under:
+
+```text
+benchmarks/video_corpus/results/m6_event_tos_faces_hair_skin_current_20260829/
+```
+
+Its class-attributed motion-compensated error is `0.014851517`, compared with
+`0.014858980` for the existing bilinear baseline slice. This is effectively a
+tie at the precision of this evidence, so it is recorded as a non-regression
+only; it does not establish a temporal quality gain.
+
+The matched ToS daylight `base_only_mitchell` event slice is also now present
+under:
+
+```text
+benchmarks/video_corpus/results/m6_event_tos_faces_hair_skin_base_only_mitchell_20260829/
+```
+
+It uses the same real input/reference, frame range `42–59`, output dimensions,
+quality class, event metadata, causal motion sidecar, and grounded static mask.
+Its class-attributed motion-compensated error is `0.014503483`, versus
+`0.014858980` for the matched bilinear baseline and `0.014851517` for current.
+This is useful evidence for the Mitchell base-filter candidate on this one
+ToS class slice, but it is not a global promotion until the remaining matched
+classes and scenes are assembled.
+
+The motion-sidecar validator also now requires `ptsUs` to increase strictly in
+presentation order. Before this guard, duplicate or backward timestamps could
+pass numeric validation and associate a valid vector with the wrong displayed
+transition, contaminating replay and motion-compensated metrics. The new
+failing-first test covers both cases in
+`tests/test_motion_sidecar.py`; the validator rejects them before expansion.
+This is a campaign-integrity fix only and does not change runtime motion or
+FSR behavior.
+
+The capture label contract was then corrected: when the dedicated estimator
+environment variable is absent, `TFORGE_FSR4_MOTION_ABLATION=refined` now
+selects `MotionEstimatorMode::CodecRefined`. The dedicated estimator variable
+still has precedence, while `zero` and `block` remain payload ablations. A
+failing-first estimator test and the motion contract test verify this mapping.
+This makes future refined captures truthful; it does not retroactively relabel
+or reuse earlier captures.
+
+An offline `ffprobe` audit of the matched ToS event input confirms that the
+source declares `color_range`, `color_space`, `color_transfer`, and
+`color_primaries` as `unknown` (`yuv420p`, 426x240). Its nominal frame rate is
+24 fps while the average rate is `72/5`, consistent with the intentionally
+inserted PTS gap in this event fixture. The next 720p color A/B must therefore
+retain the selected fallback matrix/transfer and the decoded metadata in its
+provenance; this audit does not select a color path retroactively.
+
+The temporal capture runner now retains `source_stream_metadata.json` beside
+successful artifacts. It records the exact source stream geometry, pixel
+format, cadence, and declared color metadata used by `ffprobe`; this is
+provenance only and does not alter decoding or reconstruction. The metadata is
+distinct from decoder-resolved fallback values, which must still be recorded
+during the next GPU-safe 720p color A/B.
+
+While GPU capture is paused, the jitter policy tests were expanded to cover
+phase holding/advance for an explicit cadence and runtime sequence selection
+(zero and alternating). The focused jitter, side-buffer, and motion tests all
+pass. End-to-end GPU propagation and real-scene temporal evidence remain open.
+
+The opt-in decoder diagnostic now also logs the resolved metadata of the exact
+frame passed to the FSR upload boundary (`avFormat`, color range, matrix,
+transfer, primaries, dimensions, and PTS). This closes the provenance gap
+between container declarations and the actual runtime frame without changing
+the image path. The color metadata contract test passes.
+
+That 720p color A/B is now captured for Tears of Steel daylight, 1280x720
+medium input to 1920x1080, with 36 warmup and 24 scored frames, jitter off,
+software decode, color history/recurrent state enabled, and identical current
+path settings. Default color handling produced SSIM `0.961324` versus
+`0.950383` for the explicit Rec.709 input override; minimum SSIM was `0.955924`
+versus `0.944211`. GPU dispatch time was effectively unchanged (`2.040 ms`
+versus `2.029 ms`). The matched artifacts are retained under
+`benchmarks/video_corpus/results/m6_color_tos_daylight_720_to_1080_20260829/`.
+The short decoder-diagnostic rerun recorded resolved metadata for both arms:
+format `0`, range `0`, matrix `2`, transfer `2`, primaries `2`, and PTS
+`166667 us`. Conclusion: explicit Rec.709 override is rejected for this
+sample; this is not a global color-path promotion and runtime defaults remain
+unchanged.
+
+The dependency-free temporal metric tests now also cover fractional horizontal
+and vertical sampling plus the explicit no-correspondence mask failure. These
+tests protect the bilinear boundary and validity semantics used by later
+motion-compensated captures; they do not constitute real-scene evidence.
+
+# 26. Final Principle
 
 We are **not** trying to make a prettier image by piling random filters on top of it.
 
@@ -2112,3 +3589,212 @@ hypothesis
 Change one class of behavior at a time.
 
 Every retained quality decision must be reproducible from configuration and must not require recompilation or source edits.
+## 2026-08-29 — scale-matched temporal comparisons
+
+Temporal reconstruction quality must be evaluated at the specific input/output
+resolution pair under test. Do not assume that one reconstruction ratio is the
+correct target for every scene or source resolution: modern temporal upscalers
+may select different internal or effective scale levels by content and quality
+mode. Every A/B decision therefore records and matches scene, input dimensions,
+output dimensions, frame cadence, temporal configuration, and presentation
+filter. Results from one ratio are evidence only for that ratio until a separate
+capture validates another ratio.
+
+The first 720p → 1440p scale probe accidentally used CAS `0.04`; those two
+arms are retained as configuration-specific diagnostics only. The corrected
+matched capture uses the required display CAS `0.20` and completed 24 scored
+frames for both zero-motion and refined-motion arms under
+`benchmarks/video_corpus/results/m6_scale_tos_daylight_720_to_1440_cas20_20260829/`.
+At this ratio, zero motion measured SSIM `0.942012` and temporal-delta
+absolute error `0.921578`; refined motion measured SSIM `0.943107` and error
+`0.882531`. Lanczos measured SSIM `0.950394` and error `1.080898` in the same
+pair. Refined motion therefore improves both metrics relative to zero motion
+for this scene/ratio, but remains below Lanczos on SSIM; this is scale-specific
+evidence, not a global promotion. The measured GPU dispatch was approximately
+`79.47 ms` (zero motion) and `79.63 ms` (refined motion), so this 1440p path is
+not currently real-time practical on the test system.
+
+The matched 720p → 1080p rerun was also corrected to display CAS `0.20` under
+`benchmarks/video_corpus/results/m6_scale_tos_daylight_720_to_1080_cas20_20260829/`.
+Zero motion measured SSIM `0.960012` and temporal-delta absolute error
+`0.661112`; refined motion measured SSIM `0.960011` and error `0.663110`.
+Lanczos measured SSIM `0.962088` and error `0.824440`. At this lower output
+ratio, refined motion is effectively neutral to slightly worse than zero motion
+on this slice, while the 1440p pair showed a small refined-motion gain. Both
+results reinforce that motion and reconstruction decisions must remain
+resolution/ratio-specific. The 1080p arms completed in approximately `2.04 ms`
+GPU dispatch time.
+
+## 2026-08-29 — FP16 weight-path status
+
+The current model is not an all-FP16-weight reconstruction. The checked-in
+convolution table marks FP16 weights for pass 0 only; the remaining learned
+weights are stored as recovered FP8-like/codebook values and, on this RDNA3
+GPU, are executed through the INT8 DOT4 path after runtime repacking and
+scaling. This GPU is not executing native FP8 arithmetic. The runtime also
+builds an FP16-derived buffer and has selectable FP16 arithmetic/direct-dispatch
+paths, but the active native graph in the current captures is INT8 and does not
+consume that FP16 path. Earlier FP16/INT8-boundary and direct FP16 arithmetic
+probes were diagnostic and produced no meaningful quality gain; they do not
+answer the separate question of whether a complete FP16-weight conversion would
+improve quality. That experiment remains unrun and must be treated as a
+distinct, scale-matched candidate if pursued.
+
+## 2026-08-29 — Corrected live FP16 fallback A/B
+
+The first attempted FP16 capture was invalid: playback had hard-coded a
+minimal INT8 capability record, so the generic fallback saw
+`fp16Fallback=false`. Startup now passes the actual Vulkan instance into
+`GpuCapabilityProbe::probe(physical, instance)` and forwards the resulting
+capability record. The new handoff contract test passes, as do the existing
+motion and temporal contract tests.
+
+On the RX 7900 GRE, the corrected diagnostic run was verified from the runtime
+trace with `fp16Fallback=true` and `fp16Upscale=true`. Matched Tears of Steel
+daylight 1280x720 → 1920x1080 captures used CAS `.20`, jitter off, zero motion,
+36 warmup frames, and 24 scored frames:
+
+| execution path | SSIM | temporal-delta abs error | GPU time |
+|---|---:|---:|---:|
+| native INT8 DOT4 | `0.971711` | `0.572539` | `1.749 ms` |
+| generic FP16 fallback | `0.971711` | `0.572539` | `10.672 ms` |
+
+The aggregate metrics are identical on this slice, while the FP16 fallback is
+about 6.1× slower. It is retained as a verified diagnostic path, not promoted
+over the production INT8 path. This is not evidence of native FP8 execution:
+this GPU does not provide that path. The raw model contains FP8-like/codebook
+values; active production execution is INT8 DOT4, with FP16 fallback available
+only when explicitly selected.
+
+Artifacts:
+
+- `benchmarks/video_corpus/results/m6_int8_matched_tos_daylight_720_to_1080_cas20_20260829_live/int8/`
+- `benchmarks/video_corpus/results/m6_fp16_fallback_tos_daylight_720_to_1080_cas20_20260829_live/fp16_fallback/`
+
+As a publication-path sanity check, a one-frame generic FP16 capture with
+`TFORGE_FSR4_DISABLE_RELU=1` changed the published output relative to the
+normal generic FP16 frame (`ImageMagick compare` RMSE `0.137982`), and its
+trace still identified the generic FP16 final step. This confirms that the
+FP16 fallback result is not being silently replaced by a stale native or
+readback image. The matched INT8/FP16 equality above is therefore an actual
+result for that configuration, not a capture-harness artifact.
+
+Diagnostic artifact:
+
+- `benchmarks/video_corpus/results/m6_generic_relu_probe_tos_daylight_720_to_1080_20260829/generic_no_relu/`
+
+## 2026-08-29 — 720p-to-4K color A/B
+
+To check the reported warmer/brighter 720p temporal output at a larger target,
+Tears of Steel daylight 1280x720 → 3840x2160 was captured with the same CAS
+`.20`, jitter-off, zero-motion, 36-warmup/24-scored protocol. The default
+metadata/fallback color path measured SSIM `0.933967` and temporal-delta
+absolute error `1.547249`. An explicit Rec.709 input-transfer override measured
+SSIM `0.924981` and error `1.624710`, with identical GPU cost (`6.982 ms` vs
+`7.003 ms`). The Rec.709 output was also consistently brighter by approximately
+10.34 mean 8-bit RGB levels across matched frames. Rec.709 is rejected for this
+scene/scale; the default color path remains unchanged and no broad color
+promotion is claimed.
+
+Artifacts:
+
+- `benchmarks/video_corpus/results/m6_color_tos_daylight_720_to_2160_cas20_20260829/default/`
+- `benchmarks/video_corpus/results/m6_color_tos_daylight_720_to_2160_cas20_20260829/rec709/`
+
+## 2026-08-31 — metrics-only evidence policy and external aggregate audit
+
+The campaign now explicitly supports `evidenceMode=metrics_only`: retained
+image payloads are optional when numeric results, configuration identity,
+binary identity, timing, and temporal provenance are preserved. This changes
+storage requirements only; it does not waive matrix coverage or finite-metric
+validation.
+
+The external locked run
+`/mnt/external/Temporal Forge/quality-campaign/locked-current-best-findings-zero-jitter-20260830`
+was checked as data-only evidence. It contains one finite 12-frame row for
+each of Sintel cave, Sintel rooftop, Tears of Steel daylight, and Tears of
+Steel debris at 640x360 -> 3840x2160. The recorded FSR temporal absolute
+error is better than Lanczos on cave, but worse on rooftop, daylight, and
+debris; therefore this evidence confirms a scene-dependent tradeoff and does
+not authorize universal temporal promotion. The strict candidate/class matrix
+and event-sidecar joins remain open.
+
+The repository corpus is available for completing the data-only capture: all
+four required real 426x240 inputs and their lossless references exist locally.
+The fresh data-only M6 capture completed all 20 required candidate/scene/class
+rows (five candidates across the four selected classes) at 426x240 -> 1920x1080,
+with 18-frame PTS-gap event fixtures. The strict spatial and event-backed
+temporal join passed `tools/verify_quality_matrix.py`. Each row retains its CSV
+metrics, candidate configuration identity, binary identity, timing, causal-motion
+sidecar, static mask, event trace, and finite required metrics. No rendered image
+payload is required under `evidenceMode=metrics_only`.
+
+The resulting matrix is under
+`benchmarks/quality_sweeps/m6_final_matrix_20260831.json`; the supporting spatial
+matrix is `m6_spatial_matrix_20260831.json`, and the reproducible temporal capture
+inputs/references are under `m6_temporal_data_only_20260831/`. Aggregate means
+favor `base_only_bilinear` over the current learned path on this matrix
+(`SSIM 0.597513 vs 0.566602`; motion-compensated error `0.013610 vs
+0.014074`), while Mitchell is close but slightly worse on the aggregate temporal
+error. This identifies the current matrix winner as a selectable control, not an
+automatic default promotion.
+
+Remaining campaign gates are finalist performance/default suitability, cadence-
+matched temporal confirmation beyond the 18-frame PTS-gap fixture, and the
+decision record for whether any candidate is suitable to become the default.
+M7 remains gated on those decisions; the strict M6 matrix gate itself is closed.
+
+## 2026-08-31 — cadence and finalist performance closure
+
+The current path and `base_only_bilinear` were rechecked on all four real
+426x240 clips at source cadence (24 fps), with 24 warm-up frames and 24 scored
+frames, zero jitter, and matched 1920x1080 output. The capture retained CSV
+metrics only. The cadence-clean temporal absolute-error means were:
+
+| arm | mean temporal-delta absolute error | mean FSR SSIM |
+|---|---:|---:|
+| current | `0.864033` | `0.724131` |
+| base_only_bilinear | `1.119196` | `0.721626` |
+
+The current arm was temporally better on this cadence-clean four-scene sample,
+while the completed M6 spatial matrix favored `base_only_bilinear` on spatial
+SSIM and motion-compensated error. The result is a real spatial/temporal
+tradeoff, not a universal candidate win; no default change is justified.
+
+The steady-state performance gate was also run against the same four real
+426x240 clips on the rebuilt RX 7900 GRE path, with jitter off and hardware
+decode disabled for reproducibility:
+
+| arm | mean GPU | mean pipeline |
+|---|---:|---:|
+| current | `2.2653 ms` | `2.7029 ms` |
+| base_only_bilinear | `2.1159 ms` | `2.5632 ms` |
+
+Both arms remain within the established real-time budget, and the bilinear
+control carries no material performance penalty. It is retained as a selectable
+diagnostic/control configuration. The current path remains the default because
+the only candidate with stronger spatial metrics has a cadence-clean temporal
+regression; this is an evidence-backed no-promotion decision, not a claim of
+universal superiority.
+
+Artifacts:
+
+- `benchmarks/quality_sweeps/m6_performance_20260831_current_v2.csv`
+- `benchmarks/quality_sweeps/m6_performance_20260831_base_only_bilinear_v2.csv`
+- cadence-only CSVs under `/tmp/tforge-cadence-final.fm0fCS/`
+
+Validation:
+
+- `tools/verify_quality_matrix.py` passes for `5 candidates × 4 scenes × 4
+  classes`.
+- CTest passes `20/20` runnable tests, with one skipped and four disabled.
+- Focused campaign/temporal tests pass (`109` tests).
+- `git diff --check` passes.
+
+Conclusion:
+
+The M6 quality campaign is closed with no default promotion. The data supports
+keeping the current path as default, retaining `base_only_bilinear` as a
+runtime-selectable spatial control, and avoiding a universal temporal-quality
+claim. M7 may proceed only as a separately scoped equivalence/default-policy
+review; no quality candidate is promoted by this campaign.

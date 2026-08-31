@@ -23,7 +23,9 @@ constexpr uint32_t YUV_FLAG_CHROMA_BILINEAR = 4u;
 constexpr uint32_t YUV_FLAG_PRE_CAS = 8u;
 
 YuvPushConstants yuvPushConstants(const DecodedVideoFrame &frame,
-                                  bool compareEnabled, float sharpness) {
+                                  bool compareEnabled, float sharpness,
+                                  float jitterX, float jitterY,
+                                  bool jitterEnabled) {
   // Keep the historical SD fallback unless this explicitly requested
   // experiment is enabled. The override is intentionally consumed here,
   // before coefficient construction, so it can affect only unspecified matrix
@@ -133,7 +135,8 @@ YuvPushConstants yuvPushConstants(const DecodedVideoFrame &frame,
           -2.0f * kr * (1.0f - kr) / kg * chromaScale,
           2.0f * (1.0f - kb) * chromaScale,
           chromaPhaseX, chromaPhaseY,
-          static_cast<float>(frame.bitDepth), reservedFlags};
+          static_cast<float>(frame.bitDepth), reservedFlags,
+          jitterX, jitterY, jitterEnabled ? 1.0f : 0.0f, 0.0f};
 }
 
 } // namespace temporal_forge

@@ -1,0 +1,2 @@
+label,frames,output_width,output_height,fsr_ssim_mean,lanczos_ssim_mean,fsr_ssim_min,lanczos_ssim_min,fsr_temporal_delta_mean,reference_temporal_delta_mean,lanczos_temporal_delta_mean,fsr_temporal_delta_abs_error,lanczos_temporal_delta_abs_error,bilinear_temporal_delta_mean,fsr_temporal_delta_vs_bilinear_abs_error
+fsr,18,1920,1080,0.651511,0.655188,0.639373,0.645972,2.192113,3.195240,2.329955,1.003127,0.865285,1.950568,0.241545

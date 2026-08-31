@@ -27,7 +27,8 @@ struct Fsr4ConvStep {
     int kw, kh;           // kernel dimensions
     bool depthwise;       // true = depthwise (3x3/2x2), false = pointwise (1x1)
     uint32_t spatialDiv;  // U-pyramid level (1=full, 2=half, 4, 8)
-    bool fp16;            // pass 0 uses FP16 weights; the rest are FP8
+    bool fp16;            // pass 0 uses FP16 weights; the rest are FP8-like
+                          // codebook values executed through the selected backend
     bool isScale;         // true = stride-2 downscale/upscale (2x2 kernel)
 };
 
@@ -35,7 +36,7 @@ struct Fsr4ConvStep {
 // to record each pass in order. constexpr so it lives in the header.
 constexpr std::array<Fsr4ConvStep, 39> kFsr4ConvSteps{{
     // Pass 0 has FP16 weights at offset 0. The remaining convolution weights
-    // are FP8 bytes in the 7208..130087 zone; all 39 bias vectors are FP16 in
+    // are FP8-like/codebook bytes in the 7208..130087 zone; all 39 bias vectors are FP16 in
     // the 0..7207 zone.
     {0, 1024, 7, 16, 2, 2, true, 2, true, true},
     {7208, 1088, 16, 16, 3, 3, true, 2, false, false},

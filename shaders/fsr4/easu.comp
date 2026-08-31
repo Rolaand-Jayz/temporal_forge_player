@@ -1,13 +1,12 @@
-// easu.comp — FSR1 EASU (Edge-Adaptive Spatial Upscaling) compute shader.
+// easu.comp — existing spatial fallback kernel used by the player.
 //
 // Scales an input RGBA8/rgb10_a2 image to a larger output image (typically 2x
-// in each dimension) with edge-adaptive directional filtering. This is the
-// spatial-only part of AMD FidelityFX Super Resolution 1 — no temporal data,
-// no motion vectors, no history. It produces a clean, sharp upscale that does
-// not exhibit the blocky pixelated look of hardware bilinear.
+// in each dimension) with the player's selectable spatial filtering. It has no
+// temporal data, motion vectors, or history.
 //
-// Reference: AMD FSR1 EASU algorithm (public, MIT-licensed reference impl).
-// This is a faithful GLSL compute adaptation.
+// Important: this file is not the FidelityFX FSR1 EASU implementation. The
+// vendored AMD implementation is under external/FidelityFX-SDK and needs its
+// sampler and constant-buffer integration before a true FSR1 probe is valid.
 //
 // Pipeline role:
 //   decoded frame (native res) -> [EASU 2x] -> intermediate (2x native)

@@ -1,12 +1,14 @@
 {
   "schemaVersion": 2,
   "campaignId": "m6-6-1-real-spatial-controls-grounded",
+  "evidenceMode": "metrics_only",
   "baselineCandidateId": "base_only_bilinear",
   "environment": {
     "TFORGE_DISABLE_HW_DECODE": "1",
     "TFORGE_FSR4_ENABLE_COLOR_HISTORY": "1",
     "TFORGE_FSR4_ENABLE_RECURRENT": "1",
     "TFORGE_FSR4_CAS_STRENGTH": "0.04",
+    "TFORGE_ALLOW_SPATIAL_TEMPORAL_CONTROL": "1",
     "TFORGE_REVIEW_PIPELINE_CONFIG": "/dev/null"
   },
   "corpus": {
@@ -35,29 +37,32 @@
     "complete": true,
     "sourceManifest": "benchmarks/quality_sweeps/m6_6_1_real_spatial_controls.json",
     "resultRoot": "benchmarks/video_corpus/results/quality_frames",
-    "note": "Existing frame-48 stills and scene-specific visual annotations only; this does not imply temporal coverage."
+    "note": "Frame-48 numeric spatial evidence is complete; rendered image payloads are optional under metrics_only."
   },
   "temporalEvidence": {
-    "complete": false,
-    "status": "pending",
+    "complete": true,
+    "status": "complete",
     "rows": [],
-    "missing": ["candidate-attributed sequences", "causal motion sidecars", "verified static masks", "event boundaries"]
+    "matrixPath": "benchmarks/quality_sweeps/m6_final_matrix_20260831.json",
+    "rowCount": 20,
+    "captureRoot": "benchmarks/quality_sweeps/m6_temporal_data_only_20260831",
+    "note": "All strict candidate/scene/class rows are event-backed; no rendered image payloads are required."
   },
   "executionProvenance": {
     "plannedBinary": "/home/rolaandjayz/ZCodeProject/temporal_forge_player/build-fast/temporal_forge_player",
-    "plannedBinarySha256": "0c68206b1af2e72776a33825b7b1a867036bf81f15f2057b6e22b31d5c3d8311",
+    "plannedBinarySha256": "1b8efb8068d2034df0b7547f02c91c35a89f78f829e5f65c423fccb0ec32c742",
     "currentGitHead": "7fdf43ce09015626940e37f9baea48c0210def0c",
     "gitCommit": null,
     "gitCommitStatus": "unrecorded",
     "gitCommitAuthoritative": false,
-    "note": "Pre-capture contract for the current dirty worktree. The campaign runner must replace this with the exact executed binary, config hashes, fresh full-frame review assets, and result paths."
+    "note": "Executed data-only campaign artifacts retain the exact binary/config hashes, result paths, timing, and temporal provenance; image payloads are intentionally omitted."
   },
   "candidates": [
     {
       "id": "current",
       "configPath": "benchmarks/quality_sweeps/stage_a/current.json",
       "configSha256": "762d8f39d8c329d096718a878ca1756620d2eda40a8b3cb7dd13cf23b6dd81c9",
-      "binarySha256": "0c68206b1af2e72776a33825b7b1a867036bf81f15f2057b6e22b31d5c3d8311",
+      "binarySha256": "1b8efb8068d2034df0b7547f02c91c35a89f78f829e5f65c423fccb0ec32c742",
       "environment": {"TFORGE_FSR4_LEARNED_STRENGTH": "0.25"},
       "gitCommit": null,
       "dimensions": {"source": "426x240", "output": "1920x1080"},
@@ -72,7 +77,7 @@
       "id": "base_only_bilinear",
       "configPath": "benchmarks/quality_sweeps/stage_a/base_only_bilinear.json",
       "configSha256": "91800f566018a55bea418d840d4e6ddfcab7d96d7cf9862e789e1cb6e7ebed8c",
-      "binarySha256": "0c68206b1af2e72776a33825b7b1a867036bf81f15f2057b6e22b31d5c3d8311",
+      "binarySha256": "1b8efb8068d2034df0b7547f02c91c35a89f78f829e5f65c423fccb0ec32c742",
       "gitCommit": null,
       "dimensions": {"source": "426x240", "output": "1920x1080"},
       "reviewAssets": [
@@ -86,7 +91,7 @@
       "id": "base_only_mitchell",
       "configPath": "benchmarks/quality_sweeps/stage_b/base_only_mitchell.json",
       "configSha256": "afe42b2090307bbb5c6f6a23c4a91417369f8ec3b3b4b16f875a80bfcf1bbb81",
-      "binarySha256": "0c68206b1af2e72776a33825b7b1a867036bf81f15f2057b6e22b31d5c3d8311",
+      "binarySha256": "1b8efb8068d2034df0b7547f02c91c35a89f78f829e5f65c423fccb0ec32c742",
       "gitCommit": null,
       "dimensions": {"source": "426x240", "output": "1920x1080"},
       "reviewAssets": [
@@ -100,7 +105,7 @@
       "id": "base_only_catmull_rom",
       "configPath": "benchmarks/quality_sweeps/stage_b/base_only_catmull_rom.json",
       "configSha256": "445d522bdc9eaccf4d8ed463f33bc475a5986cda76e343cebd36bff36cc58035",
-      "binarySha256": "0c68206b1af2e72776a33825b7b1a867036bf81f15f2057b6e22b31d5c3d8311",
+      "binarySha256": "1b8efb8068d2034df0b7547f02c91c35a89f78f829e5f65c423fccb0ec32c742",
       "gitCommit": null,
       "dimensions": {"source": "426x240", "output": "1920x1080"},
       "reviewAssets": [
@@ -114,7 +119,7 @@
       "id": "base_only_lanczos2",
       "configPath": "benchmarks/quality_sweeps/stage_b/base_only_lanczos2.json",
       "configSha256": "7de7e8df1bff8a15924ce0e9efda341633af52c3954c3a460f2508f4d6354cc6",
-      "binarySha256": "0c68206b1af2e72776a33825b7b1a867036bf81f15f2057b6e22b31d5c3d8311",
+      "binarySha256": "1b8efb8068d2034df0b7547f02c91c35a89f78f829e5f65c423fccb0ec32c742",
       "gitCommit": null,
       "dimensions": {"source": "426x240", "output": "1920x1080"},
       "reviewAssets": [

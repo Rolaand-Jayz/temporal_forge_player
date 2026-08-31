@@ -36,7 +36,9 @@ SWEEP = Path(__file__).with_name("run_quality_sweep.py")
 SAFE_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]*$")
 
 
-def validate_candidate_artifacts(candidate_root: Path, candidate_id: str) -> Path:
+def validate_candidate_artifacts(
+    candidate_root: Path, candidate_id: str, evidence_mode: str = "visual_and_metrics"
+) -> Path:
     """Reject a zero-exit child unless it produced a complete candidate run.
 
     The delegated sweep owns capture details, but this wrapper owns the
@@ -77,6 +79,11 @@ def validate_candidate_artifacts(candidate_root: Path, candidate_id: str) -> Pat
     csv_path = Path(result.get("csv", ""))
     if not csv_path.is_file() or csv_path.stat().st_size == 0:
         raise CampaignError(f"candidate {candidate_id} is missing non-empty quality.csv")
+    if evidence_mode == "metrics_only":
+        # Metrics-only campaigns deliberately retain no image payload. The
+        # metric summary and exact execution provenance above remain required.
+        return result_path
+
     stills = result.get("representativeStillPaths")
     if not isinstance(stills, list) or not stills:
         raise CampaignError(f"candidate {candidate_id} is missing representative stills")
@@ -219,7 +226,9 @@ def main() -> int:
         if result.returncode != 0:
             return index, None, f"candidate {candidate_id} sweep exited {result.returncode}"
         try:
-            result_path = validate_candidate_artifacts(candidate_root, candidate_id)
+            result_path = validate_candidate_artifacts(
+                candidate_root, candidate_id, campaign.get("evidenceMode", "visual_and_metrics")
+            )
             result_data = json.loads(result_path.read_text(encoding="utf-8"))
             stamped_result = stamp_result_git_commit(result_data, git_commit)
             result_path.write_text(

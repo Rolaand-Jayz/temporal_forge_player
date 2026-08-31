@@ -1,0 +1,9 @@
+{
+  "qualityLab": {
+    "enabled": false,
+    "composition": { "mode": "current", "learnedStrength": 0.0, "residualStrength": 0.0 },
+    "baseFilter": { "mode": "catmull_rom", "colorSpace": "model", "b": 0.3333333333, "c": 0.3333333333 },
+    "sharpen": { "mode": "none", "strength": 0.0 },
+    "presentation": { "filter": "bicubic" }
+  }
+}

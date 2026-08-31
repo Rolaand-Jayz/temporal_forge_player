@@ -75,6 +75,16 @@ tforge_compile_shaders(
             ${CMAKE_CURRENT_SOURCE_DIR}/shaders/fsr4/bicubic_prefilter.comp
             ${CMAKE_CURRENT_SOURCE_DIR}/shaders/fsr4/spd.comp)
 
+# Compile the real AMD FSR1 EASU probe into a separate generated directory.
+# It is not linked into the active player path yet: the runtime still needs a
+# dedicated sampled-image descriptor set and FSR1 constant generation before
+# this can be enabled safely. Building it here prevents the probe from
+# drifting or being mistaken for the local spatial fallback.
+tforge_compile_shaders(
+    OUT_VAR FSR1_SHADER_FILES
+    OUT_DIR ${CMAKE_BINARY_DIR}/shaders/fsr1
+    SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/shaders/fsr1/fsr1_easu.comp)
+
 # Qt6 (spec: Core/Gui/Quick/Qml/Widgets)
 find_package(Qt6 6.6 REQUIRED COMPONENTS Core Gui Quick Qml Widgets ShaderTools)
 
@@ -101,7 +111,8 @@ file(GLOB_RECURSE TFORGE_LIB_SOURCES CONFIGURE_DEPENDS
 list(FILTER TFORGE_LIB_SOURCES EXCLUDE REGEX "${CMAKE_CURRENT_SOURCE_DIR}/external/.*")
 list(FILTER TFORGE_LIB_SOURCES EXCLUDE REGEX "${CMAKE_CURRENT_SOURCE_DIR}/src/main\\.cpp$")
 
-add_library(temporal_forge_lib STATIC ${TFORGE_LIB_SOURCES} ${FSR4_SHADER_FILES})
+add_library(temporal_forge_lib STATIC ${TFORGE_LIB_SOURCES} ${FSR4_SHADER_FILES}
+    ${FSR1_SHADER_FILES})
 target_include_directories(temporal_forge_lib PUBLIC
     "${CMAKE_CURRENT_SOURCE_DIR}/src"
     "${CMAKE_CURRENT_SOURCE_DIR}/external"
@@ -121,6 +132,8 @@ target_link_directories(temporal_forge_lib PUBLIC ${FFMPEG_LIBRARY_DIRS})
 # them, so the shader sources must be part of the lib's build graph.
 target_include_directories(temporal_forge_lib PUBLIC
     "${CMAKE_BINARY_DIR}/shaders/fsr4")
+target_include_directories(temporal_forge_lib PUBLIC
+    "${CMAKE_BINARY_DIR}/shaders/fsr1")
 
 # --- main app target ---
 qt_add_executable(temporal_forge_player src/main.cpp)

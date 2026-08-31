@@ -127,10 +127,14 @@ def _raw_rows(
     return rows
 
 
-def _asset(candidate: dict[str, Any], scene: str, frame: int) -> dict[str, Any]:
+def _asset(
+    candidate: dict[str, Any], scene: str, frame: int, *, metrics_only: bool = False
+) -> dict[str, Any] | None:
     matches = [item for item in candidate.get("reviewAssets", [])
                if item.get("scene") == scene and item.get("frame") == frame]
     if len(matches) != 1:
+        if metrics_only and not matches:
+            return None
         raise SpatialMatrixError(
             f"candidate {candidate.get('id')!r} must have exactly one review asset for {scene} frame {frame}"
         )
@@ -212,6 +216,7 @@ def assemble_spatial_matrix(campaign: dict[str, Any], results_path: Path, repo_r
                 frame=campaign["frame"],
                 output_dimensions=campaign["dimensions"]["output"],
                 repo_root=Path(repo_root),
+                require_asset=campaign.get("evidenceMode") != "metrics_only",
             )
         except (SpatialCaptureError, KeyError) as error:
             raise SpatialMatrixError(f"invalid class-region annotation source: {error}") from error
@@ -291,9 +296,14 @@ def assemble_spatial_matrix(campaign: dict[str, Any], results_path: Path, repo_r
                         f"missing or ambiguous required evidence row for {candidate_id}/{scene}/{quality_class}"
                     )
                 key, raw = matches[0]
-                asset = _asset(candidate, scene, campaign["frame"])
-                asset_path = repo_root / asset["path"]
-                if not asset_path.is_file():
+                asset = _asset(
+                    candidate,
+                    scene,
+                    campaign["frame"],
+                    metrics_only=campaign.get("evidenceMode") == "metrics_only",
+                )
+                asset_path = repo_root / asset["path"] if asset is not None else None
+                if asset_path is not None and not asset_path.is_file() and campaign.get("evidenceMode") != "metrics_only":
                     raise SpatialMatrixError(f"review asset does not exist: {asset_path}")
                 region = None
                 if region_by_key is not None:

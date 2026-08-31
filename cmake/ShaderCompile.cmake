@@ -39,7 +39,11 @@ function(tforge_compile_shaders)
         # Make a CamelCase symbol for the C array: prepass_pq_eotf -> prepass_pq_eotf_spv
         add_custom_command(
             OUTPUT ${spv} ${hdr}
-            COMMAND ${GLSLANG} -V ${src_abs} -o ${spv}
+            COMMAND ${GLSLANG} -V -DFFX_GLSL=1
+                -I${CMAKE_SOURCE_DIR}/external/FidelityFX-SDK/sdk/include
+                -I${CMAKE_SOURCE_DIR}/external/FidelityFX-SDK/sdk/include/FidelityFX/gpu
+                -I${CMAKE_SOURCE_DIR}/external/FidelityFX-SDK/sdk/include/FidelityFX/gpu/fsr1
+                ${src_abs} -o ${spv}
             COMMAND ${CMAKE_COMMAND}
                 -DSPIRV_FILE=${spv}
                 -DHEADER_FILE=${hdr}

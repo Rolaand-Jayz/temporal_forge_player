@@ -1,0 +1,2 @@
+candidateId,scene,configId,startFrame,endFrame,class,frames,width,height,static_flicker,edge_variance,motion_compensated_error,ghost_duration_frames,reset_recovery_frames
+current,sintel_cave,benchmarks/quality_sweeps/stage_a/current.json,48,65,low-light-shadow-detail,18,1920,1080,0.003356900,0.000002616,0.014517722,0,1

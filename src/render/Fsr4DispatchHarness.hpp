@@ -26,6 +26,7 @@
 #include <array>
 #include <chrono>
 #include <cstdint>
+#include <functional>
 #include <memory>
 #include <string>
 #include <vector>
@@ -107,8 +108,18 @@ struct FrameDispatchInput {
   VkImage reprojectedColorImage = VK_NULL_HANDLE;
   VkImage recurrentReadImage = VK_NULL_HANDLE;
   VkImage recurrentWriteImage = VK_NULL_HANDLE;
+  // Optional final presentation recording hook. The owner prepares the
+  // presentation target before dispatchFrame(); this callback records the
+  // scaler and its publication barrier into this command buffer after FSR's
+  // postpass, so stateful playback waits on one fence instead of two.
+  std::function<bool(VkCommandBuffer)> appendPresentation;
   float jitterX = 0.0f;
   float jitterY = 0.0f;
+  // Jitter used by the previously published history image. The prepass uses
+  // current minus previous jitter when reprojecting that image; without it,
+  // static video is compared at mismatched subpixel phases.
+  float previousJitterX = 0.0f;
+  float previousJitterY = 0.0f;
   float frameTimeMs = 16.6667f;
   float historyConfidence = 1.0f;
   // Scalar frame-level reactivity synthesized from luma change and codec
@@ -238,6 +249,7 @@ public:
                       uint32_t sourceWidth, uint32_t sourceHeight,
                       VkImage destinationImage, VkImageView destinationView,
                       uint32_t destinationWidth, uint32_t destinationHeight);
+
 
 private:
   enum class NativeInt8Graph : uint8_t {

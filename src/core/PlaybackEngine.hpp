@@ -23,6 +23,7 @@
 #include "render/GpuImageUploader.hpp"
 #include "render/Fsr4DispatchHarness.hpp"
 #include "render/SideBufferSynth.hpp"
+#include "motion/MotionEstimator.hpp"
 #include "util/FsrTargetMath.hpp"
 
 #include <QObject>
@@ -110,11 +111,18 @@ public:
     // engine plays raw decoded frames with no upscaling (graceful degradation).
     void setVulkanHandles(VkPhysicalDevice physical, VkDevice device,
                           VkQueue queue, uint32_t queueFamily,
-                          uint32_t presentationQueueFamily);
+                          uint32_t presentationQueueFamily,
+                          VkInstance instance);
     void setQualityLabConfig(const QualityLabConfig &config) {
         qualityLabConfig_ = config;
     }
     void setSharpness(float sharpness) { sharpness_.store(sharpness, std::memory_order_release); }
+    // Set the persisted side-buffer motion policy. Quality Lab motion
+    // configuration and explicit benchmark environment selectors override
+    // this user-default at capture time.
+    void setMotionMode(MotionMode mode) {
+        motionMode_.store(mode, std::memory_order_release);
+    }
     void setPresentationScaler(int scaler) {
         presentationScaler_.store(std::clamp(scaler, 0, 4), std::memory_order_release);
     }
@@ -222,6 +230,8 @@ private:
     std::unique_ptr<AudioDecoder> adec_;
     AudioSink audio_;
     SideBufferSynth sideBufferSynth_;
+    MotionEstimator motionEstimator_;
+    std::atomic<MotionMode> motionMode_{MotionMode::AutoCheap};
     int64_t lastAnalysisPtsUs_ = -1;
 
     // Playlist state is owned by the Qt/UI thread. Decode-thread EOF is
@@ -288,6 +298,9 @@ private:
     // freed Vulkan resources and no render thread reads a dangling pointer.
     mutable std::mutex fsrDispatchMutex_;
     std::atomic<bool> fsr4FrameReady_{false}; // postpass completed at least once
+    // Set by UI/reconfiguration paths and consumed by the decode thread so a
+    // new FSR temporal chain cannot inherit side-buffer jitter/history state.
+    std::atomic<bool> fsrTemporalResetRequested_{true};
     std::atomic<bool> fsr4ProofRun_{false};    // proof has executed (pass or fail)
     std::atomic<bool> fsr4ProofPassed_{false}; // proof passed
     std::atomic<uint32_t> fsr4OutW_{0}, fsr4OutH_{0}; // current output dims
@@ -307,6 +320,7 @@ private:
     // Reusable readback buffer (avoids per-frame alloc).
     std::vector<uint8_t> fsr4Readback_;
     bool fsr4DumpedOutput_ = false;
+    bool fsr4DumpedModelInput_ = false;
     bool fsr4DumpedRaw_ = false;
     uint32_t fsr4SequenceDumpCount_ = 0;
     // Startup frames can be excluded from an opt-in temporal capture so the
@@ -325,6 +339,10 @@ private:
     std::atomic<bool> hasMedia_{false};
     std::atomic<bool> seekPending_{false};
     std::atomic<int64_t> seekTargetUs_{0};
+    // Monotonic seek generation observed by the decode thread. This lets the
+    // decode-side temporal state reset safely without touching SideBufferSynth
+    // from the UI thread that requests the seek.
+    std::atomic<uint64_t> seekGeneration_{0};
 
     // packet queue (small; demux feeds decoders)
     std::mutex pktMutex_;

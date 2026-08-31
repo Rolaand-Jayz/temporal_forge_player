@@ -218,17 +218,28 @@ int main() {
           std::string::npos);
     CHECK(shader.find("imageLoad(u_motion") != std::string::npos);
     CHECK(shader.find("sourceMotionPos") != std::string::npos);
+    // The motion image is model-sized while currentBaseSourcePos is in source
+    // pixels. The opt-in branch must convert the lookup coordinate before
+    // reading u_motion, otherwise larger upscale ratios clamp most samples to
+    // the motion texture edge and feed the display-base experiment bad motion.
+    CHECK(shader.find("sourceToMotionScale") != std::string::npos);
+    CHECK(shader.find("currentBaseSourcePos * sourceToMotionScale") !=
+          std::string::npos);
     CHECK(shader.find("smoothstep(0.5, 4.0") != std::string::npos);
     CHECK(shader.find("motionAwareDisplayBase") != std::string::npos);
 
     // Display-space base resolution is an isolated Quality Lab probe. It
-    // must be opt-in and must select the separately uploaded display RGB tile
-    // only inside experimental composition, leaving the model-space default
-    // untouched.
+    // must be opt-in and select the separately uploaded display RGB tile for
+    // both experimental and current composition. The current mode is the
+    // normal best-findings base path; ignoring this request there makes a
+    // valid color-space comparison silently render as model space.
     CHECK(harnessSource.find("TFORGE_FSR4_QUALITY_LAB_DISPLAY_BASE") !=
           std::string::npos);
     CHECK(harnessSource.find("pp.slot0[2] |= 512u;") != std::string::npos);
     CHECK(shader.find("TFORGE_POSTPASS_DISPLAY_SPACE_BASE = 512u") !=
+          std::string::npos);
+    CHECK(shader.find("currentUseDisplayBase") != std::string::npos);
+    CHECK(shader.find("sampleDisplaySourceBicubic(currentBaseSourcePos") !=
           std::string::npos);
     CHECK(shader.find("sampleDisplaySourceBicubic(baseSourcePos") !=
           std::string::npos);
@@ -255,21 +266,31 @@ int main() {
     CHECK(harnessSource.find("edgeAdaptiveStrength") != std::string::npos);
     CHECK(shader.find("edgeAdaptiveStrength") != std::string::npos);
 
-    // Single-history resolve is now the default because the matched real-scene
-    // campaign showed that the postpass's second blend harms temporal error.
-    // The old behavior must remain available through an explicit restore switch
-    // for regression comparisons, and the original opt-in name remains a
-    // compatibility alias for selecting the single-blend path.
+    // The archived FSR reference composes the learned reconstruction with the
+    // reprojected history using the decoder's sigmoid blend value. The
+    // single-history bypass is diagnostic-only: best-findings mode must not
+    // disable the temporal history that its motion inputs are meant to drive.
     const char *singleHistoryEnvironment =
         "TFORGE_FSR4_EXPERIMENTAL_SINGLE_HISTORY_BLEND";
     CHECK(harnessSource.find(singleHistoryEnvironment) != std::string::npos);
-    const char *restoreDoubleHistoryEnvironment =
-        "TFORGE_FSR4_EXPERIMENTAL_RESTORE_DOUBLE_HISTORY_BLEND";
-    CHECK(harnessSource.find(restoreDoubleHistoryEnvironment) !=
-          std::string::npos);
-    CHECK(harnessSource.find("!std::getenv(\"TFORGE_FSR4_EXPERIMENTAL_RESTORE_DOUBLE_HISTORY_BLEND\")") !=
-          std::string::npos);
-    CHECK(harnessSource.find("pp.slot0[2] |= 1024u;") != std::string::npos);
+    // The host may set the bypass bit only when the explicit single-history
+    // diagnostic is requested. A best-findings default would silently disable
+    // the reference temporal blend in every normal dispatch.
+    const std::string singleHistoryHostFlag = "pp.slot0[2] |= 1024u;";
+    CHECK(harnessSource.find(singleHistoryHostFlag) != std::string::npos);
+    const size_t singleHistoryFlagPos = harnessSource.find(singleHistoryHostFlag);
+    CHECK(singleHistoryFlagPos != std::string::npos &&
+          harnessSource.rfind(singleHistoryEnvironment, singleHistoryFlagPos) !=
+              std::string::npos);
+    const size_t singleHistoryCondition = harnessSource.rfind(
+        "const bool singleHistoryResolve", singleHistoryFlagPos);
+    CHECK(singleHistoryCondition != std::string::npos);
+    if (singleHistoryCondition != std::string::npos) {
+        const std::string condition = harnessSource.substr(
+            singleHistoryCondition, singleHistoryFlagPos - singleHistoryCondition);
+        CHECK(condition.find("bestFindingsTemporal") == std::string::npos);
+        CHECK(condition.find(singleHistoryEnvironment) != std::string::npos);
+    }
     const std::string singleHistoryFlag = "(slot0.z & 1024u) != 0u";
     CHECK(shader.find(singleHistoryFlag) != std::string::npos);
     const size_t firstSingleHistoryFlag = shader.find(singleHistoryFlag);
@@ -339,6 +360,22 @@ int main() {
           std::string::npos);
     CHECK(shader.find("max(totalWeight, normalizationFloor)") !=
           std::string::npos);
+    // The reference decoder applies the inverse Mu-law exponential to the
+    // signed model output, then clamps the decoded linear result. Clamping
+    // modelColor before exp() destroys negative undershoot information and
+    // changes the official postpass response around edges and dark detail.
+    const std::string removeMuLawBody =
+        extractFunctionBody(shader, "vec3 removeMuLaw(vec3 modelColor)");
+    CHECK(!removeMuLawBody.empty());
+    CHECK(removeMuLawBody.find("exp(8.51788 * modelColor)") !=
+          std::string::npos);
+    CHECK(removeMuLawBody.find("exp(8.51788 * max(modelColor") ==
+          std::string::npos);
+    CHECK(shader.find("TFORGE_POSTPASS_LEGACY_PRECLAMP_MULAW") ==
+          std::string::npos);
+    CHECK(harnessSource.find(
+              "TFORGE_FSR4_EXPERIMENTAL_LEGACY_PRECLAMP_MULAW") ==
+          std::string::npos);
     CHECK(harnessSource.find("readExperimentalFloat") !=
           std::string::npos);
     // CAS is a postpass over the selected composition. It must consume the
@@ -356,7 +393,17 @@ int main() {
     // the baseline against Lanczos.
     CHECK(shader.find("binding = 10, rgba8) readonly uniform image2D u_sourceDisplay") !=
           std::string::npos);
-    CHECK(shader.find("shared vec4 displaySourceTile") != std::string::npos);
+    // Reduced-model display sampling must use the actual display image
+    // dimensions. The old shared display tile used model-space bounds and
+    // could read the wrong pixels when source and model resolutions differed.
+    CHECK(shader.find("const ivec2 displaySize = imageSize(u_sourceDisplay)") !=
+          std::string::npos);
+    CHECK(shader.find("const ivec2 modelSize = imageSize(u_sourceColor)") !=
+          std::string::npos);
+    CHECK(shader.find("const vec2 displayScale = vec2(displaySize) /") !=
+          std::string::npos);
+    CHECK(shader.find("imageLoad(u_sourceDisplay, ivec2(sx, sy))") !=
+          std::string::npos);
     for (const char *signature : {"vec3 sampleSourceBicubic(",
                                   "vec3 sampleSourceBilinear(",
                                   "vec3 sampleSourceCubicBC(",
@@ -407,11 +454,10 @@ int main() {
     // branch so ordinary playback is unchanged.
     CHECK(shader.find("const bool useQualityCurrentBase = qualityEnabled &&") !=
           std::string::npos);
-    CHECK(shader.find("useQualityCurrentBase\n        ? removeMuLaw(sampleSourceBase(") !=
+    CHECK(shader.find("currentUseDisplayBase") != std::string::npos);
+    CHECK(shader.find("? sampleDisplaySourceBicubic(currentBaseSourcePos") !=
           std::string::npos);
-    CHECK(shader.find("sampleSourceBase(\n              currentBaseSourcePos") !=
-          std::string::npos);
-    CHECK(shader.find("useQualityCurrentBase\n        ? removeMuLaw(sampleSourceBase(") !=
+    CHECK(shader.find("? removeMuLaw(sampleSourceBase(") !=
           std::string::npos);
 
     // The confidence blend is an opt-in control over the history policy. Zero

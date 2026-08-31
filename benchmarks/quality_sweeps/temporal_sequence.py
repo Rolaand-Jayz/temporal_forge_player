@@ -332,10 +332,19 @@ def measure_temporal_sequence(
             reset_index=reset_event[0],
         )
 
+    # A reset or unavailable transition is represented by ``None`` in the
+    # causal error trace.  It must remain unavailable rather than being
+    # coerced to zero, and it must not crash aggregation by being added to
+    # numeric transitions.  Upstream: the motion sidecar and temporal error
+    # calculator. Downstream: CSV output and campaign ranking.
+    measured_errors = [error for error in per_frame_error if error is not None]
+    if not measured_errors:
+        raise ValueError("motion has no measurable causal transitions")
+
     return {
         "static_flicker": static_flicker(analysis_frames, static_mask),
         "edge_variance": edge_variance(analysis_frames, static_mask),
-        "motion_compensated_error": sum(per_frame_error) / len(per_frame_error),
+        "motion_compensated_error": sum(measured_errors) / len(measured_errors),
         "ghost_duration_frames": ghost_duration,
         "reset_recovery_frames": reset_recovery,
     }

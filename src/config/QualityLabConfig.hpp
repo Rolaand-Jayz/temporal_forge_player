@@ -6,6 +6,8 @@
 // environment variables or parsing JSON on the dispatch path.
 #pragma once
 
+#include "motion/MotionEstimator.hpp"
+
 #include <filesystem>
 #include <string>
 
@@ -50,6 +52,12 @@ enum class QualityPresentationFilter : unsigned char {
 
 struct QualityLabConfig {
     bool enabled = false;
+
+    // Motion is optional so legacy quality files retain their existing
+    // environment-driven behavior. When present, this typed block becomes
+    // the single source for the standalone causal estimator settings.
+    bool motionConfigured = false;
+    MotionEstimatorConfig motion{};
 
     QualityCompositionMode compositionMode = QualityCompositionMode::Current;
     float learnedStrength = 0.55f;

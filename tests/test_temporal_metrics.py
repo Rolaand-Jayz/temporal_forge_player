@@ -70,6 +70,40 @@ class TemporalMetricTests(unittest.TestCase):
             1.0 / 12.0,
         )
 
+    def test_motion_compensated_error_supports_fractional_x_and_y_sampling(self) -> None:
+        from benchmarks.quality_sweeps.temporal_metrics import motion_compensated_error
+
+        reference = [
+            [0.0, 1.0, 2.0],
+            [10.0, 11.0, 12.0],
+            [20.0, 21.0, 22.0],
+        ]
+        # Candidate values are exactly the bilinear samples one half pixel
+        # right and down from each interior reference coordinate. The border
+        # samples that would leave the frame are intentionally omitted from
+        # the score by the metric's documented boundary policy.
+        candidate = [
+            [5.5, 6.5, 0.0],
+            [15.5, 16.5, 0.0],
+            [0.0, 0.0, 0.0],
+        ]
+        motion = [[(0.5, 0.5)] * 3 for _ in range(3)]
+        mask = [[True, True, False], [True, True, False], [False, False, False]]
+
+        self.assertAlmostEqual(
+            motion_compensated_error(candidate, reference, motion, mask),
+            0.0,
+        )
+
+    def test_motion_compensated_error_rejects_a_mask_with_no_correspondence(self) -> None:
+        from benchmarks.quality_sweeps.temporal_metrics import motion_compensated_error
+
+        frame = [[0.0, 1.0], [2.0, 3.0]]
+        motion = [[(0.0, 0.0), (0.0, 0.0)], [(0.0, 0.0), (0.0, 0.0)]]
+
+        with self.assertRaisesRegex(ValueError, "at least one pixel"):
+            motion_compensated_error(frame, frame, motion, [[False, False], [False, False]])
+
     def test_temporal_motion_error_compares_candidate_and_reference_transitions(self) -> None:
         from benchmarks.quality_sweeps.temporal_metrics import (
             temporal_motion_compensated_errors,

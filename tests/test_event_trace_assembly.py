@@ -14,6 +14,7 @@ class EventTraceAssemblyTests(unittest.TestCase):
             "schema": "temporal_forge.event_trace.v1",
             "eventIndex": index,
             "eventFrameIndex": index,
+            "decoderReceiveIndex": index,
             "transitionIndex": None if index == 0 else index - 1,
             "ptsUs": index * 33333,
             "ptsDeltaMs": 0.0 if index == 0 else 33.333,
@@ -81,6 +82,35 @@ class EventTraceAssemblyTests(unittest.TestCase):
             self.assertEqual(document["ghostThreshold"], 0.02)
             self.assertEqual(document["resetThreshold"], 0.02)
             self.assertEqual(len(document["frames"]), 5)
+
+    def test_rejects_non_contiguous_decoder_receive_order(self) -> None:
+        from tools.assemble_event_trace import assemble_event_trace
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            records = root / "records"
+            records.mkdir()
+            for index in range(5):
+                record = self._record(index)
+                record["decoderReceiveIndex"] = index + (1 if index >= 2 else 0)
+                (records / f"event_trace_{index:04d}.json").write_text(
+                    json.dumps(record), encoding="utf-8"
+                )
+            with self.assertRaisesRegex(ValueError, "decoder receive indices"):
+                assemble_event_trace(
+                    records,
+                    expected_frames=5,
+                    candidate_id="base_only_bilinear",
+                    scene="sintel_cave",
+                    config_id="stage_a/base_only_bilinear.json",
+                    start_frame=48,
+                    source_path="clips/input.mp4",
+                    reference_path="references/reference.mkv",
+                    output_width=1920,
+                    output_height=1080,
+                    ghost_threshold=0.02,
+                    reset_threshold=0.02,
+                )
 
     def test_selects_later_recorded_event_when_first_event_lacks_context(self) -> None:
         from tools.assemble_event_trace import assemble_event_trace

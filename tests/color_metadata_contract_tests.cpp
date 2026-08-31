@@ -195,6 +195,16 @@ static void checkOptInTransferAndChromaControls(const std::string &constants,
     CHECK(defaults.chromaPhaseX == 0.5f);
     CHECK(defaults.chromaPhaseY == 0.5f);
 
+    // The YUV conversion pass is the owner of synthetic jitter sampling.
+    // Keep this packing check beside the color-metadata checks so a truncated
+    // aggregate initializer cannot silently report jitter to FSR while the
+    // actual uploaded color remains unjittered.
+    const auto jittered = temporal_forge::yuvPushConstants(
+        frame, false, 0.3f, 0.25f, -0.125f, true);
+    CHECK(jittered.jitterX == 0.25f);
+    CHECK(jittered.jitterY == -0.125f);
+    CHECK(jittered.jitterEnabled == 1.0f);
+
     setenv("TFORGE_FSR4_INPUT_TRANSFER", "linear", 1);
     setenv("TFORGE_FSR4_CHROMA_FILTER", "bilinear", 1);
     setenv("TFORGE_FSR4_CHROMA_PHASE", "top-left", 1);
@@ -209,6 +219,20 @@ static void checkOptInTransferAndChromaControls(const std::string &constants,
     unsetenv("TFORGE_FSR4_CHROMA_PHASE");
 }
 
+static void checkResolvedMetadataTrace(const std::string &playback) {
+    // The runner can preserve declared stream metadata, but only the player
+    // knows the exact frame metadata that reached the upload/FSR boundary.
+    // Keep this diagnostic opt-in so it cannot affect normal playback.
+    CHECK(playback.find("decoder_metadata") != std::string::npos);
+    CHECK(playback.find("fsrDf.avFormat") != std::string::npos);
+    CHECK(playback.find("fsrDf.colorRange") != std::string::npos);
+    CHECK(playback.find("fsrDf.colorSpace") != std::string::npos);
+    CHECK(playback.find("fsrDf.colorTransfer") != std::string::npos);
+    CHECK(playback.find("fsrDf.colorPrimaries") != std::string::npos);
+    CHECK(playback.find("input_transfer_flag") != std::string::npos);
+    CHECK(playback.find("in.transfer") != std::string::npos);
+}
+
 int main() {
     const std::string header = readSource("src/media/VideoDecoder.hpp");
     const std::string decoder = readSource("src/media/VideoDecoder.cpp");
@@ -216,6 +240,7 @@ int main() {
     const std::string uploader = readSource("src/render/GpuImageUploader.cpp");
     const std::string yuv = readSource("shaders/fsr4/yuv_to_fsr_input.comp");
     const std::string drm = readSource("shaders/fsr4/drm_yuv_to_fsr_input.comp");
+    const std::string playback = readSource("src/core/PlaybackEngine.cpp");
 
     checkMetadataContract(header, decoder);
     checkConversionContract(constants, yuv, drm);
@@ -223,6 +248,7 @@ int main() {
     checkRec709InputEotfContract(constants, yuv, drm);
     checkUnknownMatrixBt709Contract(constants);
     checkOptInTransferAndChromaControls(constants, yuv, drm);
+    checkResolvedMetadataTrace(playback);
 
     if (g_failures == 0) {
         std::printf("color_metadata_contract_tests: OK\n");

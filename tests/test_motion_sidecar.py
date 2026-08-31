@@ -161,6 +161,40 @@ class MotionSidecarTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             load_motion_fields(sidecar, expected_frames=2, target_width=4, target_height=2)
 
+    def test_frame_pts_must_increase_in_presentation_order(self) -> None:
+        """Motion evidence must not silently reorder displayed transitions."""
+        from benchmarks.quality_sweeps.motion_sidecar import load_motion_fields
+
+        for pts in (0, -1):
+            with self.subTest(pts=pts):
+                sidecar = _valid_sidecar()
+                frames = sidecar["frames"]
+                assert isinstance(frames, list)
+                second = frames[1]
+                assert isinstance(second, dict)
+                second["ptsUs"] = pts
+                with self.assertRaises(ValueError):
+                    load_motion_fields(
+                        sidecar, expected_frames=2, target_width=4, target_height=2
+                    )
+
+    def test_ambiguous_or_older_past_reference_is_rejected(self) -> None:
+        """Only the explicit immediately-previous marker enters the causal path."""
+        from benchmarks.quality_sweeps.motion_sidecar import load_motion_fields
+
+        for source in (0, -2):
+            with self.subTest(source=source):
+                sidecar = _valid_sidecar()
+                frames = sidecar["frames"]
+                assert isinstance(frames, list)
+                second = frames[1]
+                assert isinstance(second, dict)
+                vectors = second["vectors"]
+                assert isinstance(vectors, list)
+                vectors[0]["source"] = source
+                with self.assertRaises(ValueError):
+                    load_motion_fields(sidecar, expected_frames=2, target_width=4, target_height=2)
+
     def test_first_frame_cannot_claim_causal_motion(self) -> None:
         """Frame zero has no previous frame and must not provide a motion field."""
         from benchmarks.quality_sweeps.motion_sidecar import load_motion_fields
@@ -177,6 +211,44 @@ class MotionSidecarTests(unittest.TestCase):
 
         with self.assertRaises(ValueError):
             load_motion_fields(sidecar, expected_frames=2, target_width=4, target_height=2)
+
+    def test_invalid_motion_availability_cannot_coexist_with_vectors(self) -> None:
+        from benchmarks.quality_sweeps.motion_sidecar import load_motion_fields
+
+        for available in (False, None, "false"):
+            with self.subTest(motionAvailable=available):
+                sidecar = _valid_sidecar()
+                frames = sidecar["frames"]
+                assert isinstance(frames, list)
+                second = frames[1]
+                assert isinstance(second, dict)
+                second["motionAvailable"] = available
+
+                with self.assertRaises(ValueError):
+                    load_motion_fields(
+                        sidecar, expected_frames=2, target_width=4, target_height=2
+                    )
+
+    def test_motion_components_must_fit_the_fp16_motion_texture_range(self) -> None:
+        from benchmarks.quality_sweeps.motion_sidecar import load_motion_fields
+
+        for component, value in (("mvX", 65505.0), ("mvY", -65505.0)):
+            with self.subTest(component=component, value=value):
+                sidecar = _valid_sidecar()
+                frames = sidecar["frames"]
+                assert isinstance(frames, list)
+                second = frames[1]
+                assert isinstance(second, dict)
+                vectors = second["vectors"]
+                assert isinstance(vectors, list)
+                vector = vectors[0]
+                assert isinstance(vector, dict)
+                vector[component] = value
+
+                with self.assertRaises(ValueError):
+                    load_motion_fields(
+                        sidecar, expected_frames=2, target_width=4, target_height=2
+                    )
 
     def test_target_dimensions_must_match_the_captured_sequence(self) -> None:
         from benchmarks.quality_sweeps.motion_sidecar import load_motion_fields

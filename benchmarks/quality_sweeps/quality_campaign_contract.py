@@ -34,7 +34,10 @@ _CAPTURE_ENV_PREFIXES = (
     "TFORGE_REVIEW_",
     "TFORGE_BENCHMARK_",
 )
-_CAPTURE_ENV_KEYS = frozenset({"TFORGE_DISABLE_HW_DECODE"})
+_CAPTURE_ENV_KEYS = frozenset({
+    "TFORGE_ALLOW_SPATIAL_TEMPORAL_CONTROL",
+    "TFORGE_DISABLE_HW_DECODE",
+})
 
 
 def _mapping(value: Any, name: str) -> Mapping[str, Any]:
@@ -146,11 +149,16 @@ def _validate_review_asset(asset: Any) -> None:
 
 
 def validate_campaign(campaign: Any) -> None:
-    """Validate the M6 candidate, corpus, metric, and review-asset contract."""
+    """Validate the M6 candidate, corpus, metric, and evidence contract."""
     root = _mapping(campaign, "campaign")
     if root.get("schemaVersion") != 2:
         raise CampaignError("campaign.schemaVersion must be 2")
     _string(root.get("campaignId"), "campaign.campaignId")
+    evidence_mode = root.get("evidenceMode", "visual_and_metrics")
+    if evidence_mode not in {"visual_and_metrics", "metrics_only"}:
+        raise CampaignError(
+            "campaign.evidenceMode must be visual_and_metrics or metrics_only"
+        )
     _validate_environment(root.get("environment"), "campaign.environment")
     baseline = _string(root.get("baselineCandidateId"), "campaign.baselineCandidateId")
     corpus = _mapping(root.get("corpus"), "campaign.corpus")
@@ -244,10 +252,16 @@ def validate_campaign(campaign: Any) -> None:
         _dimension(dimensions.get("source"), f"candidate {candidate_id}.dimensions.source")
         _dimension(dimensions.get("output"), f"candidate {candidate_id}.dimensions.output")
         assets = item.get("reviewAssets")
-        if not isinstance(assets, list) or not assets:
-            raise CampaignError(f"candidate {candidate_id} needs reviewAssets")
-        for asset in assets:
-            _validate_review_asset(asset)
+        if evidence_mode == "metrics_only":
+            if assets is not None and not isinstance(assets, list):
+                raise CampaignError(
+                    f"candidate {candidate_id}.reviewAssets must be a list when present"
+                )
+        else:
+            if not isinstance(assets, list) or not assets:
+                raise CampaignError(f"candidate {candidate_id} needs reviewAssets")
+            for asset in assets:
+                _validate_review_asset(asset)
     if baseline not in ids:
         raise CampaignError("baselineCandidateId must identify a candidate")
 
@@ -284,5 +298,6 @@ def runner_plans(campaign: Any) -> list[dict[str, Any]]:
             "jitter": campaign.get("jitter", {"mode": "current", "controlledStrength": 1.0}),
             "classSelections": campaign.get("classSelections"),
             "qualityClassAnnotationsPath": campaign.get("qualityClassAnnotationsPath"),
+            "evidenceMode": campaign.get("evidenceMode", "visual_and_metrics"),
         })
     return plans

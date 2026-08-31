@@ -12,6 +12,19 @@ import path from 'node:path';
 const input = process.argv[2] ?? path.resolve('temporal-forge-frame55-review-standalone.html');
 const output = process.argv[3] ?? path.resolve('temporal-forge-frame55-review-standalone.html');
 const assetOutputRoot = path.resolve(path.dirname(output), `${path.basename(output, path.extname(output))}-assets`);
+const reviewMatrixPath = path.resolve('benchmarks/video_corpus/review_best_finds.json');
+const reviewMatrix = fs.existsSync(reviewMatrixPath)
+  ? JSON.parse(fs.readFileSync(reviewMatrixPath, 'utf8'))
+  : {inputs: [], outputs: []};
+const reviewArmIds = new Set((reviewMatrix.arms ?? []).map(arm => arm.id));
+const reviewArmPattern = [...reviewArmIds]
+  .sort((a, b) => b.length - a.length)
+  .map(value => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
+  .join('|');
+const reviewPairKey = (scene, input, output) => `${scene}|${input}|${output}`;
+const reviewPairSet = new Set((reviewMatrix.scenes ?? []).flatMap(scene =>
+  (reviewMatrix.inputs ?? []).flatMap(input =>
+    (reviewMatrix.outputs ?? []).map(output => reviewPairKey(scene, input, output)))));
 // readEmbeddedAssetMap: recover the legacy embedded asset map without loading
 // an entire multi-hundred-megabyte HTML file into a second temporary copy.
 // Called by the rebuild path; downstream discovery replaces the old snapshot
@@ -70,9 +83,11 @@ const configuredResultsRoot = process.env.TFORGE_REVIEW_RESULTS_ROOT;
 const resultsRoot = path.resolve(
   configuredResultsRoot ?? 'benchmarks/video_corpus/results',
 );
-const reviewRoots = fs.existsSync(resultsRoot)
+const restrictToReviewMatrix = !configuredResultsRoot ||
+  resultsRoot.endsWith(reviewMatrix.reviewRoot ?? 'review_best_finds');
+let reviewRoots = fs.existsSync(resultsRoot)
   ? fs.readdirSync(resultsRoot, {withFileTypes: true})
-    .filter(entry => entry.isDirectory() && /^review_.*_frame\d+$/i.test(entry.name))
+    .filter(entry => entry.isDirectory() && (entry.name === (reviewMatrix.reviewRoot ?? 'review_best_finds') || /^review_.*_frame\d+$/i.test(entry.name)))
     .map(entry => path.join(resultsRoot, entry.name))
     .sort()
   : [];
@@ -81,7 +96,10 @@ const reviewRoots = fs.existsSync(resultsRoot)
 // runs from changing a fixture or a reviewer-provided corpus. The normal
 // distributable build still includes the checked-in quality-frame pool.
 if (!configuredResultsRoot)
-  reviewRoots.unshift(path.resolve('benchmarks/video_corpus/results/quality_frames'));
+  // The distributable is intentionally built from the dedicated review batch
+  // only. Historical quality_frames and older review folders remain available
+  // for engineering, but they are not human-facing choices in this page.
+  reviewRoots = [path.resolve(`benchmarks/video_corpus/results/${reviewMatrix.reviewRoot ?? 'review_best_finds'}`)];
 const excludedReviewAsset = name => {
   return /^(?:synthetic(?:_|\.)|source(?:_|\.)|supersampled_aa(?:_|\.)|intel_|os_|s_)/i.test(name) || /lanczos_roundtrip_fsr/i.test(name) || /frame55_/i.test(name) || /_(?:difference|metadata|gpu_raw)\.png$/i.test(name);
 };
@@ -100,7 +118,7 @@ const reviewFamilyForName = name => {
   // the provenance boundary that keeps the large historical result pool out
   // of the human-facing harness while allowing 480p/720p/1080p tiers and all
   // requested output sizes to coexist in one manifest.
-  if (/(?:_input|_)\d+x\d+_(?:to\d+x\d+_)?(?:native-input|native-reference|temporal-forge|candidate-[1-6]|opt-in-[1-4]|lanczos|bicubic)(?:\.|_)/i.test(name)) return 'curated';
+  if (/(?:_input|_)\d+x\d+_(?:to\d+x\d+_)?(?:native-input|native-reference|pre-campaign-temporal-forge|temporal-forge|candidate-[1-6]|best-find-[1-5]|combined-best|best-findings-temporal-synthetic-jitter|best-findings-temporal|fsr1-best-findings-temporal|fsr1|opt-in-(?:3[0-3]|2[1-9]|1[0-9]|20|[1-9])|lanczos|bicubic)(?:\.|_)/i.test(name) || /_output\d+x\d+_native-output\.png$/i.test(name)) return 'curated';
   return null;
 };
 // Feature-stack order is part of the manifest key contract.  The UI uses the
@@ -114,6 +132,12 @@ const sourceByName = new Map();
 const addSourceAssets = (root, names) => {
   for (const name of names) {
     if (!name.endsWith('.png') || excludedReviewAsset(name) || !reviewFamilyForName(name) || sourceByName.has(name)) continue;
+    // The dedicated review batch is the only source for this distributable.
+    // Its manifest arms are the complete human-facing allow-list; old
+    // candidates, native controls, and historical opt-ins remain on disk but
+    // cannot leak back into the reviewer.
+    if (path.basename(root) === 'review_best_finds' &&
+        (!reviewArmPattern || !new RegExp(`_(?:${reviewArmPattern})\\.png$`, 'i').test(name))) continue;
     if (/(?:_medium_|_low_)/i.test(name)) continue;
     const sourcePath = path.join(root, name);
     sourceByName.set(name, sourcePath);
@@ -154,11 +178,13 @@ const parseAssetMetadata = (name, sourcePath) => {
     '1918x1080': '1920x1080',
   }[imageResolution] ?? imageResolution;
   const reference = /(?:native-reference|_reference(?:_\d+x\d+)?_f\d+)/i.test(name);
-  const target = (name.match(/_to_?(\d+x\d+)/i) ?? [])[1] ?? null;
+  const explicitNativeReference = /native-reference/i.test(name);
+  const target = (name.match(/_to_?(\d+x\d+)/i) ?? [])[1] ?? (name.match(/_output(\d+x\d+)_native-output/i) ?? [])[1] ?? null;
   const explicitInput = (name.match(/_input(\d+x\d+)(?:_|\.)/i) ?? [])[1] ?? null;
-  const inputResolution = explicitInput ?? (reference
+  const nativeOutput = /native-output/i.test(lower);
+  const inputResolution = nativeOutput ? null : (explicitInput ?? (reference
     ? '640x360'
-    : (name.match(/_(\d+x\d+)(?:_|\.)/) ?? [])[1] ?? imageResolution);
+    : (name.match(/_(\d+x\d+)(?:_|\.)/) ?? [])[1] ?? imageResolution));
   // The filename uses the historical capture token "current", but the
   // reviewer must never expose that implementation-era wording. Internally
   // classify it as the maintained Temporal Forge result instead.
@@ -180,11 +206,18 @@ const parseAssetMetadata = (name, sourcePath) => {
       lower.includes('stagee') || lower.includes('stagef') ||
       lower.includes('post-campaign'));
   let technique = 'experimental';
-  if (reference) technique = 'native';
+  // Keep the native reference distinct from the native input. The UI uses
+  // these as separate peer choices, and the distinction prevents a reference
+  // PNG from being mislabeled while both still share the same simple display
+  // vocabulary.
+  if (nativeOutput) technique = 'native-output';
+  else if (explicitNativeReference) technique = 'native-reference';
+  else if (reference) technique = 'native';
   else if (nativeInput) technique = 'native-input';
   else if (/bicubic_prefsr_temporal_forge_bicubic_review\.png$/i.test(lower)) technique = 'bicubic-prefsr-bicubic';
   else if (/bicubic_prefsr_temporal_forge_lanczos_review\.png$/i.test(lower)) technique = 'bicubic-prefsr-lanczos';
   else if (/lanczos_prefsr_temporal_forge_review\.png$/i.test(lower)) technique = 'lanczos-prefsr';
+  else if (/_pre-campaign-temporal-forge(?:\.png|_)/i.test(lower)) technique = 'pre-campaign-temporal-forge';
   else if (temporalForgeName) technique = 'temporal-forge';
   else if (/cross_control\.png$/i.test(lower)) technique = 'candidate-1';
   else if (/cas0p00\.png$/i.test(lower)) technique = 'opt-in-1';
@@ -197,13 +230,19 @@ const parseAssetMetadata = (name, sourcePath) => {
   else if (/_input\d+x\d+_(?:to\d+x\d+_)?candidate-4(?:\.|_)/i.test(lower)) technique = 'candidate-4';
   else if (/_input\d+x\d+_(?:to\d+x\d+_)?candidate-5(?:\.|_)/i.test(lower)) technique = 'candidate-5';
   else if (/_input\d+x\d+_(?:to\d+x\d+_)?candidate-6(?:\.|_)/i.test(lower)) technique = 'candidate-6';
-  else if (/_input\d+x\d+_(?:to\d+x\d+_)?opt-in-([1-4])(?:\.|_)/i.test(lower)) technique = `opt-in-${lower.match(/opt-in-([1-4])/)?.[1]}`;
+  else if (/_input\d+x\d+_(?:to\d+x\d+_)?best-find-(\d+)(?:\.|_)/i.test(lower)) technique = `best-find-${lower.match(/best-find-(\d+)(?:\.|_)/i)?.[1]}`;
+  else if (/_input\d+x\d+_(?:to\d+x\d+_)?combined-best(?:\.|_)/i.test(lower)) technique = 'combined-best';
+  else if (/_input\d+x\d+_(?:to\d+x\d+_)?best-findings-temporal-synthetic-jitter(?:\.|_)/i.test(lower)) technique = 'best-findings-temporal-synthetic-jitter';
+  else if (/_input\d+x\d+_(?:to\d+x\d+_)?fsr1-best-findings-temporal(?:\.|_)/i.test(lower)) technique = 'fsr1-best-findings-temporal';
+  else if (/_input\d+x\d+_(?:to\d+x\d+_)?fsr1(?:\.|_)/i.test(lower)) technique = 'fsr1';
+  else if (/_input\d+x\d+_(?:to\d+x\d+_)?best-findings-temporal(?:\.|_)/i.test(lower)) technique = 'best-findings-temporal';
+  else if (/_input\d+x\d+_(?:to\d+x\d+_)?opt-in-(33|32|31|30|2[1-9]|1[0-9]|20|[1-9])(?:\.|_)/i.test(lower)) technique = `opt-in-${lower.match(/opt-in-(33|32|31|30|2[1-9]|1[0-9]|20|[1-9])/i)?.[1]}`;
   else if (/lanczos_native_fsr_review\.png$/i.test(lower)) technique = 'lanczos-native-fsr';
   else if (/lanczos(?:_review)?(?:_frame\d+)?\.png$/i.test(lower) || /_(?:input)?\d+x\d+_(?:to\d+x\d+_)?lanczos(?:\.png|_)/i.test(lower)) technique = 'lanczos';
   else if (/bicubic(?:_review)?(?:_frame\d+)?\.png$/i.test(lower) || /_(?:input)?\d+x\d+_(?:to\d+x\d+_)?bicubic(?:\.png|_)/i.test(lower)) technique = 'bicubic';
   else if (/native-input/i.test(lower)) technique = 'native-input';
   else if (/bilinear(?:_review)?\.png$/i.test(lower)) technique = 'bilinear-control';
-  if (!['native', 'native-input', 'lanczos', 'bicubic', 'temporal-forge', 'candidate-1', 'candidate-2', 'candidate-3', 'candidate-4', 'candidate-5', 'candidate-6', 'opt-in-1', 'opt-in-2', 'opt-in-3', 'opt-in-4'].includes(technique)) return null;
+  if (!['native-reference', 'native', 'native-input', 'native-output', 'lanczos', 'bicubic', 'fsr1', 'pre-campaign-temporal-forge', 'temporal-forge', 'candidate-1', 'candidate-2', 'candidate-3', 'candidate-4', 'candidate-5', 'candidate-6', 'best-find-1', 'best-find-2', 'best-find-3', 'best-find-4', 'best-find-5', 'combined-best', 'best-findings-temporal', 'best-findings-temporal-synthetic-jitter', 'fsr1-best-findings-temporal', 'opt-in-1', 'opt-in-2', 'opt-in-3', 'opt-in-4', 'opt-in-5', 'opt-in-6', 'opt-in-7', 'opt-in-8', 'opt-in-9', 'opt-in-10', 'opt-in-11', 'opt-in-12', 'opt-in-13', 'opt-in-14', 'opt-in-15', 'opt-in-16', 'opt-in-17', 'opt-in-18', 'opt-in-19', 'opt-in-20', 'opt-in-21', 'opt-in-22', 'opt-in-23', 'opt-in-24', 'opt-in-25', 'opt-in-26', 'opt-in-27', 'opt-in-28', 'opt-in-29', 'opt-in-30', 'opt-in-31', 'opt-in-32', 'opt-in-33'].includes(technique)) return null;
 
   const featureStack = [];
   if (technique === 'experimental') {
@@ -253,10 +292,10 @@ const parseAssetMetadata = (name, sourcePath) => {
   const gamma = lower.match(/gamma_(\d{3})/);
   if (gamma) toneParts.push(`gamma ${(Number(gamma[1]) / 100).toFixed(2)}`);
   if (toneParts.length) modifiers.toneConfiguration = toneParts.join(' · ');
-  const outputResolution = target
+  const outputResolution = nativeInput ? null : target
     ? ({'1278x720': '1280x720', '1918x1080': '1920x1080'}[target] ?? target)
     : intendedResolution;
-  const experimentId = technique === 'candidate-1' || technique === 'candidate-2' || technique === 'candidate-3' || technique === 'candidate-4' || technique === 'candidate-5' || technique === 'candidate-6'
+  const experimentId = technique === 'candidate-1' || technique === 'candidate-2' || technique === 'candidate-3' || technique === 'candidate-4' || technique === 'candidate-5' || technique === 'candidate-6' || technique === 'combined-best' || technique === 'best-findings-temporal' || technique === 'best-findings-temporal-synthetic-jitter' || technique === 'fsr1-best-findings-temporal' || technique === 'fsr1' || technique.startsWith('best-find-')
     ? technique
     : technique.startsWith('opt-in-')
     ? technique
@@ -287,8 +326,31 @@ const parseAssetMetadata = (name, sourcePath) => {
 const assetManifest = [...sourceByName.entries()]
   .sort(([a], [b]) => a.localeCompare(b))
   .map(([name, sourcePath]) => parseAssetMetadata(name, sourcePath))
-  .filter(Boolean);
+  .filter(Boolean)
+  .filter(asset => !restrictToReviewMatrix || asset.technique === 'native-input' || asset.technique === 'native-output' || asset.technique === 'native-reference' || /native-output/i.test(asset.assetName) || !reviewPairSet.size || reviewPairSet.has(reviewPairKey(asset.scene, asset.inputResolution, asset.outputResolution)))
+  .filter(asset => !restrictToReviewMatrix || reviewArmIds.size === 0 || reviewArmIds.has(asset.technique) || /native-output/i.test(asset.assetName) || (asset.technique === 'native-reference' && reviewArmIds.has('native-output')));
 if (!assetManifest.length) throw new Error('No real-world review assets remain after metadata parsing');
+// Native controls intentionally do not use the full input/output matrix.
+// Native input is keyed only by scene/input; native output is keyed only by
+// scene/output. Fail the build if either independent pool is incomplete.
+for (const technique of ['native-input']) {
+  const discovered = new Set(assetManifest
+    .filter(asset => asset.technique === technique || (technique === 'native-output' && asset.technique === 'native-reference') || (technique === 'native-output' && /native-output/i.test(asset.assetName)))
+    .map(asset => `${asset.scene}|${asset.inputResolution}`));
+  const expected = new Set((reviewMatrix.scenes ?? []).flatMap(scene => (reviewMatrix.inputs ?? []).map(input => `${scene}|${input}`)));
+  const missing = [...expected].filter(key => !discovered.has(key));
+  if (missing.length) throw new Error(`${technique} coverage is incomplete; missing ${missing.length} contexts: ${missing.slice(0, 5).join(', ')}`);
+}
+for (const technique of ['native-output']) {
+  const discovered = new Set(assetManifest
+    .filter(asset => asset.technique === technique)
+    .map(asset => `${asset.scene}|${asset.outputResolution}`));
+  const expected = new Set((reviewMatrix.scenes ?? []).flatMap(scene => (reviewMatrix.outputs ?? []).map(output => `${scene}|${output}`)));
+  const missing = [...expected].filter(key => !discovered.has(key));
+  if (missing.length) {
+    throw new Error(`${technique} coverage is incomplete; missing ${missing.length} contexts: ${missing.slice(0, 5).join(', ')}`);
+  }
+}
 const externalAssets = assetManifest.map(asset => ({
   name: asset.assetName,
   src: asset.assetPath,
@@ -326,15 +388,23 @@ const html = String.raw`<!doctype html>
 </head>
 <body>
   <header><div class="header-inner"><div><p class="eyebrow">Temporal Forge · standalone review</p><h1>Mirrored still comparison</h1><p>Each side resolves one real-world asset from independent, data-driven selectors. Click either image for fit or true 1:1 pixel inspection.</p></div><div class="header-actions"><button id="copy-link" type="button">Copy comparison link</button><button id="reset" type="button">Reset comparison</button></div></div></header>
-  <main><div class="toolbar"><span id="asset-count"></span><span>Selections are saved in the URL hash for sharing.</span></div><div id="compare-wrap" class="compare-wrap"></div><div id="comparison" class="comparison"></div></main>
-  <footer>Standalone review page · asset folder: ${path.basename(assetOutputRoot)} · benchmark source images are not modified</footer>
+  <main><div class="toolbar"><span id="asset-count"></span><span>Display CAS · 0.20 · selections are saved in the URL hash for sharing.</span></div><div id="compare-wrap" class="compare-wrap"></div><div id="comparison" class="comparison"></div></main>
+  <footer>Standalone review page · Display CAS · 0.20 · asset folder: ${path.basename(assetOutputRoot)} · benchmark source images are not modified</footer>
   <div id="viewer" class="viewer" hidden aria-hidden="true"><div class="viewer-backdrop"><section class="viewer-panel" role="dialog" aria-modal="true" aria-labelledby="viewer-title"><div class="viewer-header"><div><p class="eyebrow">Pixel inspection</p><h2 id="viewer-title">Image</h2><p id="viewer-meta"></p></div><button id="viewer-close" class="viewer-close" type="button" aria-label="Close enlarged view">×</button></div><div class="viewer-tools"><button data-view="fit" type="button">Fit to view</button><button data-view="pixel" type="button">100% / 1:1 (highest)</button><button data-view="in" type="button">Zoom in</button><button data-view="out" type="button">Zoom out</button><button data-view="reset" type="button">Reset zoom</button><button id="lens-toggle" type="button" aria-pressed="false">Lens: off</button><span id="viewer-status" class="status"></span></div><div id="viewer-stage" class="viewer-stage"></div><div class="viewer-note">Scroll over the image to zoom. Fit shows the whole comparison; 1:1 uses the highest selected canvas as one CSS pixel per source pixel. With Lens on, move the round lens over the image; <kbd>Ctrl</kbd>-click turns it off so the divider can be grabbed normally.</div></section></div></div>
   <script>
     const embeddedAssets = Object.freeze(__EMBEDDED_ASSETS__);
     const assetManifest = Object.freeze(__ASSET_MANIFEST__);
     const externalAssets = Object.freeze(__EXTERNAL_ASSETS__);
+    const declaredReviewMatrix = Object.freeze(__REVIEW_MATRIX__);
+    const declaredInputResolutions = Object.freeze(declaredReviewMatrix.inputs ?? []);
+    const declaredOutputResolutions = Object.freeze(declaredReviewMatrix.outputs ?? []);
+    // Review provenance: Temporal Forge captures use the same single
+    // post-reconstruction display CAS stage as the game. Native controls stay
+    // untouched so they remain truthful native/reference pixels.
+    const displayCasStrength = 0.20;
     const labels = {tos_daylight:'Tears of Steel — daylight',tos_debris:'Tears of Steel — debris',bbb_grass:'Big Buck Bunny — grass',bbb_branches:'Big Buck Bunny — branches',sintel_rooftop:'Sintel — rooftop',sintel_cave:'Sintel — cave'};
-    const techniqueLabels = {'native':'Native reference','native-input':'Native input','lanczos':'Lanczos','bicubic':'Bicubic','temporal-forge':'Temporal Forge','candidate-1':'Candidate #1','candidate-2':'Candidate #2','candidate-3':'Candidate #3','candidate-4':'Candidate #4','candidate-5':'Candidate #5','candidate-6':'Candidate #6','opt-in-1':'Opt-in #1','opt-in-2':'Opt-in #2','opt-in-3':'Opt-in #3','opt-in-4':'Opt-in #4'};
+    const techniqueLabels = {'native-reference':'Native reference','native':'Native reference','native-input':'Native input','native-output':'Native output','lanczos':'Lanczos','bicubic':'Bicubic','fsr1':'FSR1','pre-campaign-temporal-forge':'Pre-campaign Temporal Forge','temporal-forge':'Temporal Forge','candidate-1':'Candidate #1','candidate-2':'Candidate #2','candidate-3':'Candidate #3','candidate-4':'Candidate #4','candidate-5':'Candidate #5','candidate-6':'Candidate #6','opt-in-1':'Opt-in #1','opt-in-2':'Opt-in #2','opt-in-3':'Opt-in #3','opt-in-4':'Opt-in #4','opt-in-5':'Opt-in #5','opt-in-6':'Opt-in #6','opt-in-7':'Opt-in #7','opt-in-8':'Opt-in #8','opt-in-9':'Opt-in #9','opt-in-10':'Opt-in #10','opt-in-11':'Opt-in #11','opt-in-12':'Opt-in #12','opt-in-13':'Opt-in #13','opt-in-14':'Opt-in #14','opt-in-15':'Opt-in #15','opt-in-16':'Opt-in #16','opt-in-17':'Opt-in #17','opt-in-18':'Opt-in #18','opt-in-19':'Opt-in #19','opt-in-20':'Opt-in #20','opt-in-21':'Opt-in #21','opt-in-22':'Opt-in #22','opt-in-23':'Opt-in #23','opt-in-24':'Opt-in #24','opt-in-25':'Opt-in #25','opt-in-26':'Opt-in #26','opt-in-27':'Opt-in #27','opt-in-28':'Opt-in #28','opt-in-29':'Opt-in #29','opt-in-30':'Opt-in #30','opt-in-31':'Opt-in #31','opt-in-32':'Opt-in #32','opt-in-33':'Opt-in #33'};
+    Object.assign(techniqueLabels,{'best-find-1':'Best find #1','best-find-2':'Best find #2','best-find-3':'Best find #3','best-find-4':'Best find #4','best-find-5':'Best find #5','combined-best':'Combined best','best-findings-temporal':'Best-findings Temporal Forge','fsr1-best-findings-temporal':'FSR1 + Best-findings Temporal Forge','fsr1':'FSR1'});
     function assetId(a){return [a.scene,a.inputResolution??'',a.outputResolution??'',a.technique,a.featureStackKey??'',a.baseFilter??'',a.blendStrength??'',a.learnedStrength??'',a.residualStrength??'',a.sharpeningMode??'',a.sharpeningStrength??'',a.toneConfiguration??'',a.experimentId??'',a.assetName].join('|')}
     function sceneLabel(scene){return labels[scene] ?? scene.replaceAll('_',' ')}
     function embeddedAssetSource(assetName){
@@ -350,7 +420,14 @@ const html = String.raw`<!doctype html>
         if(seen.has(asset.assetName)) return false;
         seen.add(asset.assetName);
         return true;
-      }).map(asset=>({...asset,src:embeddedAssetSource(asset.assetName)??asset.assetPath,id:assetId(asset)}));
+      }).map(asset=>({...asset,
+        // Older manifests called native references "native". Canonicalize
+        // that legacy value at runtime so reviewers see one button, while the
+        // original asset path remains unchanged and fully usable.
+        technique:/native-output/i.test(asset.assetName)?'native-output':asset.technique==='native'?'native-reference':asset.technique,
+        src:embeddedAssetSource(asset.assetName)??asset.assetPath,
+        id:assetId({...asset,technique:/native-output/i.test(asset.assetName)?'native-output':asset.technique==='native'?'native-reference':asset.technique})
+      }));
     }
     const assets=Object.freeze(parseAssets());
     const byId=new Map(assets.map(a=>[a.id,a]));
@@ -358,23 +435,30 @@ const html = String.raw`<!doctype html>
     const resolutionRank=value=>{const match=String(value).match(/^(\d+)x(\d+)$/);return match?Number(match[1])*Number(match[2]):Number.MAX_SAFE_INTEGER;};
     const experimentLabel=value=>{const raw=String(value);const clean=raw.replace(/^stage([a-z0-9]+)-[^-]+-\d+-/i,'Stage $1 · ').replace(/^(?:post-campaign|quality-campaign-baseline)[- ]*/i,'Baseline · ').replaceAll('_',' ').replaceAll('-',' ');return clean.replace(/\bbase only\b/i,'Base only').replace(/\blearned only\b/i,'Learned only').replace(/\bdirect blend (\d{3})\b/i,(_,v)=>'Learned blend · '+(Number(v)/10)+'%').replace(/\bexposure ([mp])(\d{3})\b/i,(_,sign,v)=>'Exposure '+(sign.toLowerCase()==='m'?'-':'+')+(Number(v)/1000)+' EV').replace(/\bgamma (\d{3})\b/i,(_,v)=>'Gamma '+(Number(v)/1000).toFixed(2));};
     const valueLabel=(field,value)=>{if(field==='technique')return techniqueLabels[value]??String(value);if(field==='inputResolution'||field==='outputResolution'){const match=String(value).match(/^(\d+)x(\d+)$/);return match?match[1]+' × '+match[2]:String(value);}if(field==='featureStackKey')return featureLabels[value]??String(value);if(field==='learnedStrength'||field==='blendStrength'||field==='residualStrength'||field==='sharpeningStrength'){const number=Number(value);return Number.isFinite(number)?(number*100).toFixed(0)+'%':String(value);}if(field==='toneConfiguration')return String(value);if(field==='experimentId')return experimentLabel(value);return String(value);};
-    const orderedValues=(field,values)=>values.sort((a,b)=>{if(field==='inputResolution'||field==='outputResolution'){const rank=resolutionRank(a)-resolutionRank(b);return rank||String(a).localeCompare(String(b),undefined,{numeric:true});}if(field==='scene')return sceneLabel(a).localeCompare(sceneLabel(b));if(field==='technique'){const order=['native-input','lanczos','bicubic','temporal-forge','candidate-1','candidate-2','candidate-3','candidate-4','candidate-5','candidate-6','opt-in-1','opt-in-2','opt-in-3','opt-in-4','native'];return (order.indexOf(a)-order.indexOf(b))||String(a).localeCompare(String(b));}if(field==='experimentId')return experimentLabel(a).localeCompare(experimentLabel(b),undefined,{numeric:true});return String(a).localeCompare(String(b),undefined,{numeric:true});});
+    const orderedValues=(field,values)=>values.sort((a,b)=>{if(field==='inputResolution'||field==='outputResolution'){const rank=resolutionRank(a)-resolutionRank(b);return rank||String(a).localeCompare(String(b),undefined,{numeric:true});}if(field==='scene')return sceneLabel(a).localeCompare(sceneLabel(b));if(field==='technique'){const order=['native-input','lanczos','bicubic','fsr1','pre-campaign-temporal-forge','temporal-forge','best-findings-temporal','fsr1-best-findings-temporal','native-reference'];return (order.indexOf(a)-order.indexOf(b))||String(a).localeCompare(String(b));}if(field==='experimentId')return experimentLabel(a).localeCompare(experimentLabel(b),undefined,{numeric:true});return String(a).localeCompare(String(b),undefined,{numeric:true});});
     const first=(arr)=>arr[0];
-    const defaultContext=first(assets.filter(a=>a.scene==='tos_daylight'&&a.inputResolution==='426x240'&&a.technique==='temporal-forge'))??first(assets);
-    const defaultLeft=first(assets.filter(a=>a.scene===defaultContext.scene&&a.inputResolution===defaultContext.inputResolution&&a.technique==='candidate-1'))??defaultContext;
+    const defaultContext=first(assets.filter(a=>a.scene==='tos_daylight'&&a.inputResolution==='426x240'&&a.technique==='pre-campaign-temporal-forge'))??first(assets);
+    const defaultLeft=first(assets.filter(a=>a.scene===defaultContext.scene&&a.inputResolution===defaultContext.inputResolution&&a.technique==='native-input'))??defaultContext;
     const state={left:defaultLeft.id,right:defaultContext.id};
     function readHash(){const p=new URLSearchParams(location.hash.slice(1)); for(const side of ['left','right']) if(byId.has(p.get(side))) state[side]=p.get(side)}
     function writeHash(){const p=new URLSearchParams({left:state.left,right:state.right}); history.replaceState(null,'',__BT__\__DOLLAR__{location.pathname}\__DOLLAR__{location.search}#\__DOLLAR__{p}__BT__)}
-    function candidates(side,field){const selected=byId.get(state[side]); if(!selected)return[]; return assets.filter(a=>a.scene===selected.scene&& (field==='scene'||a.inputResolution===selected.inputResolution || (selected.technique==='native-reference'&&field==='inputResolution')) && (field!=='outputResolution'||a.outputResolution===selected.outputResolution));}
+    function candidates(side,field){const selected=byId.get(state[side]); if(!selected)return[]; return assets.filter(a=>a.scene===selected.scene&& (field==='scene'||a.inputResolution===selected.inputResolution || ((selected.technique==='native-reference'||selected.technique==='native')&&field==='inputResolution')) && (field!=='outputResolution'||a.outputResolution===selected.outputResolution));}
     function validFor(selection){return assets.filter(a=>a.scene===selection.scene&&a.inputResolution===selection.inputResolution&&a.outputResolution===selection.outputResolution&&a.technique===selection.technique&&['baseFilter','learnedStrength','residualStrength','sharpeningMode','sharpeningStrength','toneConfiguration','experimentId'].every(k=>(a[k]??null)===(selection[k]??null)))}
     function reconcile(side,preferred={}){
       const current=byId.get(state[side])??defaultContext;
       const patch={...current,...preferred};
       const sceneAssets=assets.filter(x=>x.scene===patch.scene);
       const choose=(list,key,value)=>list.find(x=>x[key]===value);
-      let a=choose(sceneAssets,'inputResolution',patch.inputResolution)??first(sceneAssets)??current;
-      a=choose(sceneAssets.filter(x=>x.inputResolution===a.inputResolution),'outputResolution',patch.outputResolution)??first(sceneAssets.filter(x=>x.inputResolution===a.inputResolution))??a;
-      a=choose(sceneAssets.filter(x=>x.inputResolution===a.inputResolution&&x.outputResolution===a.outputResolution),'technique',patch.technique)??first(sceneAssets.filter(x=>x.inputResolution===a.inputResolution&&x.outputResolution===a.outputResolution))??a;
+      const nativeInput=patch.technique==='native-input';
+      const nativeOutput=patch.technique==='native-output';
+      let pool=sceneAssets.filter(x=>nativeInput?x.technique==='native-input':nativeOutput?x.technique==='native-output':x.technique!=='native-input'&&x.technique!=='native-output');
+      let a=choose(pool,'inputResolution',patch.inputResolution)??first(pool)??current;
+      if(nativeOutput) a=choose(pool,'outputResolution',patch.outputResolution)??first(pool)??a;
+      else a=choose(pool.filter(x=>x.inputResolution===a.inputResolution),'outputResolution',patch.outputResolution)??first(pool.filter(x=>x.inputResolution===a.inputResolution))??a;
+      if(!nativeInput&&!nativeOutput){
+        const techniquePool=pool.filter(x=>x.inputResolution===a.inputResolution&&x.outputResolution===a.outputResolution);
+        a=choose(techniquePool,'technique',patch.technique)??first(techniquePool)??a;
+      }
       const modifierKeys=['featureStackKey','baseFilter','blendStrength','learnedStrength','residualStrength','sharpeningMode','sharpeningStrength','toneConfiguration','experimentId'];
       const exact=sceneAssets.filter(x=>x.inputResolution===a.inputResolution&&x.outputResolution===a.outputResolution&&x.technique===a.technique&&modifierKeys.every(k=>(x[k]??null)===(patch[k]??null)));
       a=first(exact)??a; state[side]=a.id;
@@ -385,22 +469,62 @@ const html = String.raw`<!doctype html>
       if(field==='featureStackKey')return stackOptions(side);
       const dimensionIndex=dimensionFields.indexOf(field);
       const candidates=assets.filter(a=>{
+        if(current.technique==='native-input'&&field==='inputResolution')return a.scene===current.scene&&a.technique==='native-input';
+        if(current.technique==='native-output'&&field==='outputResolution')return a.scene===current.scene&&a.technique==='native-output';
+        // A native selection intentionally has a null counterpart dimension.
+        // Do not let that null hide valid methods: clicking a method below
+        // lets reconcile() choose the nearest valid input/output pair.
+        if(field==='technique'&&(current.technique==='native-input'||current.technique==='native-output'))return a.scene===current.scene;
         if(dimensionIndex>=0) return dimensionFields.slice(0,dimensionIndex).every(name=>(a[name]??null)===(current[name]??null));
         if(!dimensionFields.every(name=>(a[name]??null)===(current[name]??null))) return false;
         return modifierFields.every(([name])=>name===field||(a[name]??null)===(current[name]??null));
       });
-      const values=orderedValues(field,unique(candidates,field));
-      return values.map(value=>({value,label:field==='scene'?sceneLabel(value):valueLabel(field,value),available:true}));
+      const values=field==='scene' ? unique(assets,'scene') :
+        field==='inputResolution' ? [...declaredInputResolutions] :
+        field==='outputResolution' ? [...declaredOutputResolutions] :
+        field==='technique' ? [...(declaredReviewMatrix.arms ?? []).map(arm=>arm.id)] :
+        unique(candidates,field);
+      return orderedValues(field,[...new Set(values)]).map(value=>({
+        value,
+        label:field==='scene'?sceneLabel(value):valueLabel(field,value),
+        available:candidates.some(candidate=>(candidate[field]??null)===value),
+      }));
     }
     const featureLabels={'stable-base':'Stable base','learned-only':'Learned only','learned-blend':'Learned blend','detail-residual':'Detail residual','adaptive-sharpen':'Adaptive sharpen','tone':'Tone correction','experimental':'Experimental'};
     const featureOrder=['stable-base','learned-only','learned-blend','detail-residual','adaptive-sharpen','tone','experimental'];
     const canonicalFeatureStack=values=>[...new Set(values)].sort((a,b)=>(featureOrder.indexOf(a)-featureOrder.indexOf(b))||a.localeCompare(b));
     function stackOptions(side){const current=byId.get(state[side]);if(!current)return[];if(current.technique!=='experimental')return[];const pool=assets.filter(a=>a.scene===current.scene&&a.inputResolution===current.inputResolution&&a.outputResolution===current.outputResolution&&a.technique==='experimental');const choices=unique(assets,'featureStackKey').filter(Boolean).flatMap(key=>key.split('+')).filter((value,index,array)=>array.indexOf(value)===index);choices.sort((a,b)=>(featureOrder.indexOf(a)-featureOrder.indexOf(b))||a.localeCompare(b));return choices.map(feature=>({value:feature,label:featureLabels[feature]??feature,available:pool.some(a=>a.featureStackKey?.split('+').includes(feature))})).filter(option=>option.available);}
     function makeStackButtons(side){const wrap=document.createElement('div');wrap.className='field stack-field';const l=document.createElement('label');l.textContent='Experimental feature stack';const group=document.createElement('div');group.className='state-buttons';group.setAttribute('role','group');group.setAttribute('aria-label',__BT__\__DOLLAR__{side} Experimental feature stack__BT__);const current=byId.get(state[side]);const activeStack=current.featureStack??[];const pool=assets.filter(a=>a.scene===current.scene&&a.inputResolution===current.inputResolution&&a.outputResolution===current.outputResolution&&a.technique==='experimental');for(const {value:feature,label} of stackOptions(side)){const active=activeStack.includes(feature);const next=[...new Set(active?activeStack.filter(x=>x!==feature):[...activeStack,feature])];const canonicalNext=canonicalFeatureStack(next);const valid=pool.some(a=>a.featureStackKey===canonicalNext.join('+'));const button=document.createElement('button');button.type='button';button.className='state-button';button.textContent=label;button.setAttribute('aria-pressed',String(active));button.disabled=!valid;button.title=valid?'Toggle this feature in the stack':'No captured asset for this stack in the selected context';button.addEventListener('click',()=>{if(valid){reconcile(side,{featureStackKey:canonicalNext.join('+')});render();}});group.append(button)}wrap.append(l,group);return wrap;}
-    function makeStateSelect(side,field,label){const values=optionsFor(side,field);if(!values.length)return null;const wrap=document.createElement('div');wrap.className='field';const l=document.createElement('label');l.textContent=label;const select=document.createElement('select');select.setAttribute('aria-label',__BT__\__DOLLAR__{side} \__DOLLAR__{label}__BT__);const selected=byId.get(state[side]);for(const o of values){const option=document.createElement('option');option.value=String(o.value);option.textContent=o.label;option.disabled=o.available===false;option.selected=String(o.value)===String(selected[field]);if(o.available===false)option.textContent+=' · unavailable';select.append(option)}select.addEventListener('change',()=>{const selectedOption=values.find(o=>String(o.value)===select.value);if(selectedOption){reconcile(side,{[field]:selectedOption.value});render();}});wrap.append(l,select);return wrap;}
-    function makeStateButtons(side,field,label){if(field==='featureStackKey')return makeStackButtons(side);const wrap=document.createElement('div');wrap.className='field';const l=document.createElement('label');l.textContent=label;const group=document.createElement('div');group.className='state-buttons';group.setAttribute('role','group');group.setAttribute('aria-label',__BT__\__DOLLAR__{side} \__DOLLAR__{label}__BT__);const values=optionsFor(side,field);const selected=byId.get(state[side]);for(const o of values){const button=document.createElement('button');button.type='button';button.className='state-button';button.textContent=o.label;button.disabled=o.available===false;button.title=o.available===false?'No captured asset for the selected LEFT/RIGHT context':'Select this asset value';button.setAttribute('aria-pressed',String(String(o.value)===String(selected[field])));button.addEventListener('click',()=>{reconcile(side,{[field]:o.value});render();});group.append(button)}wrap.append(l,group);return wrap;}
+    function makeStateSelect(side,field,label){const values=optionsFor(side,field);if(!values.length)return null;const wrap=document.createElement('div');wrap.className='field';const l=document.createElement('label');l.textContent=label;const group=document.createElement('div');group.className='state-buttons';group.setAttribute('role','group');group.setAttribute('aria-label',__BT__\__DOLLAR__{side} \__DOLLAR__{label}__BT__);const selected=byId.get(state[side]);for(const o of values){const button=document.createElement('button');button.type='button';button.className='state-button';button.textContent=o.label;button.disabled=!o.available;button.setAttribute('aria-pressed',String(String(o.value)===String(selected[field])));button.title=o.available?'Select this value':'No captured asset for this value in the selected context';button.addEventListener('click',()=>{if(o.available){reconcile(side,{[field]:o.value});render();}});group.append(button)}wrap.append(l,group);return wrap;}
+    function makeStateButtons(side,field,label){if(field==='featureStackKey')return makeStackButtons(side);const values=optionsFor(side,field);if(!values.length)return null;const wrap=document.createElement('div');wrap.className='field';const l=document.createElement('label');l.textContent=label;const group=document.createElement('div');group.className='state-buttons';group.setAttribute('role','group');group.setAttribute('aria-label',__BT__\__DOLLAR__{side} \__DOLLAR__{label}__BT__);const selected=byId.get(state[side]);for(const o of values){const button=document.createElement('button');button.type='button';button.className='state-button';button.textContent=o.label;button.disabled=o.available===false;button.title=o.available===false?'No captured asset for the selected LEFT/RIGHT context':'Select this asset value';button.setAttribute('aria-pressed',String(String(o.value)===String(selected[field])));button.addEventListener('click',()=>{reconcile(side,{[field]:o.value});render();});group.append(button)}wrap.append(l,group);return wrap;}
     const modifierFields=[['featureStackKey','Experimental feature stack'],['baseFilter','Base filter'],['blendStrength','Blend strength'],['learnedStrength','Learned strength'],['residualStrength','Residual strength'],['sharpeningMode','Sharpening'],['sharpeningStrength','Sharpen strength'],['toneConfiguration','Tone / exposure'],['experimentId','Experiment / configuration']];
     function makePanel(side){const a=byId.get(state[side]);const panel=document.createElement('article');panel.className='panel';panel.innerHTML=__BT__<div class="panel-head"><p class="panel-label">__DOLLAR__{side.toUpperCase()}</p><p class="panel-context">Choose the image context first. Advanced quality controls appear only when applicable.</p></div>__BT__;const selectors=document.createElement('div');selectors.className='selectors';for(const [f,l] of [['scene','Scene'],['inputResolution','Input resolution'],['outputResolution','Output resolution'],['technique','Upscale technique']]){const field=makeStateSelect(side,f,l);if(field)selectors.append(field);}panel.append(selectors);const applicable=modifierFields.filter(([f])=>optionsFor(side,f).length);if(applicable.length){const details=document.createElement('details');details.className='advanced-options';const summary=document.createElement('summary');summary.textContent='Advanced quality options';details.append(summary);const modifiers=document.createElement('div');modifiers.className='modifiers';for(const [f,l] of applicable)modifiers.append(makeStateButtons(side,f,l));details.append(modifiers);panel.append(details);}const meta=document.createElement('div');meta.className='result-meta';meta.innerHTML=__BT__<strong>__DOLLAR__{sceneLabel(a.scene)} <span class="badge">__DOLLAR__{techniqueLabels[a.technique]??a.technique}</span></strong>__DOLLAR__{a.inputResolution?__BT____DOLLAR__{valueLabel('inputResolution',a.inputResolution)} → __BT__:''}__DOLLAR__{valueLabel('outputResolution',a.outputResolution)} · actual pixels __DOLLAR__{valueLabel('imageResolution',a.imageResolution)}__BT__;const modifiersText=modifierFields.map(([f,l])=>a[f]===null||a[f]===undefined||a[f]===''?null:__BT____DOLLAR__{l}: __DOLLAR__{valueLabel(f,a[f])}__BT__).filter(Boolean);if(modifiersText.length)meta.innerHTML+=__BT__<br>__DOLLAR__{modifiersText.join(' · ')}__BT__;panel.append(meta);return panel;}
+    // Override the legacy panel renderer with native-mode-aware controls.
+    // Native input deliberately omits output resolution; native output
+    // deliberately omits input resolution. Every other method exposes both.
+    function makePanel(side){
+      const a=byId.get(state[side]);
+      const panel=document.createElement('article'); panel.className='panel';
+      panel.innerHTML=__BT__<div class="panel-head"><p class="panel-label">__DOLLAR__{side.toUpperCase()}</p><p class="panel-context">Both sides share the complete asset pool. Unavailable values are disabled.</p></div>__BT__;
+      const selectors=document.createElement('div'); selectors.className='selectors';
+      for(const [f,l] of [['scene','Scene'],['technique','Upscale technique'],['inputResolution','Input resolution'],['outputResolution','Output resolution']]){
+        // Native input has no output dimension and native output has no input
+        // dimension. Skip those controls entirely instead of rendering an
+        // empty or disabled-looking field that implies a choice exists.
+        if((a.technique==='native-input'&&f==='outputResolution') ||
+           (a.technique==='native-output'&&f==='inputResolution')) continue;
+        const field=makeStateSelect(side,f,l); if(field)selectors.append(field);
+      }
+      panel.append(selectors);
+      const applicable=modifierFields.filter(([f])=>optionsFor(side,f).length);
+      if(applicable.length){const details=document.createElement('details'); details.className='advanced-options'; const summary=document.createElement('summary'); summary.textContent='Advanced quality options'; details.append(summary); const modifiers=document.createElement('div'); modifiers.className='modifiers'; for(const [f,l] of applicable)modifiers.append(makeStateButtons(side,f,l)); details.append(modifiers); panel.append(details);}
+      const meta=document.createElement('div'); meta.className='result-meta';
+      const inputText=a.inputResolution?valueLabel('inputResolution',a.inputResolution)+' → ':'';
+      const outputText=a.outputResolution?valueLabel('outputResolution',a.outputResolution):'no output size';
+      meta.innerHTML=__BT__<strong>__DOLLAR__{sceneLabel(a.scene)} <span class="badge">__DOLLAR__{techniqueLabels[a.technique]??a.technique}</span></strong>__DOLLAR__{inputText}__DOLLAR__{outputText} · actual pixels __DOLLAR__{valueLabel('imageResolution',a.imageResolution)}__BT__;
+      const modifiersText=modifierFields.map(([f,l])=>a[f]===null||a[f]===undefined||a[f]===''?null:__BT____DOLLAR__{l}: __DOLLAR__{valueLabel(f,a[f])}__BT__).filter(Boolean); if(modifiersText.length)meta.innerHTML+=__BT__<br>__DOLLAR__{modifiersText.join(' · ')}__BT__;
+      panel.append(meta); return panel;
+    }
     function makeComparison(viewerMode=false){const left=byId.get(state.left),right=byId.get(state.right);const wrap=document.createElement('div');wrap.className=viewerMode?'viewer-compare':'compare-stage';wrap.style.setProperty('--split','50%');const before=document.createElement('img'),after=document.createElement('img');before.src=left.src;after.src=right.src;before.alt='LEFT: '+sceneLabel(left.scene);after.alt='RIGHT: '+sceneLabel(right.scene);before.className='compare-before';after.className='compare-after';const handle=document.createElement('div');handle.className='compare-handle';const range=document.createElement('input');range.type='range';range.min=0;range.max=100;range.value=50;range.className='compare-range';range.setAttribute('aria-label','Divider position between LEFT and RIGHT');let dragged=false;const setSplitFromEvent=e=>{const rect=wrap.getBoundingClientRect();const value=Math.max(0,Math.min(100,((e.clientX-rect.left)/rect.width)*100));range.value=String(value);wrap.style.setProperty('--split',value+'%');};const update=()=>wrap.style.setProperty('--split',range.value+'%');range.addEventListener('input',update);const start=e=>{dragged=false;wrap.setPointerCapture?.(e.pointerId);setSplitFromEvent(e);const move=event=>{dragged=true;setSplitFromEvent(event)};const end=()=>{wrap.removeEventListener('pointermove',move);wrap.removeEventListener('pointerup',end);wrap.removeEventListener('pointercancel',end)};wrap.addEventListener('pointermove',move);wrap.addEventListener('pointerup',end);wrap.addEventListener('pointercancel',end)};handle.addEventListener('pointerdown',e=>{e.preventDefault();start(e)});wrap.addEventListener('pointerdown',e=>{if(e.target===range||e.target===handle)return;start(e)});wrap.append(before,after,handle);
       // The lens owns no pointer events, so the divider remains draggable
       // beneath it. Ctrl-click is handled by the wrapper to turn it off.
@@ -424,11 +548,31 @@ const html = String.raw`<!doctype html>
       if(!current)return[];
       if(field==='featureStackKey')return stackOptions(side);
       const dimensionIndex=dimensionFields.indexOf(field);
+      // Native input has no output selection, and native output has no input
+      // selection. Their null dimension must not hide the other techniques;
+      // switching technique is allowed to reconcile the missing dimension to
+      // the first real asset for that technique.
+      if(current.technique==='native-input'&&field==='outputResolution')return[];
+      if(current.technique==='native-output'&&field==='inputResolution')return[];
       const context=assets.filter(asset=>dimensionFields.every(name=>(asset[name]??null)===(current[name]??null)));
       if(dimensionIndex<0 && !context.some(asset=>asset[field]!==null&&asset[field]!==undefined&&asset[field]!==''))return[];
-      const values=orderedValues(field,unique(assets,field));
+      const values=orderedValues(field,field==='inputResolution'? [...declaredInputResolutions] : field==='outputResolution' ? [...declaredOutputResolutions] : field==='technique' ? [...(declaredReviewMatrix.arms ?? []).map(arm=>arm.id)] : unique(assets,field));
       return values.map(value=>{
         const available=assets.some(asset=>{
+          if(field==='technique'){
+            // Native controls intentionally have a null counterpart
+            // dimension. They remain selectable from either a native or an
+            // upscaled context; only the non-native methods need to match the
+            // currently selected input/output pair.
+            if(value==='native-input'||value==='native-output')
+              return asset.scene===current.scene && asset.technique===value;
+            // Technique buttons are a shared pool, not a second dimension
+            // filter. Both panels must expose the same real methods for the
+            // selected scene, including while one panel is showing native
+            // input or native output. reconcile() immediately resolves the
+            // clicked method to an actual captured input/output asset.
+            return asset.scene===current.scene && asset.technique===value;
+          }
           if(dimensionIndex>=0){
             return dimensionFields.slice(0,dimensionIndex).every(name=>(asset[name]??null)===(current[name]??null)) && (asset[field]??null)===value;
           }
@@ -460,7 +604,10 @@ const html = String.raw`<!doctype html>
         images.forEach(image=>{
           image.style.width='100%';
           image.style.height='100%';
-          image.style.objectFit='fill';
+          // Preserve the source aspect ratio inside the shared intended
+          // canvas. Forcing fill stretches assets whose physical pixels do
+          // not exactly match the selected display canvas.
+          image.style.objectFit='contain';
         });
       };
       images.forEach(image=>image.addEventListener('load',apply,{once:true}));
@@ -477,19 +624,20 @@ const html = String.raw`<!doctype html>
 const rendered = html.replaceAll('__BT__','`').replaceAll('\\__DOLLAR__{','${').replaceAll('__DOLLAR__{','${')
   .replace('__EMBEDDED_ASSETS__', JSON.stringify(embeddedAssets))
   .replace('__ASSET_MANIFEST__', JSON.stringify(assetManifest));
+const renderedWithMatrix = rendered.replace('__REVIEW_MATRIX__', JSON.stringify(reviewMatrix));
 const marker = '__EXTERNAL_ASSETS__';
-const markerIndex = rendered.indexOf(marker);
+const markerIndex = renderedWithMatrix.indexOf(marker);
 if (markerIndex < 0) throw new Error('Could not find external asset placeholder');
 const fd = fs.openSync(output, 'w');
 try {
-  fs.writeSync(fd, rendered.slice(0, markerIndex));
+  fs.writeSync(fd, renderedWithMatrix.slice(0, markerIndex));
   fs.writeSync(fd, '[');
   externalAssets.forEach((asset, index) => {
     if (index) fs.writeSync(fd, ',');
     fs.writeSync(fd, JSON.stringify(asset));
   });
   fs.writeSync(fd, ']');
-  fs.writeSync(fd, rendered.slice(markerIndex + marker.length));
+  fs.writeSync(fd, renderedWithMatrix.slice(markerIndex + marker.length));
 } finally {
   fs.closeSync(fd);
 }

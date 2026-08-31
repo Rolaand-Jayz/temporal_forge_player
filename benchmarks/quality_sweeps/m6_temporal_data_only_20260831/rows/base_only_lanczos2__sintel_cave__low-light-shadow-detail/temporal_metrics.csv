@@ -1,0 +1,2 @@
+candidateId,scene,configId,startFrame,endFrame,class,frames,width,height,static_flicker,edge_variance,motion_compensated_error,ghost_duration_frames,reset_recovery_frames
+base_only_lanczos2,sintel_cave,benchmarks/quality_sweeps/stage_b/base_only_lanczos2.json,48,65,low-light-shadow-detail,18,1920,1080,0.003426381,0.000002587,0.014590904,0,1

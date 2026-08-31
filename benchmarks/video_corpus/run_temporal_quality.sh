@@ -19,6 +19,15 @@ if (( $# < 4 || $# > 5 )); then
     exit 2
 fi
 
+# Fail closed on the old, non-existent spelling. Without this guard a typo
+# would silently run fallback motion while its caller believed a dense replay
+# was being measured. The player and this runner use the canonical dense-motion
+# variable below.
+if [[ -n "${TFORGE_FSR4_EXPERIMENTAL_DENSE_MOTION_REPLAY:-}" ]]; then
+    printf 'use the canonical dense-motion variable TFORGE_FSR4_EXPERIMENTAL_DENSE_MOTION\n' >&2
+    exit 2
+fi
+
 player="$(realpath "$1")"
 input="$(realpath "$2")"
 reference="$(realpath "$3")"
@@ -39,6 +48,7 @@ artifact_dir="${TFORGE_TEMPORAL_ARTIFACT_DIR:-}"
 # Optional: set this to retain the temporary tree only when the run fails.
 failure_artifact_dir="${TFORGE_TEMPORAL_FAILURE_ARTIFACT_DIR:-}"
 runner_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+repo_dir="$(cd -- "$runner_dir/../.." && pwd)"
 temporal_motion_json="${TFORGE_TEMPORAL_MOTION_JSON:-}"
 temporal_metrics_output="${TFORGE_TEMPORAL_METRICS_CSV:-}"
 temporal_class="${TFORGE_TEMPORAL_CLASS:-}"
@@ -51,6 +61,16 @@ temporal_scene="${TFORGE_TEMPORAL_SCENE:-}"
 temporal_config_id="${TFORGE_TEMPORAL_CONFIG_ID:-}"
 temporal_start_frame="${TFORGE_TEMPORAL_START_FRAME:-}"
 temporal_analysis_frame_indices="${TFORGE_TEMPORAL_ANALYSIS_FRAME_INDICES:-}"
+# M6 also evaluates spatial-control candidates across real multi-frame
+# sequences to detect temporal regressions. Those candidates intentionally use
+# base_only; require an explicit opt-in so ordinary temporal captures cannot
+# silently become spatial-only controls.
+allow_spatial_temporal_control="${TFORGE_ALLOW_SPATIAL_TEMPORAL_CONTROL:-}"
+# Capture this opt-out before clearing the inherited variable. The player
+# enables best-findings behavior by default, so a raw arm must carry an
+# explicit, provenance-visible switch instead of inheriting caller state.
+disable_best_findings="${TFORGE_FSR4_DISABLE_BEST_FINDINGS:-}"
+unset TFORGE_FSR4_DISABLE_BEST_FINDINGS
 temporal_motion_export=0
 temporal_event_trace_export=0
 reject_existing_output() {
@@ -69,6 +89,54 @@ reject_existing_output "$temporal_motion_json"
 reject_existing_output "$temporal_metrics_output"
 reject_existing_output "$temporal_events_json"
 
+# An explicitly supplied dense replay is diagnostic evidence, not an optional
+# hint. Validate its capture-relative frame coverage before starting the player
+# so a partial sidecar cannot fall through to cleared/codec motion and still
+# emit apparently valid metrics. Normal captures never enter this check.
+validate_dense_motion_replay() {
+    local replay_path="$1"
+    python3 - "$replay_path" "$frames" <<'PY'
+import json
+import os
+import sys
+
+path = sys.argv[1]
+expected_frames = int(sys.argv[2])
+try:
+    with open(path, encoding="utf-8") as handle:
+        document = json.load(handle)
+except (OSError, json.JSONDecodeError) as error:
+    print(f"dense motion replay cannot be read: {path}: {error}", file=sys.stderr)
+    raise SystemExit(2)
+
+frames = document.get("frames") if isinstance(document, dict) else None
+if not isinstance(frames, list):
+    print(f"dense motion replay has no frames array: {path}", file=sys.stderr)
+    raise SystemExit(2)
+
+indices = []
+for item in frames:
+    if isinstance(item, dict) and isinstance(item.get("frameIndex"), int) and not isinstance(item.get("frameIndex"), bool):
+        indices.append(item["frameIndex"])
+required = set(range(expected_frames))
+available = set(indices)
+missing = sorted(required - available)
+duplicates = sorted(index for index in available if indices.count(index) > 1)
+if missing or duplicates:
+    details = []
+    if missing:
+        details.append("missing=" + ",".join(map(str, missing)))
+    if duplicates:
+        details.append("duplicate=" + ",".join(map(str, duplicates)))
+    print(
+        "dense motion replay does not cover all required relative frames "
+        f"({'; '.join(details)}): {path}",
+        file=sys.stderr,
+    )
+    raise SystemExit(2)
+PY
+}
+
 if [[ -n "$temporal_motion_json" ]]; then
     temporal_motion_export=1
 fi
@@ -83,6 +151,16 @@ fi
     printf 'frames must be a positive integer\n' >&2
     exit 2
 }
+# Validate this after the ordinary argument checks so malformed runner
+# arguments retain their existing error contract.
+if [[ -n "${TFORGE_FSR4_EXPERIMENTAL_DENSE_MOTION:-}" ]]; then
+    [[ -s "$TFORGE_FSR4_EXPERIMENTAL_DENSE_MOTION" ]] || {
+        printf 'dense motion replay sidecar must exist: %s\n' \
+            "$TFORGE_FSR4_EXPERIMENTAL_DENSE_MOTION" >&2
+        exit 2
+    }
+    validate_dense_motion_replay "$TFORGE_FSR4_EXPERIMENTAL_DENSE_MOTION"
+fi
 [[ "$temporal_warmup_frames" =~ ^[0-9]+$ ]] || {
     printf 'TFORGE_TEMPORAL_WARMUP_FRAMES must be a non-negative integer\n' >&2
     exit 2
@@ -95,12 +173,33 @@ fi
     printf 'TFORGE_TEMPORAL_CAPTURE_TIMEOUT must be a positive integer\n' >&2
     exit 2
 }
-for tool in ffmpeg identify; do
+for tool in ffmpeg ffprobe identify; do
     command -v "$tool" >/dev/null || {
         printf 'required tool not found: %s\n' "$tool" >&2
         exit 1
     }
 done
+
+# Preserve the source cadence for the captured FSR sequence and both spatial
+# controls. The old fixed 30-fps conversion duplicated 24-fps frames at
+# different positions in the candidate/reference streams, making temporal
+# comparisons frame-misaligned. Prefer average stream rate, then fall back to
+# nominal stream rate for inputs that do not expose an average rate.
+temporal_rate_ratio="$(ffprobe -v error -select_streams v:0 \
+    -show_entries stream=avg_frame_rate -of csv=p=0 "$input" | tr -d '\r' | head -n 1)"
+if [[ ! "$temporal_rate_ratio" =~ ^[1-9][0-9]*/[1-9][0-9]*$ ]]; then
+    temporal_rate_ratio="$(ffprobe -v error -select_streams v:0 \
+        -show_entries stream=r_frame_rate -of csv=p=0 "$input" | tr -d '\r' | head -n 1)"
+fi
+[[ "$temporal_rate_ratio" =~ ^[1-9][0-9]*/[1-9][0-9]*$ ]] || {
+    printf 'input stream must expose a positive rational frame rate\n' >&2
+    exit 1
+}
+temporal_rate="$(awk -F/ '{printf "%.12g", $1 / $2}' <<< "$temporal_rate_ratio")"
+[[ "$temporal_rate" != "0" && "$temporal_rate" != "-nan" ]] || {
+    printf 'input stream frame rate could not be converted: %s\n' "$temporal_rate_ratio" >&2
+    exit 1
+}
 
 tmpdir="$(mktemp -d)"
 benchmark_config_home="$(mktemp -d "${TMPDIR:-/tmp}/tforge-temporal-config.XXXXXX")"
@@ -109,10 +208,66 @@ cp "$runner_dir/benchmark_settings.json" \
     "$benchmark_config_home/temporal-forge-player/settings.json"
 # Do not let an interactive checkout-level Quality Lab selection silently
 # rewrite the campaign's Current FSR arm. Callers may still provide an
-# explicit experiment file; absent that, this deliberately nonexistent path
-# makes the player load its typed disabled defaults. Upstream: the caller's
-# TFORGE_QUALITY_LAB_CONFIG. Downstream: PlaybackEngine's postpass selection.
-benchmark_quality_lab_config="${TFORGE_QUALITY_LAB_CONFIG:-$benchmark_config_home/temporal-forge-player/quality_lab.json}"
+# explicit experiment file. Otherwise materialize the repository's validated
+# config into the isolated benchmark home; a missing file makes the player
+# fall back to different typed defaults and can abort headless capture.
+# Upstream: config/quality_lab.json or the caller's explicit override.
+# Downstream: PlaybackEngine's postpass selection and the retained provenance.
+if [[ -n "${TFORGE_QUALITY_LAB_CONFIG:-}" ]]; then
+    benchmark_quality_lab_config="$TFORGE_QUALITY_LAB_CONFIG"
+else
+    benchmark_quality_lab_config="$benchmark_config_home/temporal-forge-player/quality_lab.json"
+    cp "$runner_dir/../../config/quality_lab.json" "$benchmark_quality_lab_config"
+fi
+
+# A temporal quality capture must publish the temporal composition, not one of
+# the spatial-control branches. The repository checkout currently uses
+# base_only for spatial sweeps, so accepting that default here would produce a
+# valid-looking capture whose pixels cannot respond to motion or history. Fail
+# before launching the player and require the caller to select current,
+# learned_only, direct_blend, or another temporal composition explicitly.
+validate_temporal_quality_config() {
+    local config_path="$1"
+python3 - "$config_path" <<'PY'
+import json
+import os
+import sys
+
+path = sys.argv[1]
+try:
+    with open(path, encoding="utf-8") as handle:
+        document = json.load(handle)
+except (OSError, json.JSONDecodeError) as error:
+    print(f"temporal quality config cannot be read: {path}: {error}", file=sys.stderr)
+    raise SystemExit(2)
+
+try:
+    quality_lab = document["qualityLab"]
+    mode = quality_lab.get("composition", {}).get("mode")
+except (KeyError, TypeError, AttributeError):
+    print(f"temporal quality config has no qualityLab composition mode: {path}", file=sys.stderr)
+    raise SystemExit(2)
+
+if mode is None:
+    if not (quality_lab.get("enabled") is False and os.environ.get("TFORGE_ALLOW_SPATIAL_TEMPORAL_CONTROL") == "1"):
+        print(f"temporal quality config has no qualityLab composition mode: {path}", file=sys.stderr)
+        raise SystemExit(2)
+    # The M6 current control deliberately disables Quality Lab and exercises
+    # the native current path. Its temporal use is explicit and recorded by
+    # the same opt-in that permits base-only regression controls.
+    mode = "current"
+
+if mode == "base_only" and os.environ.get("TFORGE_ALLOW_SPATIAL_TEMPORAL_CONTROL") != "1":
+    print(
+        "temporal capture requires a temporal composition unless "
+        "TFORGE_ALLOW_SPATIAL_TEMPORAL_CONTROL=1 is explicitly set; "
+        f"base_only is spatial-only: {path}",
+        file=sys.stderr,
+    )
+    raise SystemExit(2)
+PY
+}
+validate_temporal_quality_config "$benchmark_quality_lab_config"
 
 # Keep failure diagnostics opt-in. The ordinary successful path still removes
 # the temporary directory, while an explicitly requested failure directory
@@ -166,6 +321,16 @@ trap cleanup_temporal_tmpdir EXIT
 sequence_dir="$tmpdir/fsr"
 mkdir -p "$sequence_dir"
 
+# Retain the source stream's exact color and geometry metadata beside each
+# successful artifact. Upstream: the decoded input file and ffprobe. Downstream:
+# color-space A/B analysis, where an unknown stream tag must remain visible
+# instead of being mistaken for a known Rec.709/PQ/HLG source.
+ffprobe -v error -select_streams v:0 \
+    -show_entries stream=codec_name,codec_long_name,width,height,pix_fmt,\
+color_range,color_space,color_transfer,color_primaries,field_order,\
+avg_frame_rate,r_frame_rate,time_base \
+    -of json "$input" > "$tmpdir/source_stream_metadata.json"
+
 # Keep the metric commands identical apart from optional FFmpeg worker count.
 # This is a benchmark scheduling control, not an image-processing change.
 run_ffmpeg() {
@@ -189,9 +354,14 @@ player_environment=(
 if (( temporal_motion_export )); then
     player_environment+=("TFORGE_FSR4_DUMP_MOTION_SIDECAR=1")
 fi
+if [[ -n "$disable_best_findings" ]]; then
+    player_environment+=("TFORGE_FSR4_DISABLE_BEST_FINDINGS=$disable_best_findings")
+fi
 if [[ -n "${TFORGE_DISABLE_HW_DECODE:-}" ]]; then
     player_environment+=("TFORGE_DISABLE_HW_DECODE=$TFORGE_DISABLE_HW_DECODE")
 fi
+# Keep the generic-graph A/B honest: this switch must reach the player,
+# otherwise the runner silently captures the native INT8 graph instead.
 for name in \
     TFORGE_FSR4_RE_ROOT \
     TFORGE_FSR4_POSTPASS_TRACE \
@@ -215,6 +385,7 @@ for name in \
     TFORGE_FSR4_DISABLE_FUSED_INT8 \
     TFORGE_FSR4_ENABLE_FUSED_INT8 \
     TFORGE_FSR4_CHAIN_PASSES \
+    TFORGE_FSR4_TRUE_FSR1_EASU \
     TFORGE_FSR4_EXPERIMENTAL_SINGLE_HISTORY_BLEND \
     TFORGE_FSR4_EXPERIMENTAL_RESTORE_DOUBLE_HISTORY_BLEND \
     TFORGE_FSR4_EXPERIMENTAL_LEGACY_ROUND \
@@ -223,6 +394,7 @@ for name in \
     TFORGE_FSR4_EXPERIMENTAL_MOTION_SCALE \
     TFORGE_FSR4_EXPERIMENTAL_MOTION_ROUNDING \
     TFORGE_FSR4_EXPERIMENTAL_HISTORY_INTERPOLATION \
+    TFORGE_FSR4_EXPERIMENTAL_HISTORY_JITTER_DELTA \
     TFORGE_FSR4_EXPERIMENTAL_RECURRENT_RESET_ONLY \
     TFORGE_FSR4_EXPERIMENTAL_MOTION_SIGN \
     TFORGE_FSR4_EXPERIMENTAL_MOTION_SCALE \
@@ -256,21 +428,81 @@ for name in \
     TFORGE_FSR4_DISPATCH_TRACE \
     TFORGE_FSR4_DUMP_DECODER \
     TFORGE_FSR4_DUMP_DECODER_FRAME \
+    TFORGE_FSR4_DUMP_PREFINAL \
+    TFORGE_FSR4_DUMP_PREFINAL_CHANNELS \
+    TFORGE_FSR4_DUMP_RAW \
+    TFORGE_FSR4_DUMP_RAW_PATH \
+    TFORGE_FSR4_DUMP_MODEL_INPUT \
     TFORGE_FSR4_DUMP_PREPASS_INPUT \
+    TFORGE_FSR4_DUMP_OUTPUT \
+    TFORGE_FSR4_DUMP_OUTPUT_FRAME \
+    TFORGE_FSR4_DUMP_OUTPUT_PATH \
+    TFORGE_FSR4_DUMP_MOTION_TEXTURE \
+    TFORGE_FSR4_DUMP_MOTION_DIR \
+    TFORGE_FSR4_DUMP_REPROJECTED_COLOR \
+    TFORGE_FSR4_DUMP_MOTION_SEEDS \
+    TFORGE_FSR4_DUMP_PRESENTATION \
+    TFORGE_FSR4_DUMP_PRESENTATION_PATH \
     TFORGE_FSR4_ENABLE_RECURRENT \
     TFORGE_FSR4_CAS_STRENGTH \
+    TFORGE_ALLOW_SPATIAL_TEMPORAL_CONTROL \
     TFORGE_FSR4_LEGACY_RCAS_STRENGTH \
     TFORGE_FSR4_LEARNED_STRENGTH \
     TFORGE_FSR4_ADAPTIVE_LEARNED_STRENGTH \
     TFORGE_FSR4_DISABLE_LEARNED_CONFIDENCE_GATE \
     TFORGE_FSR4_LEARNED_CONFIDENCE_BLEND \
+    TFORGE_FSR4_LEARNED_CONFIDENCE_FLOOR \
     TFORGE_FSR4_HISTORY_CONFIDENCE_THRESHOLD \
     TFORGE_FSR4_MOTION_CONFIDENCE_REACTIVE \
     TFORGE_FSR4_EXPERIMENTAL_MOTION_MAX_BLOCKS \
+    TFORGE_FSR4_EXPERIMENTAL_MOTION_ANALYSIS_WIDTH \
     TFORGE_FSR4_EXPERIMENTAL_REFINE_MOTION \
+    TFORGE_FSR4_MOTION_ESTIMATOR \
+    TFORGE_FSR4_MOTION_REFINEMENT_SCALE \
+    TFORGE_FSR4_MOTION_SEARCH_RADIUS \
+    TFORGE_FSR4_MOTION_MAX_REFINED_SEEDS \
+    TFORGE_FSR4_MOTION_CONFIDENCE_THRESHOLD \
+    TFORGE_FSR4_MOTION_SCENE_CUT_THRESHOLD \
+    TFORGE_FSR4_MOTION_EDGE_AWARE \
+    TFORGE_FSR4_MOTION_FALLBACK_AFTER_FILTERING \
+    TFORGE_FSR4_MOTION_DENSE_GRID \
+    TFORGE_FSR4_MOTION_REJECT_B_FRAMES \
+    TFORGE_FSR4_MOTION_ALLOW_B_FRAMES \
+    TFORGE_FSR4_EXPERIMENTAL_PREVIOUS_REFERENCE_ONLY \
     TFORGE_FSR4_MOTION_REFINE_RADIUS \
+    TFORGE_FSR4_MOTION_MAX_CORRECTION \
+    TFORGE_FSR4_MOTION_MIN_ERROR_IMPROVEMENT \
+    TFORGE_FSR4_MOTION_MIN_ERROR_MARGIN \
+    TFORGE_FSR4_EXPERIMENTAL_DENSE_MOTION \
+    TFORGE_FSR4_EXPERIMENTAL_DENSE_MOTION_HYBRID \
+    TFORGE_FSR4_EXPERIMENTAL_DENSE_MOTION_REPLAY \
+    TFORGE_FSR4_EXPERIMENTAL_VALIDATE_MOTION \
+    TFORGE_FSR4_MOTION_VALIDATION_MAX_ERROR \
+    TFORGE_FSR4_EXPERIMENTAL_MOTION_CONFIDENCE_MAP \
+    TFORGE_FSR4_EXPERIMENTAL_CONFIDENCE_ORDERED_MOTION \
+    TFORGE_FSR4_EXPERIMENTAL_PHOTOMETRIC_HISTORY_GATE \
+    TFORGE_FSR4_DISABLE_PHOTOMETRIC_HISTORY_GATE \
+    TFORGE_FSR4_EXPERIMENTAL_UNJITTERED_MOTION_SAMPLE \
+    TFORGE_FSR4_EXPERIMENTAL_JITTERED_MOTION_SAMPLE \
+    TFORGE_FSR4_EXPERIMENTAL_PREPASS_JITTER_ORDERING \
+    TFORGE_FSR4_EXPERIMENTAL_SOURCE_TAP_MULAW \
+    TFORGE_FSR4_EXPERIMENTAL_CURRENT_INVALID_HISTORY \
+    TFORGE_FSR4_MOTION_CONFIDENCE_SCALE \
+    TFORGE_FSR4_MOTION_ABLATION \
+    TFORGE_FSR4_EXPERIMENTAL_RECURRENT_CURRENT_COORD \
     TFORGE_FSR4_EXPERIMENTAL_REPLACE_MOTION \
     TFORGE_FSR4_EXPERIMENTAL_BLOCK_MOTION \
+    TFORGE_FSR4_EXPERIMENTAL_BLOCK_MOTION_RADIUS \
+    TFORGE_FSR4_EXPERIMENTAL_BLOCK_MOTION_COARSE_TO_FINE \
+    TFORGE_FSR4_EXPERIMENTAL_BLOCK_MOTION_BLOCK_SIZE \
+    TFORGE_FSR4_EXPERIMENTAL_BIDIRECTIONAL_MOTION \
+    TFORGE_FSR4_EXPERIMENTAL_FUTURE_EVIDENCE_ONLY \
+    TFORGE_FSR4_EXPERIMENTAL_DISPLAY_INTERPOLATED \
+    TFORGE_FSR4_EXPERIMENTAL_INTERPOLATED_JITTER \
+    TFORGE_FSR4_EXPERIMENTAL_FUTURE_ALIGNED_JITTER \
+    TFORGE_FSR4_FUTURE_ALIGN_PHOTOMETRIC_THRESHOLD \
+    TFORGE_FSR4_EXPERIMENTAL_INTERPOLATION_DENSE_MOTION \
+    TFORGE_FSR4_ENABLE_HW_ANALYSIS_LUMA \
     TFORGE_FSR4_ENABLE_EXPERIMENTAL_CONFIDENCE_GATE \
     TFORGE_FSR4_EXPERIMENTAL_EMPTY_MOTION_CONFIDENCE \
     TFORGE_FSR4_DISABLE_MOTION_VALIDITY \
@@ -285,20 +517,33 @@ for name in \
     TFORGE_FSR4_FP16_FINAL_SCALAR \
     TFORGE_FSR4_FP8_SCALE \
     TFORGE_FSR4_FP8_ROUNDING \
+    TFORGE_FSR4_FP16_FP8_BOUNDARY \
     TFORGE_FSR4_FP8_DECODE_BIAS \
     TFORGE_FSR4_RE_ROOT \
     TFORGE_FSR4_COOP_MAX_STEP \
     TFORGE_FSR4_MAX_STEPS \
     TFORGE_FSR4_HDR_OUTPUT \
     TFORGE_FSR4_JITTER_MODE \
+    TFORGE_FSR4_JITTER_SIGN \
+    TFORGE_FSR4_INTEGRATED_TEMPORAL \
+    TFORGE_FSR4_INTEGRATED_HISTORY_CONFIDENCE \
+    TFORGE_FSR4_INTEGRATED_BEST_FINDINGS \
+    TFORGE_FSR4_INTEGRATED_BEST_FINDINGS_JITTER \
     TFORGE_FSR4_CONTROLLED_JITTER \
     TFORGE_FSR4_JITTER_SEQUENCE \
     TFORGE_FSR4_JITTER_CADENCE \
+    TFORGE_FSR4_EXPERIMENTAL_FULL_JITTER \
     TFORGE_FSR4_PROFILE_TIMINGS \
+    TFORGE_FSR4_PROFILE_UPLOAD \
     TFORGE_FSR4_LOG_INTERVAL \
     TFORGE_FSR4_TRACE_STAGE_CONFIG \
     TFORGE_FSR4_TRACE_FINAL_PIPELINE \
-    TFORGE_FSR4_EXPERIMENTAL_FIXED_HISTORY_WEIGHT; do
+    TFORGE_FSR4_EXPERIMENTAL_DISABLE_RESIDUAL_QUANTIZATION \
+    TFORGE_FSR4_EXPERIMENTAL_FIXED_HISTORY_WEIGHT \
+    TFORGE_FSR4_HISTORY_RECTIFICATION_SCALE \
+    TFORGE_FSR4_PRE_EASU \
+    TFORGE_FSR4_TRUE_FSR1_EASU \
+    TFORGE_FSR4_DISABLE_FUSED_PRESENTATION; do
     if [[ -n "${!name:-}" ]]; then
         player_environment+=("$name=${!name}")
     fi
@@ -324,11 +569,46 @@ if (( temporal_motion_export )); then
         "TFORGE_FSR4_DUMP_MOTION_DIR=$sequence_dir"
     )
 fi
+if [[ -n "${TFORGE_FSR4_DUMP_MOTION_TEXTURE:-}" ]]; then
+    # Dense motion diagnostics are part of the retained artifact, not a
+    # temporary player dump. Keeping them beside the scored frames makes the
+    # motion-field validation reproducible after the capture process exits.
+    player_environment+=("TFORGE_FSR4_DUMP_MOTION_DIR=${artifact_dir:-$sequence_dir}")
+fi
 if (( temporal_event_trace_export )); then
     player_environment+=(
         "TFORGE_FSR4_DUMP_EVENT_TRACE=1"
         "TFORGE_FSR4_DUMP_EVENT_DIR=$sequence_dir"
     )
+fi
+# Retained quality artifacts must state the exact environment that the runner
+# forwarded to the player. This is the authoritative provenance for temporal
+# flags such as color history, recurrence, jitter, and motion ablations; it
+# prevents an omitted or misspelled variable from being mistaken for a tested
+# configuration. The list contains only the runner's explicit allowlist and
+# benchmark paths, never the caller's full environment.
+if [[ -n "$artifact_dir" ]]; then
+    mkdir -p "$artifact_dir"
+    # Preserve the exact resolved Quality Lab input beside the capture. The
+    # isolated benchmark config home is intentionally temporary, but the
+    # retained artifact must remain independently reproducible after cleanup.
+    cp "$benchmark_quality_lab_config" "$artifact_dir/quality_lab.json"
+    printf '%s\n' "$benchmark_quality_lab_config" > "$artifact_dir/quality_lab_source.txt"
+    printf '%s\n' "${player_environment[@]}" |
+        LC_ALL=C sort > "$artifact_dir/player_environment.txt"
+    # Retain enough identity to reproduce an A/B instead of relying on a
+    # mutable branch name. Upstream: the exact executable, input, reference,
+    # repository tree, and runner arguments. Downstream: campaign review and
+    # comparison tools that must reject mismatched captures.
+    sha256sum "$player" | awk '{print $1}' > "$artifact_dir/binary_sha256.txt"
+    sha256sum "$input" | awk '{print $1}' > "$artifact_dir/input_sha256.txt"
+    sha256sum "$reference" | awk '{print $1}' > "$artifact_dir/reference_sha256.txt"
+    git -C "$repo_dir" rev-parse HEAD > "$artifact_dir/git_commit.txt"
+    git -C "$repo_dir" diff --no-ext-diff --binary |
+        sha256sum | awk '{print $1}' > "$artifact_dir/worktree_diff_sha256.txt"
+    printf '%q ' "$0" "$player" "$input" "$reference" "$output" "$frames" |
+        sed 's/[[:space:]]*$//' > "$artifact_dir/capture_command.txt"
+    printf '\n' >> "$artifact_dir/capture_command.txt"
 fi
 
 set +e
@@ -464,37 +744,44 @@ if (( temporal_event_trace_export )); then
         --output "$temporal_events_json"
 fi
 
-run_ffmpeg -hide_banner -loglevel error -framerate 30 \
+run_ffmpeg -hide_banner -loglevel error -framerate "$temporal_rate" \
     -i "$sequence_dir/temporal_forge_fsr4_%04d.ppm" -frames:v "$frames" \
     -c:v ffv1 -level 3 -g 1 "$tmpdir/fsr.mkv"
 if (( temporal_warmup_frames > 0 )); then
-    temporal_reference_filter="select=gte(n\\,${temporal_warmup_frames}),scale=${output_width}:${output_height}:flags=lanczos,setsar=1,setpts=N/30/TB"
+    temporal_reference_filter="select=gte(n\\,${temporal_warmup_frames}),scale=${output_width}:${output_height}:flags=lanczos,setsar=1,setpts=N/${temporal_rate}/TB"
 else
-    temporal_reference_filter="scale=${output_width}:${output_height}:flags=lanczos,setsar=1,setpts=N/30/TB"
+    temporal_reference_filter="scale=${output_width}:${output_height}:flags=lanczos,setsar=1,setpts=N/${temporal_rate}/TB"
 fi
 run_ffmpeg -hide_banner -loglevel error -i "$reference" -frames:v "$frames" \
     -vf "$temporal_reference_filter" \
-    -an -r 30 -c:v ffv1 -level 3 -g 1 "$tmpdir/reference.mkv"
+    -an -c:v ffv1 -level 3 -g 1 "$tmpdir/reference.mkv"
 run_ffmpeg -hide_banner -loglevel error -i "$input" -frames:v "$frames" \
     -vf "$temporal_reference_filter" \
-    -an -r 30 -c:v ffv1 -level 3 -g 1 "$tmpdir/lanczos.mkv"
+    -an -c:v ffv1 -level 3 -g 1 "$tmpdir/lanczos.mkv"
 if (( temporal_warmup_frames > 0 )); then
-    temporal_bilinear_filter="select=gte(n\\,${temporal_warmup_frames}),scale=${output_width}:${output_height}:flags=bilinear,setsar=1,setpts=N/30/TB"
+    temporal_bilinear_filter="select=gte(n\\,${temporal_warmup_frames}),scale=${output_width}:${output_height}:flags=bilinear,setsar=1,setpts=N/${temporal_rate}/TB"
 else
-    temporal_bilinear_filter="scale=${output_width}:${output_height}:flags=bilinear,setsar=1,setpts=N/30/TB"
+    temporal_bilinear_filter="scale=${output_width}:${output_height}:flags=bilinear,setsar=1,setpts=N/${temporal_rate}/TB"
 fi
 run_ffmpeg -hide_banner -loglevel error -i "$input" -frames:v "$frames" \
     -vf "$temporal_bilinear_filter" \
-    -an -r 30 -c:v ffv1 -level 3 -g 1 "$tmpdir/bilinear.mkv"
+    -an -c:v ffv1 -level 3 -g 1 "$tmpdir/bilinear.mkv"
 
 mkdir -p "$(dirname "$output")"
+# The capture and reference files can carry different YUV pixel formats and
+# range metadata: the FSR dump is commonly full-range RGB-derived output while
+# the source/reference controls may be limited-range YUV.  Normalize every
+# legacy SSIM input through the same explicit full-range planar RGB path so a
+# range conversion is not counted as reconstruction error.  This is measurement
+# plumbing only; it does not alter the captured images or the player pipeline.
+metric_normalize_filter='scale=in_range=auto:out_range=full:flags=bilinear,format=gbrp'
 ssim_log="$tmpdir/ssim.log"
 run_ffmpeg -hide_banner -i "$tmpdir/fsr.mkv" -i "$tmpdir/reference.mkv" \
-    -lavfi '[0:v][1:v]ssim=stats_file=/dev/stderr' -f null - 2> "$ssim_log"
+    -lavfi "[0:v]${metric_normalize_filter}[metric_fsr];[1:v]${metric_normalize_filter}[metric_reference];[metric_fsr][metric_reference]ssim=stats_file=/dev/stderr" -f null - 2> "$ssim_log"
 fsr_ssim="$(awk -F'All:' '/All:/ {sum += $2; n++} END {if (n) printf "%.6f", sum/n; else print "0"}' "$ssim_log")"
 lanczos_log="$tmpdir/lanczos_ssim.log"
 run_ffmpeg -hide_banner -i "$tmpdir/lanczos.mkv" -i "$tmpdir/reference.mkv" \
-    -lavfi '[0:v][1:v]ssim=stats_file=/dev/stderr' -f null - 2> "$lanczos_log"
+    -lavfi "[0:v]${metric_normalize_filter}[metric_lanczos];[1:v]${metric_normalize_filter}[metric_reference];[metric_lanczos][metric_reference]ssim=stats_file=/dev/stderr" -f null - 2> "$lanczos_log"
 lanczos_ssim="$(awk -F'All:' '/All:/ {sum += $2; n++} END {if (n) printf "%.6f", sum/n; else print "0"}' "$lanczos_log")"
 
 temporal_delta_mean() {
@@ -614,6 +901,7 @@ if [[ -n "$artifact_dir" ]]; then
     cp "$sequence_dir"/temporal_forge_fsr4_*.ppm "$artifact_dir/fsr_frames/"
     cp "$tmpdir/fsr.mkv" "$tmpdir/reference.mkv" "$tmpdir/lanczos.mkv" \
         "$tmpdir/bilinear.mkv" "$artifact_dir/"
+    cp "$tmpdir/source_stream_metadata.json" "$artifact_dir/"
     cp "$ssim_log" "$lanczos_log" "$fsr_delta_log" "$reference_delta_log" \
         "$lanczos_delta_log" "$bilinear_delta_log" "$artifact_dir/"
     if [[ -n "$temporal_motion_json$temporal_metrics_output$temporal_class" ]]; then

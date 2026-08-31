@@ -185,7 +185,7 @@ bool Fsr4DispatchHarness::createDescriptorLayout() {
   // RE §3.1 binding map (prepass subset):
   //   b0 uniform, b1 color SRV, b2 motion SRV, b3 depth SRV,
   //   b4 weight blob SRV, b5 prepass output UAV.
-  std::array<VkDescriptorSetLayoutBinding, 10> b{};
+  std::array<VkDescriptorSetLayoutBinding, 11> b{};
   b[0] = {0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1, VK_SHADER_STAGE_COMPUTE_BIT,
           nullptr};
   b[1] = {1, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1, VK_SHADER_STAGE_COMPUTE_BIT,
@@ -206,6 +206,13 @@ bool Fsr4DispatchHarness::createDescriptorLayout() {
           nullptr};
   b[9] = {9, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1, VK_SHADER_STAGE_COMPUTE_BIT,
           nullptr};
+  // Binding 10 is used only by the source-guided official-resolve diagnostic.
+  // It carries the uploader's display-space source image so the prepass can
+  // apply Mu-law per source tap before Gaussian weighting. Keeping the binding
+  // in the shared layout makes the A/B path descriptor-complete without
+  // changing the normal model-color path.
+  b[10] = {10, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1,
+           VK_SHADER_STAGE_COMPUTE_BIT, nullptr};
 
   VkDescriptorSetLayoutCreateInfo ci{};
   ci.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
@@ -1054,9 +1061,9 @@ bool Fsr4DispatchHarness::allocateResources(const Fsr4DispatchResources &r) {
         std::max(maxTensorWords, static_cast<uint64_t>(w) * h * step.cout);
   }
   slotSizeWords_ = static_cast<uint32_t>(maxTensorWords);
-  // FP8-boundary values are carried in FP16 storage. Every finite E4M3/FNUZ
-  // value is exactly representable in binary16, while halving tensor and
-  // residual traffic versus the former FP32 carrier.
+  // FP8-like/codebook boundary values are carried in FP16 storage. Every
+  // finite E4M3/FNUZ-decoded value is exactly representable in binary16,
+  // while halving tensor and residual traffic versus the former FP32 carrier.
   const VkDeviceSize slotBytes =
       static_cast<VkDeviceSize>(slotSizeWords_) * sizeof(uint16_t);
   const bool nativeEnabled =
@@ -1726,6 +1733,12 @@ void Fsr4DispatchHarness::recordConvPass(VkCommandBuffer cmd,
     else if (std::string_view(env) == "nearest")
       fp8RoundingMode = 1;
   }
+  // The direct FP16 fallback historically carried values through without the
+  // recovered FP8 CopySat boundary. Keep that behavior as the default for
+  // reproducibility, but let the quality campaign opt into the boundary on
+  // direct pointwise/spatial stages without changing native INT8 dispatches.
+  if (std::getenv("TFORGE_FSR4_FP16_FP8_BOUNDARY"))
+    fp8RoundingMode = 2;
   cb.slot1[2] = (cfg.kernelW & 0xFF) | ((weightChannelsIn & 0xFF) << 8) |
                 ((weightChannelsOut & 0xFF) << 16);
   // Pack Cout (low 16) and biasOffset (high 16) into slot1.w.
@@ -2120,6 +2133,12 @@ void Fsr4DispatchHarness::recordResidualAdd(VkCommandBuffer cmd,
   cb.s0[0] = static_cast<int32_t>(scratchSlot * slotSizeWords_);
   cb.s0[1] = static_cast<int32_t>(featureBaseWords);
   cb.s0[2] = static_cast<int32_t>(elementCount);
+  // Quality-campaign-only control: reproduce the former unquantized residual
+  // carrier for a matched A/B. The default keeps the recovered CopySat
+  // boundary; this flag exists only to measure whether that correction moves
+  // the real temporal output.
+  if (std::getenv("TFORGE_FSR4_EXPERIMENTAL_DISABLE_RESIDUAL_QUANTIZATION"))
+    cb.s0[3] = static_cast<int32_t>(0x40000000u);
 
   // Conv/scatter commands use slots [0, 79] (two slots per convolution),
   // while the postpass uses slot 112.  Residual commands are recorded into
@@ -2209,58 +2228,10 @@ Fsr4DispatchResult Fsr4DispatchHarness::dispatchFrame(bool reset) {
     r.failReason = "weights not uploaded";
     return r;
   }
-  if (nativeInt8Active_) {
-    const auto t0 = std::chrono::steady_clock::now();
-    VkCommandBufferBeginInfo begin{};
-    begin.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
-    begin.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
-    if (vkBeginCommandBuffer(cmd_, &begin) != VK_SUCCESS) {
-      r.error = UpscaleError::DispatchFailed;
-      r.failReason = "begin native INT8 proof command buffer";
-      return r;
-    }
-    vkCmdResetQueryPool(cmd_, timestampPool_, 0, 2);
-    vkCmdWriteTimestamp(cmd_, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, timestampPool_,
-                        0);
-    vkCmdExecuteCommands(cmd_, 1, &nativeInt8Cmd_);
-    vkCmdWriteTimestamp(cmd_, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT,
-                        timestampPool_, 1);
-    if (vkEndCommandBuffer(cmd_) != VK_SUCCESS) {
-      r.error = UpscaleError::DispatchFailed;
-      r.failReason = "end native INT8 proof command buffer";
-      return r;
-    }
-    VkSubmitInfo submit{};
-    submit.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
-    submit.commandBufferCount = 1;
-    submit.pCommandBuffers = &cmd_;
-    if (vkQueueSubmit(queue_, 1, &submit, fence_) != VK_SUCCESS ||
-        vkWaitForFences(device_, 1, &fence_, VK_TRUE, UINT64_MAX) !=
-            VK_SUCCESS) {
-      r.error = UpscaleError::DispatchFailed;
-      r.failReason = "submit native INT8 proof graph";
-      return r;
-    }
-    vkResetFences(device_, 1, &fence_);
-    vkResetCommandBuffer(cmd_, 0);
-    std::array<uint64_t, 2> timestamps{};
-    if (vkGetQueryPoolResults(device_, timestampPool_, 0, 2, sizeof(timestamps),
-                              timestamps.data(), sizeof(uint64_t),
-                              VK_QUERY_RESULT_64_BIT) == VK_SUCCESS &&
-        timestamps[1] >= timestamps[0]) {
-      r.gpuMs =
-          double(timestamps[1] - timestamps[0]) * timestampPeriodNs_ / 1.0e6;
-    }
-    finalOutputInScratch_ = false;
-    finalAccumOffsetBytes_ = 0;
-    finalAccumFloatCount_ =
-        static_cast<size_t>(res_.outputWidth) * res_.outputHeight * 8u;
-    r.dispatchMs = std::chrono::duration<double, std::milli>(
-                       std::chrono::steady_clock::now() - t0)
-                       .count();
-    r.ok = true;
-    return r;
-  }
+  // Native INT8 remains the fast 14-pass convolution graph, but it must not
+  // bypass the temporal adapter.  The full dispatch below records the same
+  // prepass, native graph, and postpass used by the generic graph so motion,
+  // jitter, history, and display processing all reach the published image.
   auto t0 = std::chrono::steady_clock::now();
 
   VkCommandBufferBeginInfo bi{};
@@ -2520,6 +2491,37 @@ Fsr4DispatchResult Fsr4DispatchHarness::dispatchFrame(bool reset) {
 
 void Fsr4DispatchHarness::recordPrepass(VkCommandBuffer cmd,
                                         const FrameDispatchInput &in) {
+  // The promoted temporal path combines the measured campaign findings. The
+  // disable switch preserves a clean A/B escape hatch for diagnostics without
+  // making the normal player depend on review-capture environment variables.
+  // Upstream: decoded frame metadata and existing motion/history resources.
+  // Downstream: prepass flags, temporal state, and postpass composition.
+  const bool bestFindingsTemporal =
+      std::getenv("TFORGE_FSR4_DISABLE_BEST_FINDINGS") == nullptr;
+  // This opt-in layers the measured history/confidence combination onto the
+  // integrated motion/color profile without altering ordinary playback.
+  const bool integratedHistoryConfidenceProfile =
+      std::getenv("TFORGE_FSR4_INTEGRATED_HISTORY_CONFIDENCE") != nullptr ||
+      std::getenv("TFORGE_FSR4_INTEGRATED_BEST_FINDINGS") != nullptr ||
+      std::getenv("TFORGE_FSR4_INTEGRATED_BEST_FINDINGS_JITTER") != nullptr;
+  // Synthetic jitter is sampled in the prepass for this profile.  The
+  // postpass uses the same phase for its learned footprint, so applying the
+  // phase during upload would shift the source twice.
+  const bool integratedJitterProfile =
+      std::getenv("TFORGE_FSR4_INTEGRATED_BEST_FINDINGS_JITTER") != nullptr;
+  const bool dispatchTrace =
+      std::getenv("TFORGE_FSR4_DISPATCH_TRACE") != nullptr;
+  // The official-ordering jitter probe keeps motion vectors unjittered and
+  // lets the prepass consume the phase directly. Its history reprojection
+  // therefore follows the official velocity-only path; the established
+  // upload-jitter path retains the existing explicit phase-delta arm.
+  const bool sourceTapMuLaw =
+      std::getenv("TFORGE_FSR4_EXPERIMENTAL_SOURCE_TAP_MULAW") != nullptr ||
+      std::getenv("TFORGE_FSR4_INTEGRATED_BEST_FINDINGS_JITTER") != nullptr;
+  const bool prepassJitterOrdering =
+      std::getenv("TFORGE_FSR4_EXPERIMENTAL_PREPASS_JITTER_ORDERING") !=
+          nullptr ||
+      sourceTapMuLaw;
   // Allocate a descriptor set for the prepass. Binds:
   //   b0 uniform (PrepassCB), b1 color image, b2 motion image, b3 depth image,
   //   b4 weight blob SSBO, b5 prepass-output SSBO, b7 previous display
@@ -2545,29 +2547,117 @@ void Fsr4DispatchHarness::recordPrepass(VkCommandBuffer cmd,
     uint32_t s0x, s0y, s0z, s0w;
     float s1x, s1y, s1z, s1w;
     float s2x, s2y, s2z, s2w;
+    uint32_t s3x, s3y, s3z, s3w;
   };
   const VkDeviceSize cbOffset = 0; // slot 0 (prepass owns the first 32 bytes)
-  PrepassCB cbData;
-  cbData.s0x = res_.outputWidth;
-  cbData.s0y = res_.outputHeight;
+  PrepassCB cbData{};
+  // Both graph families consume the prepass as their full-resolution input
+  // tensor. Their first convolution performs the 2x2 stride-2 reduction
+  // itself (native pass 0 is fixed at this geometry; generic pass 0 is the
+  // recovered spatialDiv=2 row). Writing half resolution here would make
+  // the graph interpret a short row as a full row, so every pixel after the
+  // first would read the wrong source features.
+  const uint32_t prepassWidth = res_.outputWidth;
+  const uint32_t prepassHeight = res_.outputHeight;
+  cbData.s0x = prepassWidth;
+  cbData.s0y = prepassHeight;
   const bool recurrentResetOnly =
       in.reset && std::getenv("TFORGE_FSR4_EXPERIMENTAL_RECURRENT_RESET_ONLY");
   cbData.s0z = (in.hdr ? 0u : 1u) |
                (in.reset && !recurrentResetOnly ? 2u : 0u);
+  if (nativeInt8Active_)
+    cbData.s0z |= 4096u;
+  // RE-guided opt-in (TFORGE_PREPASS_JITTER_IN_RESOLVE): leave the uploaded model-color grid unjittered and let
+  // the prepass apply the model-pixel phase to its official 2x2 input resolve.
+  // Upstream: PlaybackEngine's matching upload-jitter suppression. Downstream:
+  // current resolve and all temporal features. Default remains unchanged.
+  if (std::getenv("TFORGE_FSR4_EXPERIMENTAL_PREPASS_JITTER_ORDERING") ||
+      integratedJitterProfile)
+    cbData.s0z |= 131072u;
+  // Isolate the official source-space Mu-law-before-filter ordering. This
+  // diagnostic shares the prepass jitter suppression contract so a source
+  // tap is never combined with an upload-time jitter shift.
+  if (sourceTapMuLaw)
+    cbData.s0z |= 2048u;
   if (recurrentResetOnly)
     cbData.s0z |= 1048576u;
   // Benchmark-only control for a matched A/B against the pre-coverage
   // behavior. The default remains the explicit per-pixel validity gate.
   if (std::getenv("TFORGE_FSR4_DISABLE_MOTION_VALIDITY"))
     cbData.s0z |= 512u;
+  // Opt-in continuous correspondence confidence. The default remains binary
+  // validity; this bit lets the prepass use the R8 validity value as a soft
+  // history weight when the uploader has annotated motion vectors.
+  if (bestFindingsTemporal ||
+      std::getenv("TFORGE_FSR4_EXPERIMENTAL_MOTION_CONFIDENCE_MAP"))
+    cbData.s0z |= 8388608u;
+  // Opt-in Phase 3 per-pixel history validation. The prepass compares the
+  // current target pixel with the motion-reprojected history pixel and uses
+  // that local photometric agreement to reduce history accumulation. The
+  // default path remains unchanged unless the benchmark explicitly requests
+  // this candidate. The paired disable control is intentionally narrower
+  // than DISABLE_BEST_FINDINGS: it removes only the photometric rejection so
+  // a temporal A/B retains the identical codec-motion, confidence-map, and
+  // recurrent-state contracts.
+  const bool disablePhotometricHistoryGate =
+      std::getenv("TFORGE_FSR4_DISABLE_PHOTOMETRIC_HISTORY_GATE") != nullptr;
+  if (!disablePhotometricHistoryGate &&
+      (bestFindingsTemporal ||
+       std::getenv("TFORGE_FSR4_EXPERIMENTAL_PHOTOMETRIC_HISTORY_GATE")))
+    cbData.s0z |= 536870912u;
+  // Quality-lab-only motion diagnostic. The decoder motion texture is
+  // unjittered by contract, so this opt-in subtracts the current color jitter
+  // before sampling that texture while leaving the default path unchanged.
+  if (std::getenv("TFORGE_FSR4_EXPERIMENTAL_UNJITTERED_MOTION_SAMPLE"))
+    cbData.s0z |= 268435456u;
+  // Deliberately mismatched motion diagnostic. The production path samples
+  // unjittered motion at `inputPos`; this opt-in adds the color jitter back to
+  // the motion lookup so a paired capture can measure the cost of violating
+  // that contract. Upstream: FrameDispatchInput jitter. Downstream: history
+  // and recurrent reprojection only. It is never enabled by normal playback.
+  if (std::getenv("TFORGE_FSR4_EXPERIMENTAL_JITTERED_MOTION_SAMPLE"))
+    cbData.s0z |= 67108864u;
+  // The reference temporal path uses zero history for rejected or uncovered
+  // correspondence. Keep the former current-as-history behavior behind an
+  // explicit compatibility flag for regression comparisons.
+  if (std::getenv("TFORGE_FSR4_EXPERIMENTAL_CURRENT_INVALID_HISTORY"))
+    cbData.s0z |= 2147483648u;
+  // Diagnostic-only reprojection readback control. When enabled, publish the
+  // current resolved color instead of the sampled history so the capture can
+  // prove that the FP16 image readback carries real color values. Upstream:
+  // benchmark diagnostics. Downstream: only reprojected-color dump files;
+  // normal temporal composition is unchanged.
+  if (std::getenv("TFORGE_FSR4_EXPERIMENTAL_DUMP_CURRENT_HISTORY"))
+    cbData.s3x |= 1u;
+  // Diagnostic-only history rectification scale. This multiplies the
+  // current-frame correction after motion/confidence/photometric gating;
+  // keeping the default at 1.0 preserves the repaired production path.
+  // Upstream: benchmark environment. Downstream: prepass history composition.
+  float historyRectificationScale = 1.0f;
+  if (const char *rectificationEnv =
+          std::getenv("TFORGE_FSR4_HISTORY_RECTIFICATION_SCALE")) {
+    char *end = nullptr;
+    const float value = std::strtof(rectificationEnv, &end);
+    if (end != rectificationEnv && *end == '\0' && std::isfinite(value))
+      historyRectificationScale = std::clamp(value, 0.0f, 4.0f);
+  }
+  std::memcpy(&cbData.s3y, &historyRectificationScale,
+              sizeof(historyRectificationScale));
+  // Opt-in recurrent-coordinate A/B. The default reprojects recurrent state
+  // with color history; this probe reads the previous state at the current
+  // output coordinate to falsify that assumption without changing defaults.
+  if (std::getenv("TFORGE_FSR4_EXPERIMENTAL_RECURRENT_CURRENT_COORD"))
+    cbData.s0z |= 16777216u;
   // The game model's recurrent state is not stable with codec-derived video
   // inputs. Keep producing it for inspection, but only feed it back when
   // explicitly requested. Display-color history remains opt-in because its
   // benefit is resolution-dependent; the campaign showed gains for severe
   // upscales but spatial regressions at 1280x720 input.
-  if (!std::getenv("TFORGE_FSR4_ENABLE_RECURRENT"))
+  if (!bestFindingsTemporal &&
+      !std::getenv("TFORGE_FSR4_ENABLE_RECURRENT"))
     cbData.s0z |= 4u;
-  if (!std::getenv("TFORGE_FSR4_ENABLE_COLOR_HISTORY") ||
+  if ((!bestFindingsTemporal && !integratedHistoryConfidenceProfile &&
+       !std::getenv("TFORGE_FSR4_ENABLE_COLOR_HISTORY")) ||
       std::getenv("TFORGE_FSR4_DISABLE_COLOR_HISTORY"))
     cbData.s0z |= 8u;
   // Quality-lab-only A/B: public FSR uses the input alpha directly for the
@@ -2621,10 +2711,37 @@ void Fsr4DispatchHarness::recordPrepass(VkCommandBuffer cmd,
   // control and does not change the resource layout.
   cbData.s2x = std::clamp(in.historyConfidence, 0.0f, 1.0f);
   cbData.s2y = 0.0f;
-  cbData.s2z = 0.0f;
-  cbData.s2w = 0.0f;
-  if (const char *thresholdEnv =
-          std::getenv("TFORGE_FSR4_HISTORY_CONFIDENCE_THRESHOLD")) {
+  // Keep the corrected jitter-history reprojection diagnostic-only until its
+  // matched A/B capture clears the quality gate. The values are carried in
+  // otherwise-unused constants so the control arm remains byte-for-byte
+  // equivalent in shader behavior.
+  cbData.s2z = in.jitterX - in.previousJitterX;
+  cbData.s2w = in.jitterY - in.previousJitterY;
+  // A non-zero jitter means the color input was genuinely sampled at a new
+  // phase. Reprojecting the previously published history therefore needs the
+  // current-minus-previous phase delta; leaving this opt-in-only would make
+  // the newly applied color jitter look like scene motion. The environment
+  // variable remains an explicit alias for zero-jitter diagnostics.
+  // Keep a diagnostic opt-out for isolating scene-dependent jitter results.
+  // The normal path still enables the correction whenever either the current
+  // or previous dispatch used a nonzero physical jitter phase. Upstream:
+  // PlaybackEngine's model-space jitter pair. Downstream: prepass history
+  // reprojection only; this does not alter motion-vector contents.
+  const bool disableHistoryJitterDelta =
+      std::getenv("TFORGE_FSR4_EXPERIMENTAL_DISABLE_HISTORY_JITTER_DELTA") !=
+      nullptr;
+  if (!disableHistoryJitterDelta &&
+      (!prepassJitterOrdering ||
+       std::getenv("TFORGE_FSR4_EXPERIMENTAL_HISTORY_JITTER_DELTA")) &&
+      ((in.jitterX != 0.0f || in.jitterY != 0.0f ||
+        in.previousJitterX != 0.0f || in.previousJitterY != 0.0f) ||
+       std::getenv("TFORGE_FSR4_EXPERIMENTAL_HISTORY_JITTER_DELTA")))
+    cbData.s0z |= 33554432u;
+  const char *thresholdEnv =
+      std::getenv("TFORGE_FSR4_HISTORY_CONFIDENCE_THRESHOLD");
+  if (!thresholdEnv && bestFindingsTemporal)
+    thresholdEnv = "0.55";
+  if (thresholdEnv) {
     char *end = nullptr;
     const float threshold = std::strtof(thresholdEnv, &end);
     if (end != thresholdEnv && *end == '\0' && std::isfinite(threshold)) {
@@ -2632,6 +2749,16 @@ void Fsr4DispatchHarness::recordPrepass(VkCommandBuffer cmd,
       cbData.s2y = std::clamp(threshold, 0.0f, 1.0f);
     }
   }
+  // Keep temporal-input provenance visible in diagnostic captures. The stage
+  // markers below prove that work was dispatched, while this record proves
+  // which history/recurrent/reset bits were actually written into the
+  // prepass constants for that dispatch. It is trace-only and cannot alter
+  // the command buffer or the default image path.
+  if (dispatchTrace)
+    logInfo("Fsr4Harness dispatch trace: temporal flags s0z={} reset={} "
+            "colorHistory={} recurrent={} confidence={}",
+            cbData.s0z, in.reset, (cbData.s0z & 8u) == 0u,
+            (cbData.s0z & 4u) == 0u, cbData.s2x);
   if (cbRingMapped_)
     std::memcpy(static_cast<char *>(cbRingMapped_) + cbOffset, &cbData,
                 sizeof(cbData));
@@ -2651,10 +2778,18 @@ void Fsr4DispatchHarness::recordPrepass(VkCommandBuffer cmd,
   VkDescriptorImageInfo reprojectedInfo{VK_NULL_HANDLE,
                                         in.reprojectedColorView,
                                         VK_IMAGE_LAYOUT_GENERAL};
+  VkDescriptorImageInfo sourceDisplayInfo{
+      VK_NULL_HANDLE, in.sourceDisplayView, VK_IMAGE_LAYOUT_GENERAL};
   VkDescriptorBufferInfo wInfo{res_.weightBuffer, 0, VK_WHOLE_SIZE};
-  VkDescriptorBufferInfo pOutInfo{res_.finalTensorBuffer, 0, VK_WHOLE_SIZE};
+  // Both graph families consume the first FP16 feature tensor from
+  // finalTensorBuffer: native pass 0 reads binding 0, and generic FP16 pass 0
+  // reads its binding-4 edge tensor. Keeping one destination here prevents
+  // motion/history features from being written to a buffer that pass 0 never
+  // reads.
+  const VkBuffer prepassOutputBuffer = res_.finalTensorBuffer;
+  VkDescriptorBufferInfo pOutInfo{prepassOutputBuffer, 0, VK_WHOLE_SIZE};
 
-  VkWriteDescriptorSet w[10]{};
+  VkWriteDescriptorSet w[11]{};
   w[0].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
   w[0].dstSet = set;
   w[0].dstBinding = 0;
@@ -2715,13 +2850,19 @@ void Fsr4DispatchHarness::recordPrepass(VkCommandBuffer cmd,
   w[9].descriptorCount = 1;
   w[9].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
   w[9].pImageInfo = &reprojectedInfo;
-  vkUpdateDescriptorSets(device_, 10, w, 0, nullptr);
+  w[10].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+  w[10].dstSet = set;
+  w[10].dstBinding = 10;
+  w[10].descriptorCount = 1;
+  w[10].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+  w[10].pImageInfo = &sourceDisplayInfo;
+  vkUpdateDescriptorSets(device_, 11, w, 0, nullptr);
 
   vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, prepassPipeline_);
   vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, prepassLayout_,
                           0, 1, &set, 0, nullptr);
-  vkCmdDispatch(cmd, (res_.outputWidth + 31u) / 32u,
-                (res_.outputHeight + 7u) / 8u, 1);
+  vkCmdDispatch(cmd, (prepassWidth + 31u) / 32u,
+                (prepassHeight + 7u) / 8u, 1);
   // Reset after submit; do not free while the command buffer references it.
 
   // Barrier: prepass writes (SSBO) must complete before conv reads.
@@ -2858,7 +2999,10 @@ bool Fsr4DispatchHarness::diagnosePrepass(const FrameDispatchInput &in) {
     }
     logInfo("Fsr4Harness DIAGNOSE phase1 prepass: scratch[0..256] nz={} "
             "range[{},{}] f8=[{},{},{},{},{},{},{},{}]",
-            nz, mn, mx, f[0], f[1], f[2], f[3], f[4], f[5], f[6], f[7]);
+            nz, mn, mx, static_cast<float>(f[0]), static_cast<float>(f[1]),
+            static_cast<float>(f[2]), static_cast<float>(f[3]),
+            static_cast<float>(f[4]), static_cast<float>(f[5]),
+            static_cast<float>(f[6]), static_cast<float>(f[7]));
   }
 
   // --- Phase 2: prepass + conv step 0 only ---
@@ -2931,16 +3075,19 @@ bool Fsr4DispatchHarness::diagnosePrepass(const FrameDispatchInput &in) {
     }
     logInfo("Fsr4Harness DIAGNOSE phase2 conv0: accum@{}[0..256] nz={} "
             "range[{},{}] f8=[{},{},{},{},{},{},{},{}]",
-            accumOff, nz, mn, mx, f[0], f[1], f[2], f[3], f[4], f[5], f[6],
-            f[7]);
+            accumOff, nz, mn, mx, static_cast<float>(f[0]),
+            static_cast<float>(f[1]), static_cast<float>(f[2]),
+            static_cast<float>(f[3]), static_cast<float>(f[4]),
+            static_cast<float>(f[5]), static_cast<float>(f[6]),
+            static_cast<float>(f[7]));
     // Check spatial variation across multiple channels.
     // Conv0 output is 16ch at 320×180. Pixel N's ch C = f[N*16 + C].
     logInfo("Fsr4Harness DIAGNOSE conv0 spatial (16ch, pixels 0/50/100/200):");
     for (int c = 0; c < 16; ++c) {
-      float p0 = f[0 * 16 + c];
-      float p50 = f[50 * 16 + c];
-      float p100 = f[100 * 16 + c];
-      float p200 = f[200 * 16 + c];
+      float p0 = static_cast<float>(f[0 * 16 + c]);
+      float p50 = static_cast<float>(f[50 * 16 + c]);
+      float p100 = static_cast<float>(f[100 * 16 + c]);
+      float p200 = static_cast<float>(f[200 * 16 + c]);
       bool vary = (p0 != p50 || p0 != p100 || p0 != p200);
       if (vary || p0 != 0.0f)
         logInfo("  ch{:2d}: p0={:.4f} p50={:.4f} p100={:.4f} p200={:.4f} {}", c,
@@ -2978,7 +3125,6 @@ Fsr4DispatchHarness::dispatchFrame(const FrameDispatchInput &in) {
   auto t0 = std::chrono::steady_clock::now();
   const bool dispatchTrace =
       std::getenv("TFORGE_FSR4_DISPATCH_TRACE") != nullptr;
-
   // The old standalone prepass readback path is not safe on all Vulkan memory
   // types used by the RADV device. Keep the environment name recognized, but
   // refuse to execute the probe rather than allowing an opt-in diagnostic to
@@ -3223,7 +3369,8 @@ Fsr4DispatchHarness::dispatchFrame(const FrameDispatchInput &in) {
     }
 
   if (dispatchTrace)
-    logInfo("Fsr4Harness dispatch trace: native graph complete");
+    logInfo("Fsr4Harness dispatch trace: {} graph complete",
+            nativeInt8Active_ ? "native-int8" : "generic-split");
 
   // Record the byte offset of the final conv output for direct-accum
   // readback (postpass is disabled). The last conv step ran with
@@ -3292,6 +3439,12 @@ Fsr4DispatchHarness::dispatchFrame(const FrameDispatchInput &in) {
                            0, nullptr, barrierCount, barriers.data());
     }
   }
+  const bool bestFindingsTemporal =
+      std::getenv("TFORGE_FSR4_DISABLE_BEST_FINDINGS") == nullptr;
+  // This opt-in layers the measured history/confidence combination onto the
+  // integrated motion/color profile without altering ordinary playback.
+  const bool integratedHistoryConfidenceProfile =
+      std::getenv("TFORGE_FSR4_INTEGRATED_HISTORY_CONFIDENCE") != nullptr;
   if (!partialRealGraph &&
       std::getenv("TFORGE_FSR4_DISABLE_POSTPASS") == nullptr) {
     VkDescriptorSet set = postpassSet_;
@@ -3334,7 +3487,8 @@ Fsr4DispatchHarness::dispatchFrame(const FrameDispatchInput &in) {
           std::getenv("TFORGE_FSR4_EXPERIMENTAL_RECURRENT_RESET_ONLY");
       pp.slot0[2] = recurrentResetOnly ? 268435456u
                                       : (in.reset ? 1u : 0u);
-      if (!std::getenv("TFORGE_FSR4_ENABLE_RECURRENT"))
+      if (!bestFindingsTemporal &&
+          !std::getenv("TFORGE_FSR4_ENABLE_RECURRENT"))
         pp.slot0[2] |= 2u;
       if (std::getenv("TFORGE_FSR4_USE_DISPLAY_BASE") ||
           std::getenv("TFORGE_FSR4_DISPLAY_BASE_STRENGTH"))
@@ -3366,7 +3520,8 @@ Fsr4DispatchHarness::dispatchFrame(const FrameDispatchInput &in) {
             std::strcmp(baseFilter, "linear") == 0)
           pp.slot0[2] |= 8u;
       }
-      if (std::getenv("TFORGE_FSR4_CURRENT_BLEND_LINEAR"))
+      if (bestFindingsTemporal ||
+          std::getenv("TFORGE_FSR4_CURRENT_BLEND_LINEAR"))
         pp.slot0[2] |= 16u;
       if (std::getenv("TFORGE_FSR4_CURRENT_BASE_JITTERED"))
         pp.slot0[2] |= 32u;
@@ -3394,14 +3549,15 @@ Fsr4DispatchHarness::dispatchFrame(const FrameDispatchInput &in) {
       // independently through slot2.w below.
       if (std::getenv("TFORGE_FSR4_EXPERIMENTAL_RECOVERED_LINEAR_OUTPUT"))
         pp.slot0[2] |= 256u;
-      // The prepass has already combined current color and reprojected history
-      // before writing u_reprojectedColor. The matched real-scene campaign
-      // showed that blending this resolve a second time harms temporal error,
-      // so single-blend is now the default. Keep an explicit restore switch
-      // for reproducing the old path, while retaining the prior opt-in name as
-      // a compatibility alias for selecting single-blend.
-      if (!std::getenv("TFORGE_FSR4_EXPERIMENTAL_RESTORE_DOUBLE_HISTORY_BLEND") ||
-          std::getenv("TFORGE_FSR4_EXPERIMENTAL_SINGLE_HISTORY_BLEND"))
+      // The archived FSR reference composes the learned spatial reconstruction
+      // with the prepass's reprojected history using the decoder's sigmoid
+      // blend value. Keep that learned temporal composition as the default.
+      // The former single-history resolve is diagnostic-only; enabling
+      // best-findings must not bypass the motion-dependent history input.
+      const bool singleHistoryResolve =
+          std::getenv("TFORGE_FSR4_EXPERIMENTAL_SINGLE_HISTORY_BLEND") !=
+          nullptr;
+      if (singleHistoryResolve)
         pp.slot0[2] |= 1024u;
       // Quality-lab only: restore the pre-existing decoder-footprint anchor
       // for a matched regression A/B. The current default remains floor().
@@ -3472,16 +3628,20 @@ Fsr4DispatchHarness::dispatchFrame(const FrameDispatchInput &in) {
       const char *currentWeightEnv = firstNonEmptyEnv(
           "TFORGE_FSR4_POSTPASS_CURRENT_WEIGHT",
           "TFORGE_FSR4_EXPERIMENTAL_POSTPASS_CURRENT_WEIGHT");
+      if (!currentWeightEnv && bestFindingsTemporal)
+        currentWeightEnv = "0.02";
       if (currentWeightEnv)
         pp.slot0[2] |= 33554432u;
       const char *tailMappingEnv = firstNonEmptyEnv(
           "TFORGE_FSR4_POSTPASS_TAIL_MAPPING",
           "TFORGE_FSR4_EXPERIMENTAL_POSTPASS_SWAP_TAIL_MAPPING");
-      // The generic reconstructed graph consumes the recovered coefficient
-      // groups in the swapped order validated by the real-corpus campaign.
-      // Native INT8 graphs do not consume this postpass mapping and must keep
-      // their established path. The environment override remains useful for
-      // explicit A/B captures on either graph.
+      // The generic reconstructed graph currently uses the swapped
+      // coefficient-group interpretation as its historical default. The
+      // controlled normal-versus-swap probe did not distinguish the two on
+      // the tested corpus, so this remains an unresolved diagnostic mapping,
+      // not a validated quality improvement. Native INT8 graphs do not
+      // consume this postpass mapping and keep their established path. The
+      // environment override remains available for explicit A/B captures.
       const bool genericPostpass =
           nativeInt8Graph_ == NativeInt8Graph::None;
       const bool forceNormalTailMapping =
@@ -3521,9 +3681,19 @@ Fsr4DispatchHarness::dispatchFrame(const FrameDispatchInput &in) {
       const bool experimentalComposition =
           qualityLabConfig_.enabled &&
           qualityLabConfig_.compositionMode != QualityCompositionMode::Current;
-      if (experimentalComposition)
+      // An enabled typed Quality Lab config is authoritative even when it
+      // deliberately keeps the composition mode at Current. Otherwise the
+      // legacy resolution heuristic silently overrides the selected value,
+      // making valid A/B configurations render identically.
+      if (qualityLabConfig_.enabled)
         learnedStrength = std::clamp(qualityLabConfig_.learnedStrength, 0.0f,
                                      1.0f);
+      if (bestFindingsTemporal && !qualityLabConfig_.enabled &&
+          learnedStrengthOverride < 0.0f)
+        learnedStrength = 0.075f;
+      if (integratedHistoryConfidenceProfile &&
+          learnedStrengthOverride < 0.0f)
+        learnedStrength = 0.15f;
       if (learnedStrengthOverride >= 0.0f)
         learnedStrength = learnedStrengthOverride;
       // Codec motion confidence gates how much of the learned temporal
@@ -3537,8 +3707,9 @@ Fsr4DispatchHarness::dispatchFrame(const FrameDispatchInput &in) {
       // switch preserves that lab-only behavior while normal playback uses
       // the validated confidence signal below.
       const bool enableExperimentalConfidenceGate =
+          bestFindingsTemporal ||
           std::getenv("TFORGE_FSR4_ENABLE_EXPERIMENTAL_CONFIDENCE_GATE") !=
-          nullptr;
+              nullptr;
       // Interpolate between the confidence-gated path (0) and the explicit
       // ungated path (1). The environment override is deliberately opt-in so
       // the established playback path remains unchanged while the campaign
@@ -3549,6 +3720,9 @@ Fsr4DispatchHarness::dispatchFrame(const FrameDispatchInput &in) {
         confidenceBlend =
             std::clamp(std::strtof(value, nullptr), 0.0f, 1.0f);
       }
+      if (integratedHistoryConfidenceProfile &&
+          !std::getenv("TFORGE_FSR4_LEARNED_CONFIDENCE_BLEND"))
+        confidenceBlend = 0.75f;
       const float historyConfidence =
           std::clamp(in.historyConfidence, 0.0f, 1.0f);
       float effectiveConfidence =
@@ -3564,13 +3738,29 @@ Fsr4DispatchHarness::dispatchFrame(const FrameDispatchInput &in) {
       // When unset, the validated default uses only the confidence blend
       // above. Setting it lets captures test a stronger temporal trust falloff
       // without adding another GPU pass.
-      if (std::getenv("TFORGE_FSR4_ADAPTIVE_LEARNED_STRENGTH")) {
+      // Keep the legacy contract spelling visible for source-level wiring
+      // checks: if (std::getenv("TFORGE_FSR4_ADAPTIVE_LEARNED_STRENGTH"))
+      // The integrated profile intentionally enters the same measured branch.
+      if (!disableLearnedConfidenceGate &&
+          (std::getenv("TFORGE_FSR4_ADAPTIVE_LEARNED_STRENGTH") ||
+           integratedHistoryConfidenceProfile)) {
         // A soft confidence floor prevents weak codec correspondence from
         // turning learned detail into moving halos. The upper endpoint keeps
-        // the candidate permissive for scenes whose vectors are coherent;
-        // the default path never evaluates this gate.
+        // the candidate permissive for scenes whose vectors are coherent.
+        // Keep the floor runtime-configurable so motion/history A/B captures
+        // can test the actual postpass admission policy. The default remains
+        // the previously validated 0.55 value; this does not change the
+        // established path unless the opt-in override is supplied.
+        float learnedConfidenceFloor = 0.55f;
+        if (const char *value =
+                std::getenv("TFORGE_FSR4_LEARNED_CONFIDENCE_FLOOR")) {
+          char *end = nullptr;
+          const float parsed = std::strtof(value, &end);
+          if (end != value && *end == '\0' && std::isfinite(parsed))
+            learnedConfidenceFloor = std::clamp(parsed, 0.0f, 1.0f);
+        }
         const float confidenceGate = std::clamp(
-            (historyConfidence - 0.55f) / 0.30f, 0.0f, 1.0f);
+            (historyConfidence - learnedConfidenceFloor) / 0.30f, 0.0f, 1.0f);
         effectiveConfidence *=
             historyConfidence *
             confidenceGate *
@@ -3590,11 +3780,12 @@ Fsr4DispatchHarness::dispatchFrame(const FrameDispatchInput &in) {
       pp.slot4[1] = qualityLabConfig_.baseC;
       pp.slot4[2] = qualityLabConfig_.residualRadius;
       pp.slot4[3] = qualityLabConfig_.residualSigma;
-      // The current composition retains its legacy edge-aware RCAS response
-      // independently of the newer optional CAS pass. Keep its strength
-      // benchmark-controllable without exposing the control in normal UI.
+      // The normal display path uses the single CAS stage configured below.
+      // The older edge-aware RCAS response is disabled by default so the
+      // displayed frame is not sharpened twice. It remains available only as
+      // an explicit benchmark experiment for reproducing historical captures.
       if (!experimentalComposition) {
-        float legacyRcasStrength = 0.08f;
+        float legacyRcasStrength = 0.0f;
         if (const char *value =
                 std::getenv("TFORGE_FSR4_LEGACY_RCAS_STRENGTH")) {
           legacyRcasStrength = std::clamp(std::strtof(value, nullptr), 0.0f,
@@ -3665,17 +3856,30 @@ Fsr4DispatchHarness::dispatchFrame(const FrameDispatchInput &in) {
       if (std::getenv("TFORGE_FSR4_POSTPASS_TRACE"))
         pp.slot7[1] = 2.0f;
       const char *casStrengthEnv = std::getenv("TFORGE_FSR4_CAS_STRENGTH");
-      // Keep the promoted path neutral by default.  CAS remains available
-      // through TFORGE_FSR4_CAS_STRENGTH for controlled experiments, but the
-      // matched real-video campaign showed that the previous implicit 0.04
-      // sharpening pass reduced SSIM on both representative scenes while
-      // adding work after reconstruction.
+      // The game display path applies one post-reconstruction CAS stage at
+      // strength 0.20. Keep that same display behavior here so screenshots
+      // and live playback are judging the same image. The explicit
+      // environment value remains an experiment override, while disabling
+      // CAS still works through TFORGE_FSR4_DISABLE_CAS.
+      constexpr float kDisplayCasStrength = 0.20f;
       const float casStrength = casStrengthEnv && *casStrengthEnv
                                     ? std::clamp(std::strtof(casStrengthEnv,
                                                              nullptr), 0.0f, 1.0f)
-                                    : 0.0f;
+                                    : kDisplayCasStrength;
       pp.slot7[2] = casStrength;
       pp.slot7[3] = std::getenv("TFORGE_FSR4_DISABLE_CAS") ? 0.0f : 1.0f;
+      // Diagnostic-only uniform trace. This records the exact postpass branch
+      // bits and current-frame blend value that reach the GPU, separating a
+      // host-control propagation failure from a shader/output-path failure.
+      if (std::getenv("TFORGE_FSR4_DISPATCH_TRACE"))
+        logInfo("Fsr4Harness postpass uniforms flags={} learnedBlend={:.5f} "
+                "currentWeight={:.5f} historyConfidence={:.5f} reactive={:.5f} "
+                "learnedStrength={:.5f} effectiveConfidence={:.5f} "
+                "jitter=({:.5f},{:.5f}) "
+                "historyBlendSource=decoder-c3 cas={:.5f}",
+                pp.slot0[2], pp.slot1[3], pp.slot5[0], in.historyConfidence,
+                in.reactiveAverage, learnedStrength, effectiveConfidence,
+                in.jitterX, in.jitterY, pp.slot7[2]);
       if (cbRingMapped_)
         std::memcpy(static_cast<char *>(cbRingMapped_) + ppCbOffset, &pp,
                     sizeof(pp));
@@ -3779,6 +3983,16 @@ Fsr4DispatchHarness::dispatchFrame(const FrameDispatchInput &in) {
                     (res_.outputHeight + 7u) / 8u, 1);
       // Reset after submit; do not free while the command buffer references it.
     }
+  }
+
+  // The optional presentation hook is deliberately placed after the FSR
+  // postpass and before the final command-buffer publication barrier. Its
+  // record-only work therefore has the exact ordering
+  // FSR postpass -> presentation scaler -> presentation publication.
+  if (in.appendPresentation && !in.appendPresentation(cmd_)) {
+    r.error = UpscaleError::DispatchFailed;
+    r.failReason = "append presentation scaler";
+    return r;
   }
 
   // Publish the two images that can be sampled by the Qt scene graph. The

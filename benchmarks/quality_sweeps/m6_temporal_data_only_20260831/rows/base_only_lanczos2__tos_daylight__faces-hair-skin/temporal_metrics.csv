@@ -1,0 +1,2 @@
+candidateId,scene,configId,startFrame,endFrame,class,frames,width,height,static_flicker,edge_variance,motion_compensated_error,ghost_duration_frames,reset_recovery_frames
+base_only_lanczos2,tos_daylight,benchmarks/quality_sweeps/stage_b/base_only_lanczos2.json,48,65,faces-hair-skin,18,1920,1080,0.010430404,0.000061375,0.013320419,0,1

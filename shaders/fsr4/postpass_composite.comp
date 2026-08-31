@@ -100,16 +100,10 @@ layout(set = 0, binding = 10, rgba8) readonly uniform image2D u_sourceDisplay;
 // samples and the stable base resolve.
 const ivec2 SOURCE_TILE_SIZE = ivec2(38, 14);
 shared vec4 sourceTile[SOURCE_TILE_SIZE.x * SOURCE_TILE_SIZE.y];
-shared vec4 displaySourceTile[SOURCE_TILE_SIZE.x * SOURCE_TILE_SIZE.y];
 
 vec3 loadSourceCached(ivec2 p, ivec2 tileBase) {
     const ivec2 local = p - tileBase;
     return sourceTile[local.y * SOURCE_TILE_SIZE.x + local.x].rgb;
-}
-
-vec3 loadDisplaySourceCached(ivec2 p, ivec2 tileBase) {
-    const ivec2 local = p - tileBase;
-    return displaySourceTile[local.y * SOURCE_TILE_SIZE.x + local.x].rgb;
 }
 
 vec3 applySrgb(vec3 x) {
@@ -119,7 +113,11 @@ vec3 applySrgb(vec3 x) {
 }
 
 vec3 removeMuLaw(vec3 modelColor) {
-    vec3 linear = max((exp(8.51788 * max(modelColor, vec3(0.0))) - 1.0) / 150.0,
+    // Match the reference FSR postpass: decode the signed model response
+    // first, then clamp the decoded linear color. Clamping modelColor before
+    // exp() removes negative undershoot information around edges and dark
+    // detail, which is part of the learned decoder response.
+    vec3 linear = max((exp(8.51788 * modelColor) - 1.0) / 150.0,
                       vec3(0.0));
     return clamp(applySrgb(linear), vec3(0.0), vec3(1.0));
 }
@@ -266,18 +264,28 @@ vec3 sampleSourceBicubic(vec2 p, ivec2 tileBase) {
 // establish that the space change improves real video rather than merely
 // changing tone.
 vec3 sampleDisplaySourceBicubic(vec2 p, ivec2 tileBase) {
-    const ivec2 size = imageSize(u_sourceDisplay);
-    p = clamp(p, vec2(0.0), vec2(size - ivec2(1)));
+    // sourceDisplay is the decoded display image, while p is expressed in
+    // model/sourceColor pixels. Reduced-model passes commonly use a 2x
+    // smaller model (for example 1280x720 decoded -> 640x360 model), so the
+    // display lookup must convert through texel centers before clamping.
+    // Upstream: uploader binds the decoded display image separately from the
+    // model image. Downstream: the display-base quality path consumes this
+    // filtered color for postpass composition.
+    const ivec2 displaySize = imageSize(u_sourceDisplay);
+    const ivec2 modelSize = imageSize(u_sourceColor);
+    const vec2 displayScale = vec2(displaySize) / vec2(modelSize);
+    p = ((p + vec2(0.5)) * displayScale) - vec2(0.5);
+    p = clamp(p, vec2(0.0), vec2(displaySize - ivec2(1)));
     const ivec2 base = ivec2(floor(p));
     const vec2 f = fract(p);
     const vec4 wx = catmullRomWeights(f.x);
     const vec4 wy = catmullRomWeights(f.y);
     vec3 result = vec3(0.0);
     for (int y = 0; y < 4; ++y) {
-        const int sy = clamp(base.y + y - 1, 0, size.y - 1);
+        const int sy = clamp(base.y + y - 1, 0, displaySize.y - 1);
         for (int x = 0; x < 4; ++x) {
-            const int sx = clamp(base.x + x - 1, 0, size.x - 1);
-            result += loadDisplaySourceCached(ivec2(sx, sy), tileBase) *
+            const int sx = clamp(base.x + x - 1, 0, displaySize.x - 1);
+            result += imageLoad(u_sourceDisplay, ivec2(sx, sy)).rgb *
                       (wx[x] * wy[y]);
         }
     }
@@ -376,8 +384,8 @@ vec3 applyLegacyEdgeAwareRcas(vec3 color, vec2 sourcePos, vec2 sourceStep,
                               ivec2 tileBase, float strength) {
     // A restrained RCAS-style unsharp response. Detail is measured in linear
     // light and is gated by local edge strength, avoiding halos in flat dark
-    // regions. The 0.08 default is intentionally conservative for compressed
-    // screen recordings; the neural reconstruction remains the main sharpener.
+    // regions. The normal host path sets this stage to 0.0 and uses the single
+    // post-reconstruction CAS stage instead; nonzero values are benchmark-only.
     vec3 center = srgbToLinear(removeMuLaw(sampleSourceBicubic(sourcePos, tileBase)));
     vec3 left = srgbToLinear(removeMuLaw(sampleSourceBicubic(sourcePos - vec2(sourceStep.x, 0.0), tileBase)));
     vec3 right = srgbToLinear(removeMuLaw(sampleSourceBicubic(sourcePos + vec2(sourceStep.x, 0.0), tileBase)));
@@ -600,8 +608,6 @@ void main() {
                                         sourceSize - ivec2(1));
         sourceTile[tileCoord.y * SOURCE_TILE_SIZE.x + tileCoord.x] =
             imageLoad(u_sourceColor, sourceCoord);
-        displaySourceTile[tileCoord.y * SOURCE_TILE_SIZE.x + tileCoord.x] =
-            imageLoad(u_sourceDisplay, sourceCoord);
     }
     barrier();
 
@@ -738,14 +744,19 @@ void main() {
     // override and Catmull-Rom fallback exactly as before.
     const bool useQualityCurrentBase = qualityEnabled &&
                                        slot3.x == 0u;
-    const vec3 modelBaseColor = useQualityCurrentBase
-        ? removeMuLaw(sampleSourceBase(
-              currentBaseSourcePos, sourceTileBase, slot3.y, slot4.x, slot4.y))
-        : ((slot0.z & 8u) != 0u
-               ? removeMuLaw(sampleSourceBilinear(currentBaseSourcePos,
-                                                  sourceTileBase))
-               : removeMuLaw(sampleSourceBicubic(currentBaseSourcePos,
-                                                 sourceTileBase)));
+    const bool currentUseDisplayBase = useQualityCurrentBase &&
+        (slot0.z & TFORGE_POSTPASS_DISPLAY_SPACE_BASE) != 0u;
+    const vec3 modelBaseColor = currentUseDisplayBase
+        ? sampleDisplaySourceBicubic(currentBaseSourcePos, sourceTileBase)
+        : (useQualityCurrentBase
+               ? removeMuLaw(sampleSourceBase(
+                     currentBaseSourcePos, sourceTileBase, slot3.y, slot4.x,
+                     slot4.y))
+               : ((slot0.z & 8u) != 0u
+                      ? removeMuLaw(sampleSourceBilinear(currentBaseSourcePos,
+                                                         sourceTileBase))
+                      : removeMuLaw(sampleSourceBicubic(currentBaseSourcePos,
+                                                        sourceTileBase))));
     const float displayBaseStrength = (slot0.z & 4u) != 0u
         ? clamp(slot4.z, 0.0, 1.0)
         : 0.0;
@@ -762,8 +773,16 @@ void main() {
             // static regions retain the learned/history blend that preserves
             // temporal detail.
             const ivec2 motionSize = imageSize(u_motion);
+            // currentBaseSourcePos is expressed in source-image pixels, but
+            // u_motion is produced at the model/output resolution. Convert
+            // the lookup into motion-texture pixels before clamping; using
+            // source pixels directly makes every upscale ratio above 1x read
+            // the wrong motion sample, especially near the right/bottom edge.
+            const vec2 sourceToMotionScale =
+                vec2(motionSize) / vec2(float(srcW), float(srcH));
             const ivec2 sourceMotionPos = clamp(
-                ivec2(floor(currentBaseSourcePos)), ivec2(0), motionSize - 1);
+                ivec2(floor(currentBaseSourcePos * sourceToMotionScale)),
+                ivec2(0), motionSize - 1);
             const vec2 sourceMotion =
                 imageLoad(u_motion, sourceMotionPos).xy;
             const float motionWeight =
@@ -917,10 +936,13 @@ void main() {
         const vec4 recurrent = 1.0 / (1.0 + exp(-clamp(
             recurrentLogits + recurrentBias, vec4(-16.0), vec4(16.0))));
         imageStore(u_recurrentOut, coord, recurrent);
-    } else if (recurrentResetOnly) {
-        // Opt-in recurrent-only reset. The normal hard-reset path remains
-        // unchanged; this branch prevents old ping-pong state from
-        // reappearing after a scene-cut reset experiment.
+    } else if ((slot0.z & 2u) != 0u || recurrentResetOnly) {
+        // A full reset must publish zero recurrent state into the write side
+        // before advanceHistory() swaps the ping-pong index. Without this
+        // store, the next displayed frame can read stale state from the
+        // previous scene even though the current reset frame fed zero state
+        // into the network. The recurrent-reset-only probe uses the same
+        // explicit clear without changing history-color reset semantics.
         imageStore(u_recurrentOut, coord, vec4(0.0));
     }
 }

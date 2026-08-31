@@ -25,7 +25,7 @@ class MotionExportContractTests(unittest.TestCase):
             "sourceWidth",
             "sourceHeight",
             "vectors",
-            "pastReferenceMotion(fsrFrame->motionVectors)",
+            "pastReferenceMotion(",
             "sideInputs.reset",
             "histogramDelta",
             "motionConfidence",
@@ -40,6 +40,9 @@ class MotionExportContractTests(unittest.TestCase):
         for token in (
             "TFORGE_FSR4_DUMP_MOTION_SIDECAR",
             "TFORGE_FSR4_DUMP_MOTION_DIR",
+            "TFORGE_FSR4_DUMP_MOTION_TEXTURE",
+            "TFORGE_TEMPORAL_ARTIFACT_DIR",
+            "Dense motion diagnostics are part of the retained artifact",
             "TFORGE_DISABLE_HW_DECODE",
             "tools/assemble_motion_sidecar.py",
             "TFORGE_TEMPORAL_MOTION_JSON",
@@ -51,6 +54,12 @@ class MotionExportContractTests(unittest.TestCase):
         # This is deliberately a source-level check in the Python milestone
         # suite; the complete C++ build remains the milestone gate.
         self.assertTrue((ROOT / "src/core/PlaybackEngine.cpp").is_file())
+
+    def test_decoder_has_one_explicit_ffmpeg_to_causal_conversion_boundary(self) -> None:
+        source = (ROOT / "src/media/VideoDecoder.cpp").read_text(encoding="utf-8")
+        self.assertIn("codecMvToCurrentPrevious", source)
+        self.assertIn("motion_x / motion_scale", source)
+        self.assertIn("current destination block to its corresponding", source)
 
     def test_runner_script_is_valid_bash(self) -> None:
         result = subprocess.run(

@@ -96,6 +96,21 @@ class TemporalSequenceTests(unittest.TestCase):
         self.assertIsNone(metrics["ghost_duration_frames"])
         self.assertIsNone(metrics["reset_recovery_frames"])
 
+    def test_measurement_ignores_unavailable_reset_transitions_when_averaging(self) -> None:
+        """A reset gap must not become a fake numeric temporal error."""
+        from benchmarks.quality_sweeps.temporal_sequence import measure_temporal_sequence
+
+        frame = [[0.0, 0.0]]
+        motion = [[(0.0, 0.0), (0.0, 0.0)]]
+        metrics = measure_temporal_sequence(
+            [frame, frame, frame],
+            [frame, frame, frame],
+            temporal_motion_fields=[None, motion, None],
+            static_mask=[[True, True]],
+        )
+
+        self.assertEqual(metrics["motion_compensated_error"], 0.0)
+
     def test_non_object_event_metadata_is_rejected(self) -> None:
         from benchmarks.quality_sweeps.temporal_sequence import measure_temporal_sequence
 

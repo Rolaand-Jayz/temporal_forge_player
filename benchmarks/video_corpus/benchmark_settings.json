@@ -1,7 +1,7 @@
 {
   "backend": "Fsr4ReExperimental",
   "preset": "Quality",
-  "sharpness": 0.3,
+  "sharpness": 0.0,
   "jitterStrength": 1.0,
   "motionMode": "AutoCheap",
   "depthMode": "Flat",

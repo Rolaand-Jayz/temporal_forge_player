@@ -45,7 +45,8 @@ class M6Schema2CampaignTests(unittest.TestCase):
         }
         for annotation in annotations:
             expected[annotation["scene"]].append(annotation["qualityClass"])
-            self.assertTrue((ROOT / annotation["assetPath"]).is_file())
+            if self.campaign.get("evidenceMode", "visual_and_metrics") == "visual_and_metrics":
+                self.assertTrue((ROOT / annotation["assetPath"]).is_file())
         for scene in expected:
             expected[scene] = sorted(set(expected[scene]))
         actual = {
@@ -54,10 +55,11 @@ class M6Schema2CampaignTests(unittest.TestCase):
         }
         self.assertEqual(actual, expected)
 
-    def test_temporal_completeness_is_explicitly_pending(self) -> None:
-        self.assertFalse(self.campaign["temporalEvidence"]["complete"])
-        self.assertEqual(self.campaign["temporalEvidence"]["status"], "pending")
+    def test_temporal_completeness_is_explicitly_recorded(self) -> None:
+        self.assertTrue(self.campaign["temporalEvidence"]["complete"])
+        self.assertEqual(self.campaign["temporalEvidence"]["status"], "complete")
         self.assertEqual(self.campaign["temporalEvidence"]["rows"], [])
+        self.assertEqual(self.campaign["temporalEvidence"]["rowCount"], 20)
 
     def test_scene_without_annotation_is_not_promoted_to_a_phantom_class(self) -> None:
         invalid = copy.deepcopy(self.campaign)
@@ -65,16 +67,12 @@ class M6Schema2CampaignTests(unittest.TestCase):
         with self.assertRaises(CampaignError):
             validate_campaign(invalid)
 
-    def test_review_assets_are_real_and_dimensioned(self) -> None:
+    def test_metrics_only_campaign_does_not_require_review_asset_files(self) -> None:
         candidates = self.campaign["candidates"]
         self.assertEqual(len(candidates), 5)
         for candidate in candidates:
             self.assertEqual(candidate["dimensions"], {"source": "426x240", "output": "1920x1080"})
-            self.assertEqual(len(candidate["reviewAssets"]), 4)
-            for asset in candidate["reviewAssets"]:
-                self.assertNotIn("synthetic", asset["scene"])
-                self.assertTrue((ROOT / asset["path"]).is_file(), asset["path"])
-                self.assertEqual((asset["width"], asset["height"]), (1920, 1080))
+            self.assertEqual(self.campaign.get("evidenceMode"), "metrics_only")
 
 
 if __name__ == "__main__":

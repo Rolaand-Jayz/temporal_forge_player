@@ -107,6 +107,14 @@ QualityPresentationFilter parsePresentation(const std::string &name) {
     return QualityPresentationFilter::Bicubic;
 }
 
+MotionEstimatorMode parseMotionMode(const std::string &name) {
+    if (name == "codec")
+        return MotionEstimatorMode::Codec;
+    if (name == "refined" || name == "codec_refined")
+        return MotionEstimatorMode::CodecRefined;
+    return MotionEstimatorMode::Off;
+}
+
 } // namespace
 
 std::filesystem::path qualityLabConfigPath() {
@@ -157,6 +165,47 @@ QualityLabConfig loadQualityLabConfig(const std::filesystem::path &path) {
                                 ? root.value(QLatin1String("qualityLab")).toObject()
                                 : root;
     result.enabled = readBool(lab, "enabled", result.enabled);
+
+    const QJsonValue motionValue = lab.value(QLatin1String("motion"));
+    if (motionValue.isObject()) {
+        result.motionConfigured = true;
+        const QJsonObject motion = motionValue.toObject();
+        result.motion.mode = parseMotionMode(
+            readName(motion, "mode", "off"));
+        const int refinementScale = static_cast<int>(finiteClamped(
+            motion, "refinementScale",
+            static_cast<float>(result.motion.refinementScale), 2.0f, 8.0f));
+        result.motion.refinementScale = refinementScale <= 2 ? 2u
+                                      : refinementScale >= 8 ? 8u : 4u;
+        result.motion.searchRadius = static_cast<int>(finiteClamped(
+            motion, "searchRadius",
+            static_cast<float>(result.motion.searchRadius), 0.0f, 4.0f));
+        result.motion.maxCorrectionPixels = finiteClamped(
+            motion, "maxCorrectionPixels", result.motion.maxCorrectionPixels,
+            0.0f, 16.0f);
+        result.motion.minErrorImprovement = finiteClamped(
+            motion, "minErrorImprovement", result.motion.minErrorImprovement,
+            0.0f, 1.0f);
+        result.motion.minErrorMargin = finiteClamped(
+            motion, "minErrorMargin", result.motion.minErrorMargin, 0.0f, 1.0f);
+        result.motion.maxRefinedSeeds = static_cast<uint32_t>(finiteClamped(
+            motion, "maxRefinedSeeds",
+            static_cast<float>(result.motion.maxRefinedSeeds), 1.0f, 65536.0f));
+        result.motion.confidenceErrorScale = finiteClamped(
+            motion, "confidenceErrorScale", result.motion.confidenceErrorScale,
+            0.001f, 1.0f);
+        result.motion.confidenceThreshold = finiteClamped(
+            motion, "confidenceThreshold", result.motion.confidenceThreshold,
+            0.0f, 1.0f);
+        result.motion.sceneCutThreshold = finiteClamped(
+            motion, "sceneCutThreshold", result.motion.sceneCutThreshold,
+            0.0f, 1.0f);
+        result.motion.edgeAwareUpscale = readBool(
+            motion, "edgeAwareUpscale", result.motion.edgeAwareUpscale);
+        result.motion.allowFallbackAfterFiltering = readBool(
+            motion, "allowFallbackAfterFiltering",
+            result.motion.allowFallbackAfterFiltering);
+    }
 
     const QJsonObject composition = childObject(lab, "composition");
     result.compositionMode = parseComposition(

@@ -126,6 +126,7 @@ int main(int argc, char** argv) {
     temporal_forge::ScreenCaptureController capture;
     videoSettings.setSettings(&settings);
     engine.setSharpness(settings.sharpness);
+    engine.setMotionMode(settings.motionMode);
     engine.setJitterStrength(settings.jitterStrength);
     engine.setPresentationScaler(
         static_cast<int>(settings.presentationScaler));
@@ -144,7 +145,8 @@ int main(int argc, char** argv) {
         // on the RX 7900 GRE. Keep presentation and FSR on that queue unless
         // a future asynchronous path proves otherwise.
         engine.setVulkanHandles(vk.physical(), vk.device(), vk.queue(),
-                                vk.queueFamily(), vk.queueFamily());
+                                vk.queueFamily(), vk.queueFamily(),
+                                vk.instance());
         // FSR4 RE reconstruction: signed-INT8 tensor codepoints, the tensor
         // layout recovered from the local RE, and the native Vulkan postpass.
         // Validation is local to this RE-derived video implementation; no

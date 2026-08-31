@@ -4,6 +4,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdlib>
 #include <limits>
 
 namespace temporal_forge {
@@ -25,6 +26,36 @@ JitterOffset captureJitterSample(JitterSequence sequence, uint32_t index) {
     default:
         return haltonJitter(index);
     }
+}
+
+// Read the fallback matcher radius only for explicitly requested diagnostics.
+// Upstream: the capture environment. Downstream: the bounded causal search
+// in estimateFallbackMotion. Keeping the absent/invalid value at four pixels
+// preserves the normal playback path and its established CPU cost.
+int fallbackMotionSearchRadius() {
+    constexpr int defaultRadius = 4;
+    constexpr int maximumRadius = 12;
+    const char* value =
+        std::getenv("TFORGE_FSR4_EXPERIMENTAL_BLOCK_MOTION_RADIUS");
+    if (!value || !*value) return defaultRadius;
+    char* end = nullptr;
+    const long parsed = std::strtol(value, &end, 10);
+    if (end == value || *end != '\0') return defaultRadius;
+    return std::clamp(static_cast<int>(parsed), 1, maximumRadius);
+}
+
+// Select only the explicitly supported diagnostic block geometries. Keeping
+// the default at 4x4 preserves the established vector density and CPU cost;
+// larger blocks are intended for controlled compressed-video experiments.
+uint32_t fallbackMotionBlockSize() {
+    const char* value =
+        std::getenv("TFORGE_FSR4_EXPERIMENTAL_BLOCK_MOTION_BLOCK_SIZE");
+    if (!value || !*value) return 4;
+    char* end = nullptr;
+    const long parsed = std::strtol(value, &end, 10);
+    if (end != value && *end == '\0' && (parsed == 8 || parsed == 16))
+        return static_cast<uint32_t>(parsed);
+    return 4;
 }
 
 } // namespace
@@ -88,9 +119,10 @@ float SideBufferSynth::reactiveValue(float lumaDifference,
 bool SideBufferSynth::shouldReset(float histogramDelta,
                                   float motionConfidence,
                                   float ptsGapMs,
-                                  float expectedFrameIntervalMs) {
+                                  float expectedFrameIntervalMs,
+                                  float histogramThreshold) {
     // spec 03 section 8 scene-cut detection.
-    if (histogramDelta > 0.65f) return true;
+    if (histogramDelta > std::clamp(histogramThreshold, 0.0f, 1.0f)) return true;
     if (motionConfidence < 0.15f) return true;
     if (expectedFrameIntervalMs > 0.0f &&
         ptsGapMs > 2.5f * expectedFrameIntervalMs) return true;
@@ -113,25 +145,16 @@ SideBufferInputs SideBufferSynth::update(const LumaBuffer& lumaCurrent,
                                          float motionConfidence) {
     SideBufferInputs out;
 
-    // --- jitter ---
-    const JitterOffset j = captureJitterSample(jitterSequence_, jitterIndex_);
-    float policyStrength = 0.0f;
-    switch (jitterMode_) {
-    case JitterMode::Off: policyStrength = 0.0f; break;
-    case JitterMode::Current: policyStrength = jitterStrength_; break;
-    case JitterMode::Reduced: policyStrength = jitterStrength_ * 0.5f; break;
-    case JitterMode::Controlled: policyStrength = controlledJitterStrength_; break;
-    }
-    const float jitterScale = jitterAmplitudeScale(renderWidth_, renderHeight_) *
-                              std::clamp(policyStrength, 0.0f, 1.5f);
-    out.jitterX = j.x * jitterScale;
-    out.jitterY = j.y * jitterScale;
-    ++jitterCadenceCounter_;
-    if (jitterCadenceCounter_ >= jitterCadence_) {
-        jitterCadenceCounter_ = 0;
-        ++jitterIndex_;
-        if (jitterIndex_ > 64) jitterIndex_ = 1; // wrap phase
-    }
+    // Snapshot every state component that update() may advance. The caller
+    // prepares side inputs before dispatch, but only a successful FSR chain
+    // is allowed to publish a new temporal frame. This transaction pairs the
+    // CPU analysis history with the GPU history commit/rollback boundary.
+    previousLumaBeforeUpdate_ = previousLuma_;
+    previousAvgLumaBeforeUpdate_ = previousAvgLuma_;
+    previousHistBeforeUpdate_ = previousHist_;
+    previousFrameValidBeforeUpdate_ = previousFrameValid_;
+    expectedIntervalEstablishedBeforeUpdate_ = expectedIntervalEstablished_;
+    expectedFrameIntervalBeforeUpdate_ = expectedFrameIntervalMs_;
 
     // --- luma stats ---
     const LumaStats cur = computeLumaStats(lumaCurrent);
@@ -155,8 +178,52 @@ SideBufferInputs SideBufferSynth::update(const LumaBuffer& lumaCurrent,
                                       out.motionConfidence,
                                       expectedIntervalEstablished_ ? ptsDeltaMs
                                                                     : 0.0f,
-                                      expectedInterval);
+                                      expectedInterval,
+                                      sceneCutThreshold_);
     out.reset = forcedReset || sceneCut;
+
+    // --- jitter ---
+    // Reset before selecting the sample. This keeps the first color sample
+    // after a seek or scene cut aligned with the freshly reset FSR history.
+    if (out.reset) {
+        jitterIndex_ = 1;
+        jitterCadenceCounter_ = 0;
+    }
+    jitterIndexBeforeUpdate_ = jitterIndex_;
+    jitterCadenceCounterBeforeUpdate_ = jitterCadenceCounter_;
+    jitterRollbackValid_ = true;
+    const JitterOffset j = captureJitterSample(jitterSequence_, jitterIndex_);
+    float policyStrength = 0.0f;
+    switch (jitterMode_) {
+    case JitterMode::Off: policyStrength = 0.0f; break;
+    case JitterMode::Current: policyStrength = jitterStrength_; break;
+    case JitterMode::Reduced: policyStrength = jitterStrength_ * 0.5f; break;
+    case JitterMode::Controlled: policyStrength = controlledJitterStrength_; break;
+    }
+    // The full-amplitude branch is a diagnostic comparison against the FSR
+    // render-pixel contract. It changes only jitter magnitude; sequence,
+    // cadence, history, motion, and reset handling remain identical.
+    const float amplitudeScale = fullAmplitudeJitter_
+        ? 1.0f
+        : jitterAmplitudeScale(renderWidth_, renderHeight_);
+    const float jitterScale = amplitudeScale *
+                              std::clamp(policyStrength, 0.0f, 1.5f);
+    out.jitterX = j.x * jitterScale;
+    out.jitterY = j.y * jitterScale;
+    ++jitterCadenceCounter_;
+    if (jitterCadenceCounter_ >= jitterCadence_) {
+        jitterCadenceCounter_ = 0;
+        ++jitterIndex_;
+        const uint32_t phaseCount = fsrJitterPhaseCount(
+            phaseRenderWidth_ != 0 ? phaseRenderWidth_ : renderWidth_,
+            phasePresentationWidth_ != 0
+                ? phasePresentationWidth_
+                : (presentationWidth_ != 0
+                       ? presentationWidth_
+                       : (phaseRenderWidth_ != 0 ? phaseRenderWidth_
+                                                 : renderWidth_)));
+        if (jitterIndex_ > phaseCount) jitterIndex_ = 1;
+    }
 
     // --- reactive average (spec 03 section 5) ---
     // The default remains histogram-driven. The opt-in motion-confidence arm
@@ -189,13 +256,45 @@ SideBufferInputs SideBufferSynth::update(const LumaBuffer& lumaCurrent,
     }
     previousFrameValid_ = true;
 
-    // spec 02: reset jitter index on seek/new-file/scene-cut discontinuity.
-    if (out.reset) {
+    return out;
+}
+
+// rollbackJitter: undo the phase/cadence and analysis-history mutations made
+// by the latest update() call when its prepared frame never reaches FSR. The
+// method name is retained because it is the existing frame-abort boundary
+// used by PlaybackEngine. A reset boundary starts again at phase one.
+void SideBufferSynth::rollbackJitter(bool resetPhase) {
+    if (!jitterRollbackValid_)
+        return;
+    if (resetPhase) {
         jitterIndex_ = 1;
         jitterCadenceCounter_ = 0;
+    } else {
+        jitterIndex_ = jitterIndexBeforeUpdate_;
+        jitterCadenceCounter_ = jitterCadenceCounterBeforeUpdate_;
     }
+    previousLuma_ = previousLumaBeforeUpdate_;
+    previousAvgLuma_ = previousAvgLumaBeforeUpdate_;
+    previousHist_ = previousHistBeforeUpdate_;
+    previousFrameValid_ = previousFrameValidBeforeUpdate_;
+    expectedIntervalEstablished_ = expectedIntervalEstablishedBeforeUpdate_;
+    expectedFrameIntervalMs_ = expectedFrameIntervalBeforeUpdate_;
+    jitterRollbackValid_ = false;
+}
 
-    return out;
+// resetAnalysisHistory: clear all source-frame state that must not cross a
+// decoder flush or file switch. GPU FSR images are reset by the caller; this
+// clears the CPU-side luma/cadence/jitter companion state as well.
+void SideBufferSynth::resetAnalysisHistory() {
+    previousLuma_ = {};
+    previousAvgLuma_ = -1.0f;
+    previousHist_.fill(0);
+    previousFrameValid_ = false;
+    expectedIntervalEstablished_ = false;
+    expectedFrameIntervalMs_ = 16.6667f;
+    jitterIndex_ = 1;
+    jitterCadenceCounter_ = 0;
+    jitterRollbackValid_ = false;
 }
 
 std::vector<MvEntry> SideBufferSynth::estimateFallbackMotion(
@@ -215,8 +314,18 @@ std::vector<MvEntry> SideBufferSynth::estimateFallbackMotion(
             static_cast<size_t>(previousLuma_.width) * previousLuma_.height)
         return {};
 
-    constexpr uint32_t blockSize = 4;
-    constexpr int searchRadius = 4;
+    const uint32_t blockSize = fallbackMotionBlockSize();
+    const bool coarseToFine =
+        std::getenv("TFORGE_FSR4_EXPERIMENTAL_BLOCK_MOTION_COARSE_TO_FINE") !=
+        nullptr;
+    // Coarse-to-fine is itself an explicit diagnostic mode. When it is used
+    // without a radius override, give it the wider twelve-pixel envelope it
+    // exists to investigate; an explicit radius remains authoritative.
+    const int searchRadius =
+        coarseToFine &&
+                !std::getenv("TFORGE_FSR4_EXPERIMENTAL_BLOCK_MOTION_RADIUS")
+            ? 12
+            : fallbackMotionSearchRadius();
     const float sourceScaleX = static_cast<float>(sourceWidth) /
                                 static_cast<float>(current.width);
     const float sourceScaleY = static_cast<float>(sourceHeight) /
@@ -242,33 +351,48 @@ std::vector<MvEntry> SideBufferSynth::estimateFallbackMotion(
             float bestSad = std::numeric_limits<float>::infinity();
             int bestDx = 0;
             int bestDy = 0;
-            for (int dy = -searchRadius; dy <= searchRadius; ++dy) {
-                for (int dx = -searchRadius; dx <= searchRadius; ++dx) {
-                    float sad = 0.0f;
-                    for (uint32_t y = 0; y < blockH; ++y) {
-                        for (uint32_t x = 0; x < blockW; ++x) {
-                            sad += std::abs(
-                                at(current, static_cast<int>(blockX + x),
-                                   static_cast<int>(blockY + y)) -
-                                at(previousLuma_,
-                                   static_cast<int>(blockX + x) + dx,
-                                   static_cast<int>(blockY + y) + dy));
-                        }
-                    }
-                    // Keep the zero-displacement candidate on exact ties.
-                    // Flat or repeating regions otherwise select the first
-                    // search coordinate, creating arbitrary motion in static
-                    // content even though every candidate has equal error.
-                    const int bestDistance = std::abs(bestDx) + std::abs(bestDy);
-                    const int candidateDistance = std::abs(dx) + std::abs(dy);
-                    if (sad < bestSad - 1e-7f ||
-                        (std::abs(sad - bestSad) <= 1e-7f &&
-                         candidateDistance < bestDistance)) {
-                        bestSad = sad;
-                        bestDx = dx;
-                        bestDy = dy;
+            const auto consider = [&](int dx, int dy) {
+                float sad = 0.0f;
+                for (uint32_t y = 0; y < blockH; ++y) {
+                    for (uint32_t x = 0; x < blockW; ++x) {
+                        sad += std::abs(
+                            at(current, static_cast<int>(blockX + x),
+                               static_cast<int>(blockY + y)) -
+                            at(previousLuma_, static_cast<int>(blockX + x) + dx,
+                               static_cast<int>(blockY + y) + dy));
                     }
                 }
+                // Keep the zero-displacement candidate on exact ties. Flat
+                // regions otherwise select an arbitrary search coordinate.
+                const int bestDistance = std::abs(bestDx) + std::abs(bestDy);
+                const int candidateDistance = std::abs(dx) + std::abs(dy);
+                if (sad < bestSad - 1e-7f ||
+                    (std::abs(sad - bestSad) <= 1e-7f &&
+                     candidateDistance < bestDistance)) {
+                    bestSad = sad;
+                    bestDx = dx;
+                    bestDy = dy;
+                }
+            };
+            if (!coarseToFine) {
+                for (int dy = -searchRadius; dy <= searchRadius; ++dy)
+                    for (int dx = -searchRadius; dx <= searchRadius; ++dx)
+                        consider(dx, dy);
+            } else {
+                // Sample every second displacement over the wide envelope,
+                // then inspect the 3x3 neighborhood around its winner. This
+                // retains exact one-pixel recovery while avoiding the
+                // quadratic cost of a full large-radius sweep.
+                for (int dy = -searchRadius; dy <= searchRadius; dy += 2)
+                    for (int dx = -searchRadius; dx <= searchRadius; dx += 2)
+                        consider(dx, dy);
+                const int fineMinY = std::max(-searchRadius, bestDy - 1);
+                const int fineMaxY = std::min(searchRadius, bestDy + 1);
+                const int fineMinX = std::max(-searchRadius, bestDx - 1);
+                const int fineMaxX = std::min(searchRadius, bestDx + 1);
+                for (int dy = fineMinY; dy <= fineMaxY; ++dy)
+                    for (int dx = fineMinX; dx <= fineMaxX; ++dx)
+                        consider(dx, dy);
             }
 
             MvEntry motion;
@@ -286,8 +410,128 @@ std::vector<MvEntry> SideBufferSynth::estimateFallbackMotion(
             motion.h = static_cast<uint8_t>(std::clamp(
                 static_cast<long>(std::lround(blockH * sourceScaleY)), 1L,
                 255L));
-            motion.source = 0;
+            // Unlike an FFmpeg codec vector, this matcher compares the
+            // current decoded image directly against the previous decoded
+            // image retained by this synthesizer. Mark it as the known causal
+            // direction so the shared validation/scoring stages do not treat
+            // it as an ambiguous codec reference and discard it.
+            motion.source = -1;
+            // A block matcher is only a fallback correspondence source. Use
+            // its normalized photometric residual as the initial trust score
+            // instead of inheriting MvEntry's full-confidence default; the
+            // downstream validity texture can then reject ambiguous blocks
+            // conservatively when the match is poor.
+            const float meanSad = bestSad / static_cast<float>(
+                std::max<uint32_t>(1u, blockW * blockH));
+            motion.confidence = std::clamp(
+                std::exp(-meanSad / 0.04f), 0.0f, 1.0f);
             result.push_back(motion);
+        }
+    }
+    return result;
+}
+
+std::vector<MvEntry> SideBufferSynth::fuseBidirectionalMotion(
+    const std::vector<MvEntry>& past, const std::vector<MvEntry>& future,
+    float consistencyThreshold) {
+    // No future estimate must never erase the causal field. This makes the
+    // helper safe at end-of-stream and on a decoder that cannot expose a next
+    // frame, while the caller remains responsible for opting into this path.
+    if (past.empty() || future.empty()) return past;
+
+    std::vector<MvEntry> result = past;
+    for (MvEntry& causal : result) {
+        const MvEntry* nearest = nullptr;
+        int nearestDistance = std::numeric_limits<int>::max();
+        for (const MvEntry& candidate : future) {
+            const int dx = std::abs(static_cast<int>(causal.dstX) -
+                                    static_cast<int>(candidate.dstX));
+            const int dy = std::abs(static_cast<int>(causal.dstY) -
+                                    static_cast<int>(candidate.dstY));
+            const int allowedX = std::max<int>(causal.w, candidate.w);
+            const int allowedY = std::max<int>(causal.h, candidate.h);
+            if (dx > allowedX || dy > allowedY) continue;
+            const int distance = dx + dy;
+            if (distance < nearestDistance) {
+                nearestDistance = distance;
+                nearest = &candidate;
+            }
+        }
+        if (!nearest) continue;
+
+        const float threshold = consistencyThreshold > 0.0f
+                                    ? consistencyThreshold
+                                    : std::max(2.0f, std::hypot(
+                                                         static_cast<float>(causal.w),
+                                                         static_cast<float>(causal.h)) *
+                                                         0.75f);
+        const float disagreement = std::hypot(causal.mvX - nearest->mvX,
+                                              causal.mvY - nearest->mvY);
+        if (disagreement <= threshold) {
+            causal.mvX = (causal.mvX + nearest->mvX) * 0.5f;
+            causal.mvY = (causal.mvY + nearest->mvY) * 0.5f;
+            causal.confidence = std::clamp(
+                std::min(causal.confidence, nearest->confidence) *
+                    std::exp(-disagreement / threshold),
+                0.0f, 1.0f);
+        } else {
+            // Preserve the causal vector but tell the existing validity path
+            // that the next-frame evidence disagrees with it.
+            causal.confidence = std::clamp(causal.confidence * 0.25f, 0.0f, 1.0f);
+        }
+    }
+    return result;
+}
+
+std::vector<MvEntry> SideBufferSynth::gateMotionWithFutureEvidence(
+    const std::vector<MvEntry>& past, const std::vector<MvEntry>& future,
+    float consistencyThreshold) {
+    // Future evidence is a confidence signal only. Do not average the older
+    // bidirectional probe's vectors: these estimates span different frame
+    // pairs, so changing mvX/mvY would change reprojection semantics.
+    if (past.empty() || future.empty()) return past;
+
+    std::vector<MvEntry> result = past;
+    for (MvEntry& causal : result) {
+        const MvEntry* nearest = nullptr;
+        float nearestDistance = std::numeric_limits<float>::infinity();
+        for (const MvEntry& candidate : future) {
+            // estimateFallbackMotion stores a future->current vector. Map
+            // the future block back to current coordinates before matching
+            // it against the causal current->previous destination. Matching
+            // raw destinations would select the wrong block during motion.
+            const float projectedX = static_cast<float>(candidate.dstX) +
+                                     candidate.mvX;
+            const float projectedY = static_cast<float>(candidate.dstY) +
+                                     candidate.mvY;
+            const float dx = std::abs(static_cast<float>(causal.dstX) -
+                                      projectedX);
+            const float dy = std::abs(static_cast<float>(causal.dstY) -
+                                      projectedY);
+            if (dx > static_cast<float>(std::max<int>(causal.w, candidate.w)) ||
+                dy > static_cast<float>(std::max<int>(causal.h, candidate.h)))
+                continue;
+            const float distance = dx + dy;
+            if (distance < nearestDistance) {
+                nearestDistance = distance;
+                nearest = &candidate;
+            }
+        }
+        if (!nearest) continue;
+
+        const float threshold = consistencyThreshold > 0.0f
+                                    ? consistencyThreshold
+                                    : std::max(2.0f, std::hypot(
+                                                         static_cast<float>(causal.w),
+                                                         static_cast<float>(causal.h)) *
+                                                         0.75f);
+        const float disagreement = std::hypot(causal.mvX - nearest->mvX,
+                                              causal.mvY - nearest->mvY);
+        if (disagreement > threshold) {
+            // Preserve the causal reprojection and lower only history trust.
+            causal.confidence = std::clamp(
+                causal.confidence * std::exp(-disagreement / threshold),
+                0.0f, 1.0f);
         }
     }
     return result;
@@ -298,7 +542,8 @@ std::vector<MvEntry> SideBufferSynth::refineCodecMotion(
     const std::vector<MvEntry>& seeds,
     uint32_t sourceWidth,
     uint32_t sourceHeight,
-    int refinementRadius) const {
+    int refinementRadius,
+    float maxCorrectionPixels) const {
     // The decoder vector remains the prior. This pass only nudges it when a
     // nearby analysis-luma position matches measurably better. Keeping the
     // search around the codec answer preserves reference direction semantics
@@ -346,7 +591,7 @@ std::vector<MvEntry> SideBufferSynth::refineCodecMotion(
     std::vector<MvEntry> refined = seeds;
     for (size_t i = 0; i < seeds.size(); ++i) {
         const MvEntry& seed = seeds[i];
-        if (seed.source > 0 || !std::isfinite(seed.mvX) ||
+        if (seed.source != -1 || !std::isfinite(seed.mvX) ||
             !std::isfinite(seed.mvY)) {
             continue;
         }
@@ -388,16 +633,158 @@ std::vector<MvEntry> SideBufferSynth::refineCodecMotion(
                 }
             }
         }
-        // Ignore noise-level wins. This is important in flat or compressed
-        // regions where many nearby vectors are equally plausible.
-        if (bestSad < seedSad - 0.0025f) {
-            refined[i].mvX += static_cast<float>(bestDx - seedDx) /
-                              analysisScaleX;
-            refined[i].mvY += static_cast<float>(bestDy - seedDy) /
-                              analysisScaleY;
+        // Ignore noise-level wins and source-space jumps that the reduced
+        // analysis grid cannot represent reliably. The latter is especially
+        // important for a valid fractional codec seed such as -2 at quarter
+        // resolution, where one integer analysis step is four source pixels.
+        const float correctionX =
+            static_cast<float>(bestDx - seedDx) / analysisScaleX;
+        const float correctionY =
+            static_cast<float>(bestDy - seedDy) / analysisScaleY;
+        if (bestSad < seedSad - 0.0025f &&
+            std::hypot(correctionX, correctionY) <=
+                std::max(0.0f, maxCorrectionPixels)) {
+            refined[i].mvX += correctionX;
+            refined[i].mvY += correctionY;
+        } else if (bestSad < seedSad - 0.0025f) {
+            // Preserve the decoder vector but lower trust when the only
+            // apparent improvement requires an implausibly large jump.
+            refined[i].confidence *= 0.5f;
         }
     }
     return refined;
+}
+
+std::vector<MvEntry> SideBufferSynth::validateCodecMotion(
+    const LumaBuffer& current,
+    const std::vector<MvEntry>& seeds,
+    uint32_t sourceWidth,
+    uint32_t sourceHeight,
+    float maxPatchError) const {
+    // This bounded CPU check is deliberately separate from refinement. It
+    // answers only whether a seed is trustworthy enough for history; it never
+    // invents a replacement vector and therefore preserves decoder semantics.
+    if (!previousFrameValid_ || previousLuma_.data.empty() ||
+        current.data.empty() || current.width == 0 || current.height == 0 ||
+        sourceWidth == 0 || sourceHeight == 0 || seeds.empty() ||
+        !std::isfinite(maxPatchError) || maxPatchError < 0.0f) {
+        return seeds;
+    }
+    const float analysisScaleX = static_cast<float>(current.width) /
+                                 static_cast<float>(sourceWidth);
+    const float analysisScaleY = static_cast<float>(current.height) /
+                                 static_cast<float>(sourceHeight);
+    if (!std::isfinite(analysisScaleX) || !std::isfinite(analysisScaleY) ||
+        analysisScaleX <= 0.0f || analysisScaleY <= 0.0f)
+        return seeds;
+
+    auto at = [](const LumaBuffer& image, int x, int y) {
+        x = std::clamp(x, 0, static_cast<int>(image.width) - 1);
+        y = std::clamp(y, 0, static_cast<int>(image.height) - 1);
+        return image.data[static_cast<size_t>(y) * image.width + x];
+    };
+    const auto patchSad = [&](int x, int y, int dx, int dy) {
+        float error = 0.0f;
+        constexpr int halfExtent = 1;
+        for (int oy = -halfExtent; oy <= halfExtent; ++oy) {
+            for (int ox = -halfExtent; ox <= halfExtent; ++ox) {
+                error += std::abs(at(current, x + ox, y + oy) -
+                                  at(previousLuma_, x + dx + ox, y + dy + oy));
+            }
+        }
+        return error / 9.0f;
+    };
+
+    std::vector<MvEntry> validated;
+    validated.reserve(seeds.size());
+    for (const MvEntry& seed : seeds) {
+        // Only FFmpeg's -1 marker denotes the immediately previous
+        // displayed frame in this causal history path. Zero is ambiguous
+        // (often intra/skip/no-reference), and values below -1 refer to
+        // older pictures; neither may influence current-frame reprojection.
+        if (seed.source != -1 || !std::isfinite(seed.mvX) ||
+            !std::isfinite(seed.mvY))
+            continue;
+        const int x = std::clamp(static_cast<int>(std::lround(
+                                      (static_cast<float>(seed.dstX) +
+                                       static_cast<float>(seed.w) * 0.5f) *
+                                      analysisScaleX)),
+                                 0, static_cast<int>(current.width) - 1);
+        const int y = std::clamp(static_cast<int>(std::lround(
+                                      (static_cast<float>(seed.dstY) +
+                                       static_cast<float>(seed.h) * 0.5f) *
+                                      analysisScaleY)),
+                                 0, static_cast<int>(current.height) - 1);
+        const int dx = static_cast<int>(std::lround(seed.mvX * analysisScaleX));
+        const int dy = static_cast<int>(std::lround(seed.mvY * analysisScaleY));
+        if (patchSad(x, y, dx, dy) <= maxPatchError)
+            validated.push_back(seed);
+    }
+    return validated;
+}
+
+std::vector<MvEntry> SideBufferSynth::scoreCodecMotion(
+    const LumaBuffer& current,
+    const std::vector<MvEntry>& seeds,
+    uint32_t sourceWidth,
+    uint32_t sourceHeight,
+    float errorScale) const {
+    // Confidence is a soft trust score, not a new motion estimate. Keeping
+    // every seed lets the prepass reduce history smoothly instead of creating
+    // block-shaped holes at an arbitrary threshold.
+    if (!previousFrameValid_ || previousLuma_.data.empty() ||
+        current.data.empty() || current.width == 0 || current.height == 0 ||
+        sourceWidth == 0 || sourceHeight == 0 || seeds.empty() ||
+        !std::isfinite(errorScale) || errorScale <= 0.0f)
+        return seeds;
+    const float analysisScaleX = static_cast<float>(current.width) /
+                                 static_cast<float>(sourceWidth);
+    const float analysisScaleY = static_cast<float>(current.height) /
+                                 static_cast<float>(sourceHeight);
+    if (!std::isfinite(analysisScaleX) || !std::isfinite(analysisScaleY) ||
+        analysisScaleX <= 0.0f || analysisScaleY <= 0.0f)
+        return seeds;
+
+    auto at = [](const LumaBuffer& image, int x, int y) {
+        x = std::clamp(x, 0, static_cast<int>(image.width) - 1);
+        y = std::clamp(y, 0, static_cast<int>(image.height) - 1);
+        return image.data[static_cast<size_t>(y) * image.width + x];
+    };
+    const auto patchSad = [&](int x, int y, int dx, int dy) {
+        float error = 0.0f;
+        for (int oy = -1; oy <= 1; ++oy)
+            for (int ox = -1; ox <= 1; ++ox)
+                error += std::abs(at(current, x + ox, y + oy) -
+                                  at(previousLuma_, x + dx + ox, y + dy + oy));
+        return error / 9.0f;
+    };
+
+    std::vector<MvEntry> scored = seeds;
+    for (MvEntry& seed : scored) {
+        // Keep confidence scoring under the same causal reference boundary
+        // as validation and refinement. Scoring an older or ambiguous vector
+        // would make it appear trustworthy to the downstream history pass.
+        if (seed.source != -1 || !std::isfinite(seed.mvX) ||
+            !std::isfinite(seed.mvY)) {
+            seed.confidence = 0.0f;
+            continue;
+        }
+        const int x = std::clamp(static_cast<int>(std::lround(
+                                      (static_cast<float>(seed.dstX) +
+                                       static_cast<float>(seed.w) * 0.5f) *
+                                      analysisScaleX)),
+                                 0, static_cast<int>(current.width) - 1);
+        const int y = std::clamp(static_cast<int>(std::lround(
+                                      (static_cast<float>(seed.dstY) +
+                                       static_cast<float>(seed.h) * 0.5f) *
+                                      analysisScaleY)),
+                                 0, static_cast<int>(current.height) - 1);
+        const int dx = static_cast<int>(std::lround(seed.mvX * analysisScaleX));
+        const int dy = static_cast<int>(std::lround(seed.mvY * analysisScaleY));
+        const float error = patchSad(x, y, dx, dy);
+        seed.confidence = std::clamp(std::exp(-error / errorScale), 0.0f, 1.0f);
+    }
+    return scored;
 }
 
 } // namespace temporal_forge

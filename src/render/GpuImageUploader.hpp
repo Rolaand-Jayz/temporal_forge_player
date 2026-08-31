@@ -74,10 +74,19 @@ struct GpuImageUploader {
   void setCompareEnabled(bool enabled) {
     compareEnabled_.store(enabled, std::memory_order_release);
   }
+  // Apply synthetic jitter during the YUV-to-color conversion itself. The
+  // motion upload remains unjittered and keeps the FSR-facing contract.
+  void setInputJitter(float x, float y, bool enabled) {
+    inputJitterX_.store(x, std::memory_order_release);
+    inputJitterY_.store(y, std::memory_order_release);
+    inputJitterEnabled_.store(enabled, std::memory_order_release);
+  }
 
   // Upload motion texture (rg16f) from codec MVs. If `mvs` is empty the
   // image is cleared to zero (motion-mode callers decide what to pass).
-  bool uploadMotion(const std::vector<MvEntry> &mvs);
+  // `edgeAware` enables the opt-in boundary-preserving resolve; false keeps
+  // the established sparse last-writer field for baseline comparisons.
+  bool uploadMotion(const std::vector<MvEntry> &mvs, bool edgeAware = false);
 
   // Upload depth (r32f) — EdgeLite: Sobel edge detect on luma; Flat: cleared.
   bool uploadDepthEdgeLite(const SideBufferSource &s);
@@ -193,7 +202,27 @@ struct GpuImageUploader {
   // untouched (black) neural target.
   bool readbackEasu(std::vector<uint8_t> &dst, uint32_t &outW,
                    uint32_t &outH);
+  // Read the RGB10/A2 model image after an explicit pre-neural handoff. This
+  // is diagnostic-only: it verifies the image crossing from a display-space
+  // prepass into the neural input without changing the production path.
+  bool readbackModelColor(std::vector<uint8_t> &dst, uint32_t &outW,
+                          uint32_t &outH);
   bool readbackRaw(std::vector<uint8_t> &dst, uint32_t &outW, uint32_t &outH);
+  // Read the dense GPU motion field and its per-pixel validity map. These are
+  // opt-in diagnostics: motion is RG16F (four bytes per pixel) and validity
+  // is R8 (one byte per pixel), both at model resolution. The readbacks prove
+  // the textures consumed by the FSR prepass, rather than only the sparse
+  // codec seed sidecar produced on the CPU.
+  bool readbackMotion(std::vector<uint8_t> &dst, uint32_t &outW,
+                      uint32_t &outH);
+  bool readbackMotionValidity(std::vector<uint8_t> &dst, uint32_t &outW,
+                              uint32_t &outH);
+  // Read the exact output-sized FP16 color produced by the prepass history
+  // reprojection. This diagnostic preserves the intermediate before neural
+  // and presentation composition, so offline validation can separate a bad
+  // motion field from a later history/FSR handoff problem.
+  bool readbackReprojectedColor(std::vector<uint8_t> &dst, uint32_t &outW,
+                                uint32_t &outH);
 
   // Transition output + history images from UNDEFINED to GENERAL layout.
   // Must be called once after allocate() before the first dispatch.
@@ -207,6 +236,17 @@ struct GpuImageUploader {
   //              After this returns, easuColorView() is valid for the next
   //              pipeline stage (FSR4 dispatch or display).
   bool dispatchEasu();
+  // Run the maintained AMD FSR1 EASU shader into the same 2x intermediate as
+  // the existing spatial fallback. This is an explicit quality probe and is
+  // selected only by TFORGE_FSR4_TRUE_FSR1_EASU=1.
+  bool dispatchTrueFsr1Easu();
+  // Prepare the reusable presentation target without recording or submitting
+  // work. The paired record method is used by the FSR harness fusion hook.
+  bool preparePresentationScaler(uint32_t width, uint32_t height);
+  // Record the already-prepared presentation scaler into an external command
+  // buffer. This does not submit, wait, or reuse the upload EASU descriptor.
+  bool recordPresentationScaler(VkCommandBuffer commandBuffer,
+                                uint32_t width, uint32_t height);
   bool dispatchPresentationScaler(uint32_t width, uint32_t height);
 
   uint32_t sourceW() const { return srcW_; }
@@ -239,6 +279,9 @@ private:
     VkSampler sampler = VK_NULL_HANDLE;
   };
   bool ensureStaging(VkDeviceSize size);
+  bool readbackImageBytes(GpuImage &image, VkImageAspectFlags aspect,
+                          size_t bytesPerPixel, std::vector<uint8_t> &dst,
+                          uint32_t &outW, uint32_t &outH);
   bool ensureMotionVectorBuffer(size_t vectorCount);
   bool beginUploadCmd();
   bool endUploadCmd();
@@ -321,10 +364,20 @@ private:
   VkPipelineLayout easuPipelineLayout_ = VK_NULL_HANDLE;
   VkPipeline easuPipeline_ = VK_NULL_HANDLE;
   VkDescriptorSet easuSet_ = VK_NULL_HANDLE;
+  VkDescriptorSet presentationSet_ = VK_NULL_HANDLE;
+  VkDescriptorSetLayout trueFsr1EasuDescLayout_ = VK_NULL_HANDLE;
+  VkDescriptorPool trueFsr1EasuDescPool_ = VK_NULL_HANDLE;
+  VkPipelineLayout trueFsr1EasuPipelineLayout_ = VK_NULL_HANDLE;
+  VkPipeline trueFsr1EasuPipeline_ = VK_NULL_HANDLE;
+  VkDescriptorSet trueFsr1EasuSet_ = VK_NULL_HANDLE;
+  VkSampler trueFsr1EasuSampler_ = VK_NULL_HANDLE;
   bool easuActive_ = false;
   std::atomic<float> sharpness_{0.3f};
   std::atomic<int> presentationScaler_{2};
   std::atomic<bool> compareEnabled_{false};
+  std::atomic<float> inputJitterX_{0.0f};
+  std::atomic<float> inputJitterY_{0.0f};
+  std::atomic<bool> inputJitterEnabled_{false};
   ImportedDrmRuntime drmRt_{};
 
   GpuBuffer motionVectors_;
@@ -335,6 +388,10 @@ private:
   uint32_t modelW_ = 0, modelH_ = 0;
   uint32_t outW_ = 0, outH_ = 0;
   bool frameUploadBatch_ = false;
+  // True while cmd_ is between vkBeginCommandBuffer and vkEndCommandBuffer.
+  // Nested upload stages share that recording instead of resetting earlier
+  // conversion work; this protects YUV -> raw -> EASU ordering.
+  bool uploadCmdRecording_ = false;
   bool deferredFrameUploads_ = false;
   bool resetYuvDescriptorsAfterBatch_ = false;
   bool resetDrmDescriptorsAfterBatch_ = false;

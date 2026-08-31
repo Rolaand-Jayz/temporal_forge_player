@@ -75,7 +75,13 @@ def _finite_number(value: object, name: str) -> float:
     return result
 
 
-def _vector(item: object, frame_index: int, vector_index: int) -> dict[str, float | int]:
+def _vector(
+    item: object,
+    frame_index: int,
+    vector_index: int,
+    source_width: int,
+    source_height: int,
+) -> dict[str, float | int]:
     """Validate one sparse codec vector and enforce causal direction."""
 
     value = _mapping(item, f"frames[{frame_index}].vectors[{vector_index}]")
@@ -90,15 +96,26 @@ def _vector(item: object, frame_index: int, vector_index: int) -> dict[str, floa
         raise ValueError(f"frames[{frame_index}].vectors[{vector_index}] extent must be positive")
     if isinstance(source, bool) or not isinstance(source, int):
         raise ValueError(f"frames[{frame_index}].vectors[{vector_index}].source must be an integer")
-    if source > 0:
+    if source != -1:
         raise ValueError(
-            f"frames[{frame_index}].vectors[{vector_index}] points to a future reference"
+            f"frames[{frame_index}].vectors[{vector_index}] does not identify the "
+            "immediately previous reference"
+        )
+    mv_x = _finite_number(value.get("mvX"), "mvX")
+    mv_y = _finite_number(value.get("mvY"), "mvY")
+    if abs(mv_x) > source_width:
+        raise ValueError(
+            f"frames[{frame_index}].vectors[{vector_index}].mvX exceeds source width"
+        )
+    if abs(mv_y) > source_height:
+        raise ValueError(
+            f"frames[{frame_index}].vectors[{vector_index}].mvY exceeds source height"
         )
     return {
         "dstX": int(dst_x),
         "dstY": int(dst_y),
-        "mvX": _finite_number(value.get("mvX"), "mvX"),
-        "mvY": _finite_number(value.get("mvY"), "mvY"),
+        "mvX": mv_x,
+        "mvY": mv_y,
         "w": int(width),
         "h": int(height),
         "source": source,
@@ -185,11 +202,20 @@ def load_motion_fields(
         raise ValueError("motion sidecar.frames must match the captured frame count")
 
     result: list[MotionFieldWithValidity | None] = []
+    previous_pts_us: float | None = None
     for index, item in enumerate(frames):
         frame = _mapping(item, f"motion sidecar.frames[{index}]")
         if _nonnegative_integer(frame.get("frameIndex"), f"frames[{index}].frameIndex") != index:
             raise ValueError(f"frames[{index}].frameIndex is not in sequence order")
-        _finite_number(frame.get("ptsUs"), f"frames[{index}].ptsUs")
+        pts_us = _finite_number(frame.get("ptsUs"), f"frames[{index}].ptsUs")
+        # Motion vectors are consumed in displayed/presentation order. Equal
+        # or backward timestamps can pair an otherwise valid vector with the
+        # wrong transition and contaminate replay and temporal metrics.
+        if previous_pts_us is not None and pts_us <= previous_pts_us:
+            raise ValueError(
+                f"frames[{index}].ptsUs must increase strictly in presentation order"
+            )
+        previous_pts_us = pts_us
         if not isinstance(frame.get("reset"), bool):
             raise ValueError(f"frames[{index}].reset must be boolean")
         available = frame.get("motionAvailable")
@@ -202,7 +228,10 @@ def load_motion_fields(
         vectors_value = frame.get("vectors")
         if not isinstance(vectors_value, list):
             raise ValueError(f"frames[{index}].vectors must be a list")
-        vectors = [_vector(vector, index, vector_index) for vector_index, vector in enumerate(vectors_value)]
+        vectors = [
+            _vector(vector, index, vector_index, source_width, source_height)
+            for vector_index, vector in enumerate(vectors_value)
+        ]
         if not available:
             if vectors:
                 raise ValueError(f"frames[{index}] cannot contain vectors when motion is unavailable")

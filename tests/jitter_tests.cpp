@@ -28,6 +28,12 @@ int main() {
     CHECK(jitterPhaseCount(1,1)    >= 1u);
     CHECK(jitterPhaseCount(1920,1080) >= jitterPhaseCount(640,480));
     CHECK(jitterPhaseCount(3840,2160) >= jitterPhaseCount(1920,1080));
+    CHECK(fsrJitterPhaseCount(1920, 3840) == 32u);
+    CHECK(fsrJitterPhaseCount(1920, 1920) == 8u);
+    // AMD's custom phase rule is ceil(8 * upscaleRatio^2). Non-round ratios
+    // must not truncate a fractional phase count and desynchronize the cycle.
+    CHECK(fsrJitterPhaseCount(426, 1080) == 52u);
+    CHECK(fsrJitterPhaseCount(0, 1920) == 1u);
 
     // Jitter amplitude tapers for lower resolutions.
     CHECK(std::fabs(jitterAmplitudeScale(1920, 1080) - 1.0f) < 1e-6f);

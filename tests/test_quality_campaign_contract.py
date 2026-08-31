@@ -63,6 +63,22 @@ class QualityCampaignContractTests(unittest.TestCase):
 
         validate_campaign(VALID)
 
+    def test_metrics_only_campaign_does_not_require_review_images(self) -> None:
+        from benchmarks.quality_sweeps.quality_campaign_contract import validate_campaign
+
+        metrics_only = copy.deepcopy(VALID)
+        metrics_only["evidenceMode"] = "metrics_only"
+        metrics_only["candidates"][0].pop("reviewAssets")
+        validate_campaign(metrics_only)
+
+    def test_unknown_evidence_mode_is_rejected(self) -> None:
+        from benchmarks.quality_sweeps.quality_campaign_contract import CampaignError, validate_campaign
+
+        invalid = copy.deepcopy(VALID)
+        invalid["evidenceMode"] = "numbers_only_but_unverified"
+        with self.assertRaises(CampaignError):
+            validate_campaign(invalid)
+
     def test_candidate_requires_binary_and_dimensions(self) -> None:
         from benchmarks.quality_sweeps.quality_campaign_contract import CampaignError, validate_campaign
 

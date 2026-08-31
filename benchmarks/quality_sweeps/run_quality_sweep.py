@@ -71,7 +71,10 @@ CAPTURE_ENV_PREFIXES = (
     "TFORGE_REVIEW_",
     "TFORGE_BENCHMARK_",
 )
-CAPTURE_ENV_KEYS = {"TFORGE_DISABLE_HW_DECODE"}
+CAPTURE_ENV_KEYS = {
+    "TFORGE_ALLOW_SPATIAL_TEMPORAL_CONTROL",
+    "TFORGE_DISABLE_HW_DECODE",
+}
 
 
 def parse_args() -> argparse.Namespace:
@@ -362,6 +365,7 @@ def run_candidate(
                 "classSelections": class_selections,
                 "frame": frame,
                 "outputDimensions": output_dimensions,
+                "evidenceMode": manifest.get("evidenceMode", "visual_and_metrics"),
             },
         )
         environment["TFORGE_QUALITY_SPATIAL_INPUT"] = str(spatial_input_path)

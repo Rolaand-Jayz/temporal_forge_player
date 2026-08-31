@@ -1,0 +1,8 @@
+{
+  "schema": "temporal_forge.static_mask.v1",
+  "scene": "sintel_rooftop",
+  "frameRange": {"start": 48, "end": 65},
+  "width": 1920,
+  "height": 1080,
+  "rectangles": [{"x": 900, "y": 100, "width": 700, "height": 700}]
+}

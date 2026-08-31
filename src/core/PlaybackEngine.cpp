@@ -1,8 +1,10 @@
 // PlaybackEngine.cpp
 #include "core/PlaybackEngine.hpp"
+#include "backend/GpuCapabilityProbe.hpp"
 #include "backend/WeightBlob.hpp"
 #include "util/FsrTargetMath.hpp"
 #include "util/Log.hpp"
+#include "util/TemporalFrameContinuity.hpp"
 
 extern "C" {
 #include <libavutil/pixfmt.h>
@@ -16,16 +18,37 @@ extern "C" {
 #include <cstring>
 #include <cstdlib>
 #include <QFileInfo>
+#include <QFile>
+#include <QJsonArray>
+#include <QJsonDocument>
+#include <QJsonObject>
+#include <QJsonParseError>
+#include <QJsonValue>
 #include <filesystem>
 #include <fstream>
 #include <iomanip>
 #include <limits>
+#include <unordered_map>
 #include <utility>
 namespace temporal_forge {
 
 using namespace std::chrono_literals;
 
 namespace {
+
+// diagnosticFingerprint: produce a stable, compact fingerprint for a GPU
+// readback used by an opt-in provenance check. Upstream: the EASU/downscale
+// diagnostic buffers. Downstream: capture logs that prove whether the
+// pre-neural candidate actually changed the image handed to FSR4. This is
+// diagnostic-only and never participates in reconstruction decisions.
+uint64_t diagnosticFingerprint(const std::vector<uint8_t> &bytes) {
+  uint64_t hash = 1469598103934665603ull;
+  for (uint8_t byte : bytes) {
+    hash ^= byte;
+    hash *= 1099511628211ull;
+  }
+  return hash;
+}
 
 std::pair<uint32_t, uint32_t> fsrViewportForBenchmark(uint32_t fallbackW,
                                                        uint32_t fallbackH) {
@@ -42,6 +65,89 @@ std::pair<uint32_t, uint32_t> fsrViewportForBenchmark(uint32_t fallbackW,
   return {fallbackW, fallbackH};
 }
 
+// FSR jitter phase selection depends on the actual model/output pair for the
+// frame being submitted.  Keep this sizing calculation in one place so the
+// pair is installed before SideBufferSynth chooses the variable-jitter phase,
+// while the dispatch path reuses the exact same dimensions afterward.
+struct FsrJitterPair {
+  uint32_t modelW = 0;
+  uint32_t modelH = 0;
+  uint32_t neuralTargetW = 0;
+  uint32_t neuralTargetH = 0;
+  uint32_t displayW = 0;
+  uint32_t displayH = 0;
+  bool nativePassthrough = false;
+  // Explicit FSR1/EASU prefilter request. This is independent of the FSR4
+  // model dimensions: EASU always writes its 2x-native intermediate, then the
+  // existing RGB10 downscale hands that result to the model-sized color image.
+  bool preEasu = false;
+};
+
+FsrJitterPair computeFsrJitterPair(uint32_t decodedW, uint32_t decodedH,
+                                   float selectedScale, bool forcedViewport,
+                                   uint32_t viewportW, uint32_t viewportH,
+                                   uint32_t targetW, uint32_t targetH) {
+  const Size2D nativeTarget = nativeInt8FixedTarget(
+      alignEven(decodedW), alignEven(decodedH));
+  FsrJitterPair pair;
+  pair.neuralTargetW = nativeTarget.width;
+  pair.neuralTargetH = nativeTarget.height;
+  pair.displayW = std::max(2u, viewportW);
+  pair.displayH = std::max(2u, viewportH);
+
+  const auto fitToViewport = [&](uint32_t fitViewportW,
+                                 uint32_t fitViewportH) {
+    const double fit = std::min(
+        static_cast<double>(fitViewportW) / decodedW,
+        static_cast<double>(fitViewportH) / decodedH);
+    return std::pair<uint32_t, uint32_t>{
+        std::max(2u, alignEven(static_cast<uint32_t>(
+                                   std::round(decodedW * fit)))),
+        std::max(2u, alignEven(static_cast<uint32_t>(
+                                   std::round(decodedH * fit))))};
+  };
+
+  if (forcedViewport) {
+    const auto benchmarkViewport = fsrViewportForBenchmark(
+        std::max(2u, targetW), std::max(2u, targetH));
+    if (nativeTarget.width == benchmarkViewport.first &&
+        nativeTarget.height == benchmarkViewport.second) {
+      pair.neuralTargetW = nativeTarget.width;
+      pair.neuralTargetH = nativeTarget.height;
+    } else {
+      const auto fitted = fitToViewport(benchmarkViewport.first,
+                                        benchmarkViewport.second);
+      pair.neuralTargetW = fitted.first;
+      pair.neuralTargetH = fitted.second;
+    }
+    pair.displayW = pair.neuralTargetW;
+    pair.displayH = pair.neuralTargetH;
+  } else {
+    const auto fitted = fitToViewport(pair.displayW, pair.displayH);
+    pair.displayW = fitted.first;
+    pair.displayH = fitted.second;
+  }
+
+  const uint32_t fsrInputW = std::max(
+      2u, alignEven(static_cast<uint32_t>(std::round(
+              pair.neuralTargetW / std::max(1.0f, selectedScale)))));
+  const uint32_t fsrInputH = std::max(
+      2u, alignEven(static_cast<uint32_t>(std::round(
+              pair.neuralTargetH / std::max(1.0f, selectedScale)))));
+  const uint32_t modelW = std::min(fsrInputW, decodedW);
+  const uint32_t modelH = std::min(fsrInputH, decodedH);
+  pair.nativePassthrough =
+      pair.neuralTargetW == decodedW && pair.neuralTargetH == decodedH &&
+      pair.displayW == decodedW && pair.displayH == decodedH;
+  pair.preEasu =
+      (std::getenv("TFORGE_FSR4_PRE_EASU") != nullptr ||
+       std::getenv("TFORGE_FSR4_TRUE_FSR1_EASU") != nullptr) &&
+      !pair.nativePassthrough && decodedW > 0 && decodedH > 0;
+  pair.modelW = modelW;
+  pair.modelH = modelH;
+  return pair;
+}
+
 int qualityLabPresentationScaler(const QualityLabConfig &config,
                                  int fallback) {
   if (!config.enabled)
@@ -55,18 +161,83 @@ int qualityLabPresentationScaler(const QualityLabConfig &config,
   return fallback;
 }
 
-LumaBuffer makeAnalysisLuma(const DecodedVideoFrame &frame) {
+uint32_t motionAnalysisWidth() {
+  constexpr uint32_t defaultWidth = 96;
+  const char *value =
+      std::getenv("TFORGE_FSR4_EXPERIMENTAL_MOTION_ANALYSIS_WIDTH");
+  if (!value || !*value)
+    return defaultWidth;
+  char *end = nullptr;
+  const unsigned long raw = std::strtoul(value, &end, 10);
+  if (end == value || *end != '\0' || raw > 384ul)
+    return defaultWidth;
+  const uint32_t parsed = static_cast<uint32_t>(raw);
+  return std::clamp(parsed, 32u, 384u);
+}
+
+bool motionEstimatorRequested() {
+  // The capture runner has two equivalent ways to select the standalone
+  // estimator: the dedicated estimator variable and the human-readable
+  // motion ablation label. Keep this predicate aligned with
+  // MotionEstimator::configFromEnvironment so both the analysis-grid choice
+  // and the estimator mode describe the same work. Upstream: benchmark/runtime
+  // selection. Downstream: makeAnalysisLuma's source evidence resolution.
+  const char *mode = std::getenv("TFORGE_FSR4_MOTION_ESTIMATOR");
+  if (mode && *mode)
+    return std::strcmp(mode, "codec") == 0 ||
+           std::strcmp(mode, "codec_refined") == 0 ||
+           std::strcmp(mode, "refined") == 0;
+  mode = std::getenv("TFORGE_FSR4_MOTION_ABLATION");
+  return mode && (std::strcmp(mode, "codec") == 0 ||
+                  std::strcmp(mode, "codec_refined") == 0 ||
+                  std::strcmp(mode, "refined") == 0);
+}
+
+LumaBuffer makeAnalysisLuma(const DecodedVideoFrame &frame,
+                           bool estimatorRequested = false) {
   LumaBuffer out;
   if (frame.planes <= 0 || frame.plane[0].empty() || frame.width <= 0 ||
       frame.height <= 0 || frame.linesize[0] <= 0)
     return out;
-  out.width = std::min<uint32_t>(96u, static_cast<uint32_t>(frame.width));
+  // The default is deliberately unchanged. The bounded opt-in lets motion
+  // diagnostics use more source evidence without changing decoded pixels or
+  // making normal playback pay for a denser CPU analysis grid.
+  uint32_t analysisWidth = motionAnalysisWidth();
+  // The standalone estimator's documented 1/2, 1/4, and 1/8 controls select
+  // the actual luma grid. The legacy path keeps its established compact
+  // 96-pixel analysis image when the estimator is not selected.
+  if (estimatorRequested || motionEstimatorRequested()) {
+    uint32_t divisor = 4u;
+    if (const char *value = std::getenv("TFORGE_FSR4_MOTION_REFINEMENT_SCALE")) {
+      const long parsed = std::strtol(value, nullptr, 10);
+      divisor = parsed <= 2 ? 2u : parsed >= 8 ? 8u : 4u;
+    }
+    analysisWidth = std::max<uint32_t>(32u,
+        static_cast<uint32_t>(std::max(1, frame.width) / divisor));
+  }
+  out.width = std::min<uint32_t>(analysisWidth,
+                                 static_cast<uint32_t>(frame.width));
   out.height = std::max<uint32_t>(1u, static_cast<uint32_t>(
       std::llround(static_cast<double>(frame.height) * out.width / frame.width)));
   out.data.resize(static_cast<size_t>(out.width) * out.height);
   const bool limited = frame.colorRange != AVCOL_RANGE_JPEG;
-  const float scale = limited ? (1.0f / 219.0f) : (1.0f / 255.0f);
-  const float bias = limited ? 16.0f : 0.0f;
+  // Software FFmpeg planes for YUV420P10LE/YUV420P12LE contain one
+  // little-endian sample in two bytes. Analysis luma is upstream of motion
+  // refinement, validation, confidence, scene-cut detection, and jitter
+  // policy, so reading a high-bit-depth plane as bytes silently corrupts all
+  // of those downstream decisions. Keep the 8-bit path numerically intact.
+  const bool highBitDepth = frame.bitDepth > 8;
+  const size_t bytesPerSample = highBitDepth ? 2u : 1u;
+  const uint32_t analysisBitDepth = std::clamp(frame.bitDepth, 8, 16);
+  const uint32_t codeMax = (1u << analysisBitDepth) - 1u;
+  const uint32_t limitedBiasCode = 16u << (analysisBitDepth - 8u);
+  const uint32_t limitedRangeCode = 219u << (analysisBitDepth - 8u);
+  const float scale = highBitDepth
+      ? 1.0f / static_cast<float>(limited ? limitedRangeCode : codeMax)
+      : (limited ? (1.0f / 219.0f) : (1.0f / 255.0f));
+  const float bias = highBitDepth
+      ? static_cast<float>(limited ? limitedBiasCode : 0u)
+      : (limited ? 16.0f : 0.0f);
   for (uint32_t y = 0; y < out.height; ++y) {
     const int sy = std::min(frame.height - 1,
                             static_cast<int>((static_cast<uint64_t>(y) * frame.height) /
@@ -75,13 +246,277 @@ LumaBuffer makeAnalysisLuma(const DecodedVideoFrame &frame) {
       const int sx = std::min(frame.width - 1,
                               static_cast<int>((static_cast<uint64_t>(x) * frame.width) /
                                                out.width));
-      const float yValue = static_cast<float>(frame.plane[0][
-          static_cast<size_t>(sy) * frame.linesize[0] + sx]);
+      const size_t byteOffset = static_cast<size_t>(sy) * frame.linesize[0] +
+                                 static_cast<size_t>(sx) * bytesPerSample;
+      float yValue = 0.0f;
+      if (byteOffset < frame.plane[0].size() &&
+          (!highBitDepth || byteOffset + 1u < frame.plane[0].size())) {
+        if (highBitDepth) {
+          const uint32_t sample =
+              static_cast<uint32_t>(frame.plane[0][byteOffset]) |
+              (static_cast<uint32_t>(frame.plane[0][byteOffset + 1u]) << 8u);
+          yValue = static_cast<float>(sample);
+        } else {
+          yValue = static_cast<float>(frame.plane[0][byteOffset]);
+        }
+      }
       out.data[static_cast<size_t>(y) * out.width + x] =
           std::clamp((yValue - bias) * scale, 0.0f, 1.0f);
     }
   }
   return out;
+}
+
+// makeMidpointFrame: build a deliberately small, diagnostic-only midpoint
+// frame from two adjacent software-decoded frames. This is not motion-
+// compensated interpolation: it is the falsification control for the
+// hypothesis that future pixels were previously used as evidence but never
+// became the image sent through FSR or the image published to the renderer.
+//
+// Upstream: the current decoded frame and the one-frame lookahead held by the
+// decode loop. Downstream: only the opt-in display-interpolation probe, which
+// feeds this frame to the existing FSR1/FSR4 path and gives it a midpoint PTS.
+// The default path never calls this function. Rejecting hardware surfaces and
+// non-8-bit/mismatched frames keeps the probe honest instead of blending
+// incomplete or differently encoded buffers.
+bool makeMidpointFrame(const DecodedVideoFrame &current,
+                       const DecodedVideoFrame &next,
+                       DecodedVideoFrame &out) {
+  if (current.width <= 0 || current.height <= 0 ||
+      current.width != next.width || current.height != next.height ||
+      current.avFormat != next.avFormat || current.bitDepth != 8 ||
+      next.bitDepth != 8 || current.hwFrame || next.hwFrame ||
+      current.planes <= 0 || current.planes != next.planes)
+    return false;
+  for (int plane = 0; plane < current.planes; ++plane) {
+    if (current.plane[plane].size() != next.plane[plane].size() ||
+        current.plane[plane].empty())
+      return false;
+  }
+
+  out = current;
+  out.ptsUs = current.ptsUs +
+              (next.ptsUs > current.ptsUs
+                   ? (next.ptsUs - current.ptsUs) / 2
+                   : current.durationUs / 2);
+  out.durationUs = next.ptsUs > current.ptsUs
+                       ? next.ptsUs - current.ptsUs
+                       : current.durationUs;
+  // A midpoint has no independently decoded codec-vector side data. Keep the
+  // current causal field for this controlled probe; the separate motion
+  // correctness experiments remain responsible for validating correspondence.
+  out.motionVectors = current.motionVectors;
+  for (int plane = 0; plane < current.planes; ++plane) {
+    auto &dst = out.plane[plane];
+    const auto &src = next.plane[plane];
+    for (size_t i = 0; i < dst.size(); ++i)
+      dst[i] = static_cast<uint8_t>((static_cast<unsigned>(dst[i]) +
+                                     static_cast<unsigned>(src[i]) + 1u) /
+                                    2u);
+  }
+  return true;
+}
+
+// makeFutureAlignedFrame: pull the future decoded sample back onto the
+// current frame's coordinates, then average the aligned samples. Unlike a
+// midpoint, this preserves the current presentation time and is therefore a
+// candidate for replacing synthetic jitter rather than inserting a new video
+// frame. The field is future->current and is required; without it, averaging
+// unrelated pixels would manufacture motion blur.
+bool makeFutureAlignedFrame(const DecodedVideoFrame &current,
+                            const DecodedVideoFrame &next,
+                            const std::vector<MvEntry> &futureToCurrent,
+                            DecodedVideoFrame &out,
+                            float photometricThreshold = -1.0f) {
+  if (current.width <= 0 || current.height <= 0 ||
+      current.width != next.width || current.height != next.height ||
+      current.avFormat != next.avFormat || current.bitDepth != 8 ||
+      next.bitDepth != 8 || current.hwFrame || next.hwFrame ||
+      current.planes <= 0 || current.planes != next.planes ||
+      futureToCurrent.empty())
+    return false;
+  for (int plane = 0; plane < current.planes; ++plane) {
+    if (current.plane[plane].size() != next.plane[plane].size() ||
+        current.plane[plane].empty() || current.linesize[plane] <= 0 ||
+        next.linesize[plane] != current.linesize[plane])
+      return false;
+  }
+
+  out = current;
+  out.ptsUs = current.ptsUs;
+  out.durationUs = current.durationUs;
+  out.motionVectors = current.motionVectors;
+
+  std::vector<int16_t> motionX(static_cast<size_t>(current.width) *
+                               current.height, 0);
+  std::vector<int16_t> motionY(motionX.size(), 0);
+  // A zero entry means the warped future sample disagreed with the current
+  // luma at this pixel and must not contaminate the displayed sample. The
+  // mask is computed once on luma and reused for chroma, so all planes share
+  // one disocclusion decision.
+  std::vector<uint8_t> photometricBlend(motionX.size(), 1u);
+  for (const MvEntry &mv : futureToCurrent) {
+    const int x0 = std::clamp(static_cast<int>(mv.dstX), 0, current.width);
+    const int y0 = std::clamp(static_cast<int>(mv.dstY), 0, current.height);
+    const int x1 = std::clamp(static_cast<int>(mv.dstX) +
+                                  std::max(1, static_cast<int>(mv.w)),
+                              0, current.width);
+    const int y1 = std::clamp(static_cast<int>(mv.dstY) +
+                                  std::max(1, static_cast<int>(mv.h)),
+                              0, current.height);
+    const int dx = std::clamp(static_cast<int>(std::lround(mv.mvX)),
+                              -32768, 32767);
+    const int dy = std::clamp(static_cast<int>(std::lround(mv.mvY)),
+                              -32768, 32767);
+    for (int y = y0; y < y1; ++y)
+      for (int x = x0; x < x1; ++x) {
+        const size_t index = static_cast<size_t>(y) * current.width + x;
+        motionX[index] = static_cast<int16_t>(dx);
+        motionY[index] = static_cast<int16_t>(dy);
+      }
+  }
+
+  for (int plane = 0; plane < current.planes; ++plane) {
+    const bool chroma = plane > 0 && current.planes >= 3;
+    const int planeWidth = chroma ? (current.width + 1) / 2 : current.width;
+    const int planeHeight = chroma ? (current.height + 1) / 2 : current.height;
+    auto &dst = out.plane[plane];
+    const auto &a = current.plane[plane];
+    const auto &b = next.plane[plane];
+    for (int y = 0; y < planeHeight; ++y) {
+      for (int x = 0; x < planeWidth; ++x) {
+        const int fullX = std::min(current.width - 1,
+                                   x * (chroma ? 2 : 1));
+        const int fullY = std::min(current.height - 1,
+                                   y * (chroma ? 2 : 1));
+        const size_t motionIndex = static_cast<size_t>(fullY) * current.width +
+                                   fullX;
+        const int dx = motionX[motionIndex];
+        const int dy = motionY[motionIndex];
+        // future->current motion maps a future sample at p to current p+mv.
+        // Therefore the future source for current coordinate p is p-mv.
+        const int bx = std::clamp(x - (chroma ? dx / 2 : dx), 0,
+                                  planeWidth - 1);
+        const int by = std::clamp(y - (chroma ? dy / 2 : dy), 0,
+                                  planeHeight - 1);
+        const unsigned av = a[static_cast<size_t>(y) * current.linesize[plane] +
+                              x];
+        const unsigned bv = b[static_cast<size_t>(by) * next.linesize[plane] +
+                              bx];
+        bool blendFuture = photometricThreshold < 0.0f;
+        if (plane == 0 && photometricThreshold >= 0.0f) {
+          const size_t fullIndex = static_cast<size_t>(fullY) * current.width +
+                                   fullX;
+          blendFuture = std::abs(static_cast<int>(av) - static_cast<int>(bv)) /
+                            255.0f <=
+                        photometricThreshold;
+          photometricBlend[fullIndex] = blendFuture ? 1u : 0u;
+        } else if (plane > 0 && photometricThreshold >= 0.0f) {
+          const size_t fullIndex = static_cast<size_t>(fullY) * current.width +
+                                   fullX;
+          blendFuture = photometricBlend[fullIndex] != 0u;
+        }
+        dst[static_cast<size_t>(y) * current.linesize[plane] + x] =
+            blendFuture ? static_cast<uint8_t>((av + bv + 1u) / 2u)
+                        : static_cast<uint8_t>(av);
+      }
+    }
+  }
+  return true;
+}
+
+// makeMotionCompensatedMidpointFrame: synthesize a midpoint while moving the
+// two source samples toward one another according to future->current motion.
+// The vector field is intentionally supplied by the caller so this helper can
+// be paired with the same correspondence experiment being evaluated. It is a
+// CPU diagnostic path for software-decoded 8-bit frames, not a production
+// interpolation algorithm: uncovered blocks use zero motion and all samples
+// use nearest source pixels. The output is nevertheless a real intermediate
+// frame that is sent through FSR and published when the explicit probe is on.
+//
+// Upstream: adjacent decoded YUV frames and validated/diagnostic block motion.
+// Downstream: FSR1/FSR4 color upload, temporal dispatch, and renderer timing.
+// Default playback never calls this function.
+bool makeMotionCompensatedMidpointFrame(
+    const DecodedVideoFrame &current, const DecodedVideoFrame &next,
+    const std::vector<MvEntry> &futureToCurrent, DecodedVideoFrame &out) {
+  if (current.width <= 0 || current.height <= 0 ||
+      current.width != next.width || current.height != next.height ||
+      current.avFormat != next.avFormat || current.bitDepth != 8 ||
+      next.bitDepth != 8 || current.hwFrame || next.hwFrame ||
+      current.planes <= 0 || current.planes != next.planes ||
+      futureToCurrent.empty())
+    return false;
+  for (int plane = 0; plane < current.planes; ++plane) {
+    if (current.plane[plane].size() != next.plane[plane].size() ||
+        current.plane[plane].empty() || current.linesize[plane] <= 0 ||
+        next.linesize[plane] != current.linesize[plane])
+      return false;
+  }
+
+  out = current;
+  out.ptsUs = current.ptsUs +
+              (next.ptsUs > current.ptsUs
+                   ? (next.ptsUs - current.ptsUs) / 2
+                   : current.durationUs / 2);
+  out.durationUs = next.ptsUs > current.ptsUs
+                       ? next.ptsUs - current.ptsUs
+                       : current.durationUs;
+  out.motionVectors = current.motionVectors;
+
+  // Expand sparse source-space vectors into a small integer field. The loop is
+  // bounded by the decoded frame, and later entries retain the same
+  // deterministic last-writer behavior as the GPU sparse expansion.
+  std::vector<int16_t> motionX(static_cast<size_t>(current.width) *
+                               current.height, 0);
+  std::vector<int16_t> motionY(motionX.size(), 0);
+  for (const MvEntry &mv : futureToCurrent) {
+    const int x0 = std::clamp(static_cast<int>(mv.dstX), 0, current.width);
+    const int y0 = std::clamp(static_cast<int>(mv.dstY), 0, current.height);
+    const int x1 = std::clamp(static_cast<int>(mv.dstX) + std::max(1, (int)mv.w),
+                              0, current.width);
+    const int y1 = std::clamp(static_cast<int>(mv.dstY) + std::max(1, (int)mv.h),
+                              0, current.height);
+    const int dx = std::clamp(static_cast<int>(std::lround(mv.mvX)), -32768, 32767);
+    const int dy = std::clamp(static_cast<int>(std::lround(mv.mvY)), -32768, 32767);
+    for (int y = y0; y < y1; ++y)
+      for (int x = x0; x < x1; ++x) {
+        const size_t index = static_cast<size_t>(y) * current.width + x;
+        motionX[index] = static_cast<int16_t>(dx);
+        motionY[index] = static_cast<int16_t>(dy);
+      }
+  }
+
+  for (int plane = 0; plane < current.planes; ++plane) {
+    const bool chroma = plane > 0 && current.planes >= 3;
+    const int planeWidth = chroma ? (current.width + 1) / 2 : current.width;
+    const int planeHeight = chroma ? (current.height + 1) / 2 : current.height;
+    auto &dst = out.plane[plane];
+    const auto &a = current.plane[plane];
+    const auto &b = next.plane[plane];
+    for (int y = 0; y < planeHeight; ++y) {
+      for (int x = 0; x < planeWidth; ++x) {
+        const int fullX = std::min(current.width - 1, x * (chroma ? 2 : 1));
+        const int fullY = std::min(current.height - 1, y * (chroma ? 2 : 1));
+        const size_t motionIndex = static_cast<size_t>(fullY) * current.width + fullX;
+        const int halfDx = motionX[motionIndex] / 2;
+        const int halfDy = motionY[motionIndex] / 2;
+        const int ax = std::clamp(x + (chroma ? halfDx / 2 : halfDx), 0,
+                                  planeWidth - 1);
+        const int ay = std::clamp(y + (chroma ? halfDy / 2 : halfDy), 0,
+                                  planeHeight - 1);
+        const int bx = std::clamp(x - (chroma ? halfDx / 2 : halfDx), 0,
+                                  planeWidth - 1);
+        const int by = std::clamp(y - (chroma ? halfDy / 2 : halfDy), 0,
+                                  planeHeight - 1);
+        const unsigned av = a[static_cast<size_t>(ay) * current.linesize[plane] + ax];
+        const unsigned bv = b[static_cast<size_t>(by) * next.linesize[plane] + bx];
+        dst[static_cast<size_t>(y) * current.linesize[plane] + x] =
+            static_cast<uint8_t>((av + bv + 1u) / 2u);
+      }
+    }
+  }
+  return true;
 }
 
 float codecMotionConfidence(const std::vector<MvEntry> &mvs, int width,
@@ -94,37 +529,17 @@ float codecMotionConfidence(const std::vector<MvEntry> &mvs, int width,
   }
   if (width <= 0 || height <= 0 || mvs.empty())
     return mvs.empty() ? emptyMotionConfidence : 0.0f;
-  const double frameArea = static_cast<double>(width) * height;
-  double covered = 0.0;
-  double weightedMagnitude = 0.0;
-  double weightedMagnitudeSq = 0.0;
-  for (const MvEntry &mv : mvs) {
-    const int blockW = std::max(1, static_cast<int>(mv.w));
-    const int blockH = std::max(1, static_cast<int>(mv.h));
-    const int x0 = std::clamp(static_cast<int>(mv.dstX), 0, width);
-    const int y0 = std::clamp(static_cast<int>(mv.dstY), 0, height);
-    const int x1 = std::clamp(static_cast<int>(mv.dstX) + blockW, 0, width);
-    const int y1 = std::clamp(static_cast<int>(mv.dstY) + blockH, 0, height);
-    const double area = static_cast<double>(std::max(0, x1 - x0)) *
-                        std::max(0, y1 - y0);
-    if (area <= 0.0) continue;
-    const double magnitude = std::hypot(static_cast<double>(mv.mvX),
-                                        static_cast<double>(mv.mvY)) /
-                             std::hypot(static_cast<double>(width),
-                                        static_cast<double>(height));
-    covered += area;
-    weightedMagnitude += area * magnitude;
-    weightedMagnitudeSq += area * magnitude * magnitude;
-  }
-  if (covered <= 0.0) return 0.25f;
-  const double coverage = std::clamp(covered / frameArea, 0.0, 1.0);
-  const double mean = weightedMagnitude / covered;
-  const double variance = std::max(0.0, weightedMagnitudeSq / covered - mean * mean);
-  const double consistency = 1.0 / (1.0 + 18.0 * std::sqrt(variance));
-  const double displacementTrust = 1.0 / (1.0 + 2.0 * mean);
-  return static_cast<float>(std::clamp(0.25 + 0.75 * coverage * consistency *
-                                                displacementTrust,
-                                        0.0, 1.0));
+  // Keep the baseline arm reproducible: it must not inherit the newly
+  // combined local-confidence factor merely because the same binary is used.
+  // Explicit confidence-map and integrated-history arms opt into the new
+  // combination even when another diagnostic disables the broad best-findings
+  // profile.
+  const bool includeLocalConfidence =
+      std::getenv("TFORGE_FSR4_DISABLE_BEST_FINDINGS") == nullptr ||
+      std::getenv("TFORGE_FSR4_EXPERIMENTAL_MOTION_CONFIDENCE_MAP") != nullptr ||
+      std::getenv("TFORGE_FSR4_INTEGRATED_HISTORY_CONFIDENCE") != nullptr;
+  return MotionEstimator::aggregateConfidence(
+      mvs, width, height, emptyMotionConfidence, includeLocalConfidence);
 }
 
 float motionLimitMultiplier() {
@@ -145,10 +560,22 @@ float motionLimitMultiplier() {
   return value;
 }
 
-std::vector<MvEntry> pastReferenceMotion(const std::vector<MvEntry> &mvs) {
+// The legacy TFORGE_FSR4_EXPERIMENTAL_PREVIOUS_REFERENCE_ONLY setting and
+// the former mv.source <= 0 predicate are retained here as historical
+// contract names only. Immediate-previous filtering is now unconditional.
+std::vector<MvEntry> pastReferenceMotion(const std::vector<MvEntry> &mvs,
+                                         bool rejectBFrameMotion,
+                                         bool isBFrame) {
+  // FFmpeg's source field only identifies reference direction. A non-positive
+  // value does not prove that the vector targets the immediately previous
+  // decoded frame: source=0 is ambiguous and values such as source=-2 may
+  // target an older past reference. Fail closed because this player owns only
+  // the immediately previous history image.
   std::vector<MvEntry> past;
   past.reserve(mvs.size());
   for (const MvEntry &mv : mvs) {
+    if (rejectBFrameMotion && isBFrame)
+      continue;
     // Positive source indices point at future reference pictures. They are
     // useful to the codec, but are not valid history reprojection vectors for
     // this causal player unless a future frame has independently been
@@ -162,7 +589,11 @@ std::vector<MvEntry> pastReferenceMotion(const std::vector<MvEntry> &mvs) {
     const float maxDisplacement =
         4.0f * std::hypot(static_cast<float>(blockW),
                           static_cast<float>(blockH));
-    if (mv.source <= 0 && std::isfinite(mv.mvX) && std::isfinite(mv.mvY) &&
+    // Keep only FFmpeg's immediately previous-reference marker. Future,
+    // ambiguous, and older-reference vectors must never be silently applied
+    // to the previous-frame history texture.
+    if (mv.source == -1 &&
+        std::isfinite(mv.mvX) && std::isfinite(mv.mvY) &&
         std::hypot(mv.mvX, mv.mvY) <=
             maxDisplacement * motionLimitMultiplier())
       past.push_back(mv);
@@ -220,7 +651,9 @@ bool dumpCausalMotionFrame(const std::filesystem::path &path,
            << ", \"mvY\": " << motion.mvY
            << ", \"w\": " << static_cast<int>(motion.w)
            << ", \"h\": " << static_cast<int>(motion.h)
-           << ", \"source\": " << static_cast<int>(motion.source) << '}';
+           << ", \"source\": " << static_cast<int>(motion.source)
+           << ", \"confidence\": "
+           << std::clamp(motion.confidence, 0.0f, 1.0f) << '}';
   }
   if (!frameMotion.empty()) output << '\n';
   output << "  ],\n"
@@ -272,11 +705,23 @@ bool dumpEventTraceFrame(const std::filesystem::path &path,
          << "  \"schema\": \"temporal_forge.event_trace.v1\",\n"
          << "  \"eventIndex\": " << eventIndex << ",\n"
          << "  \"eventFrameIndex\": " << eventIndex << ",\n"
+         << "  \"decoderReceiveIndex\": " << frame.frameIndex << ",\n"
          << "  \"transitionIndex\": "
          << (eventIndex == 0 ? "null" : std::to_string(eventIndex - 1))
          << ",\n"
          << "  \"ptsUs\": " << frame.ptsUs << ",\n"
          << "  \"ptsDeltaMs\": " << ptsDeltaMs << ",\n"
+         // Record the source/render-space jitter actually associated with
+         // this event-trace frame. Upstream: SideBufferSynth's selected
+         // phase; downstream: capture review and timing audits. This is
+         // diagnostic provenance only and does not alter FSR inputs.
+         << "  \"jitterX\": " << sideInputs.jitterX << ",\n"
+         << "  \"jitterY\": " << sideInputs.jitterY << ",\n"
+         << "  \"jitterApplied\": "
+         << ((sideInputs.jitterX != 0.0f || sideInputs.jitterY != 0.0f)
+                 ? "true"
+                 : "false")
+         << ",\n"
          << "  \"reset\": " << (sideInputs.reset ? "true" : "false")
          << ",\n"
          << "  \"forcedReset\": " << (forcedReset ? "true" : "false")
@@ -310,9 +755,14 @@ bool dumpEventTraceFrame(const std::filesystem::path &path,
   return true;
 }
 
-std::vector<MvEntry> scaleMotionToModel(const std::vector<MvEntry> &mvs,
-                                        int sourceW, int sourceH,
-                                        uint32_t modelW, uint32_t modelH) {
+// Map sparse block coverage into the model grid. The codec/dense estimators
+// produce current-destination-to-previous-reference vectors in source pixels;
+// the dense motion image stores model-pixel magnitudes, and the prepass then
+// applies the model-to-output scale. Coverage positions and vector magnitudes
+// therefore need the same source-to-model conversion exactly once.
+std::vector<MvEntry> scaleMotionCoverageToModel(
+    const std::vector<MvEntry> &mvs, int sourceW, int sourceH,
+    uint32_t modelW, uint32_t modelH) {
   if (sourceW <= 0 || sourceH <= 0 || modelW == 0 || modelH == 0)
     return {};
   const float sx = static_cast<float>(modelW) / sourceW;
@@ -324,17 +774,185 @@ std::vector<MvEntry> scaleMotionToModel(const std::vector<MvEntry> &mvs,
         std::lround(static_cast<float>(mv.dstX) * sx), -32768l, 32767l));
     mv.dstY = static_cast<int16_t>(std::clamp(
         std::lround(static_cast<float>(mv.dstY) * sy), -32768l, 32767l));
-    mv.mvX *= sx;
-    mv.mvY *= sy;
     mv.w = static_cast<uint8_t>(std::clamp(
         std::lround(static_cast<float>(std::max(1, static_cast<int>(mv.w))) * sx),
         1l, 255l));
     mv.h = static_cast<uint8_t>(std::clamp(
         std::lround(static_cast<float>(std::max(1, static_cast<int>(mv.h))) * sy),
         1l, 255l));
+    mv.mvX *= sx;
+    mv.mvY *= sy;
     scaled.push_back(mv);
   }
   return scaled;
+}
+
+// Order overlapping sparse vectors so the existing last-writer coverage rule
+// selects the most trusted vector instead of whichever block happened to be
+// uploaded last. Upstream: codec, fallback, or replay motion plus optional
+// confidence scoring. Downstream: both CPU and GPU expanders, which preserve
+// this order while stamping per-pixel motion. This is opt-in because the
+// established baseline must remain byte-for-byte behaviorally unchanged.
+void orderMotionByConfidence(std::vector<MvEntry> &mvs) {
+  std::stable_sort(mvs.begin(), mvs.end(), [](const MvEntry &a,
+                                               const MvEntry &b) {
+    const float aConfidence = std::isfinite(a.confidence)
+        ? std::clamp(a.confidence, 0.0f, 1.0f) : 0.0f;
+    const float bConfidence = std::isfinite(b.confidence)
+        ? std::clamp(b.confidence, 0.0f, 1.0f) : 0.0f;
+    return aConfidence < bConfidence;
+  });
+}
+
+bool loadDenseMotionReplay(const char *path, uint64_t frameIndex,
+                           uint64_t denseMotionReplaySeekGeneration,
+                           int sourceW, int sourceH,
+                           std::vector<MvEntry> &out) {
+  // This cache is decode-thread-owned. The replay sidecar is loaded once per
+  // path, then indexed by absolute decoder frame number so warmup frames and
+  // relative image-dump numbering cannot shift correspondence silently.
+  struct Cache {
+    std::string path;
+    std::unordered_map<uint64_t, std::vector<MvEntry>> frames;
+    bool loaded = false;
+    bool warned = false;
+    // Replay sidecars use capture-relative frame IDs, while the decoder's
+    // frameIndex may begin after benchmark warmup. Establish the offset from
+    // the first frame that asks for replay so warmup cannot cause a silent
+    // fail-closed fallback to the baseline.
+    uint64_t frameBase = 0;
+    bool frameBaseSet = false;
+    uint64_t seekGeneration = 0;
+    bool seekGenerationSet = false;
+    // The sidecar dimensions are part of the motion contract. They must
+    // match the decoded source dimensions on every lookup, because a replay
+    // file from another input resolution would otherwise apply plausible but
+    // spatially wrong vectors to the current frame.
+    int sidecarSourceW = 0;
+    int sidecarSourceH = 0;
+  };
+  static Cache cache;
+  if (!path || !*path)
+    return false;
+  if (!cache.loaded || cache.path != path) {
+    cache = Cache{};
+    cache.path = path;
+    QFile file(QString::fromUtf8(path));
+    if (!file.open(QIODevice::ReadOnly)) {
+      logWarn("PlaybackEngine: dense motion replay cannot open {}", path);
+      cache.warned = true;
+      return false;
+    }
+    QJsonParseError parseError{};
+    const QJsonDocument document =
+        QJsonDocument::fromJson(file.readAll(), &parseError);
+    if (parseError.error != QJsonParseError::NoError || !document.isObject()) {
+      logWarn("PlaybackEngine: dense motion replay JSON is invalid: {}", path);
+      cache.warned = true;
+      return false;
+    }
+    const QJsonObject root = document.object();
+    const int sidecarW = root.value(QStringLiteral("sourceWidth")).toInt();
+    const int sidecarH = root.value(QStringLiteral("sourceHeight")).toInt();
+    if (root.value(QStringLiteral("schema")).toString() !=
+            QStringLiteral("temporal_forge.codec_motion.v1") ||
+        root.value(QStringLiteral("coordinateDomain")).toString() !=
+            QStringLiteral("current_destination_to_previous_reference") ||
+        root.value(QStringLiteral("motionUnits")).toString() !=
+            QStringLiteral("source_pixels") ||
+        root.value(QStringLiteral("sampleConvention")).toString() !=
+            QStringLiteral("destination_plus_motion") ||
+        root.value(QStringLiteral("frameIndexBase")).toString() !=
+            QStringLiteral("capture_relative") ||
+        sidecarW <= 0 || sidecarH <= 0) {
+      logWarn("PlaybackEngine: dense motion replay schema is unsupported: {}",
+              path);
+      cache.warned = true;
+      return false;
+    }
+    const QJsonArray frames = root.value(QStringLiteral("frames")).toArray();
+    for (const QJsonValue &frameValue : frames) {
+      const QJsonObject frame = frameValue.toObject();
+      if (!frameValue.isObject() || !frame.contains(QStringLiteral("frameIndex")) ||
+          !frame.value(QStringLiteral("frameIndex")).isDouble())
+        continue;
+      const int64_t rawIndex =
+          static_cast<int64_t>(frame.value(QStringLiteral("frameIndex")).toDouble(-1));
+      if (rawIndex < 0)
+        continue;
+      std::vector<MvEntry> vectors;
+      const QJsonArray values = frame.value(QStringLiteral("vectors")).toArray();
+      for (const QJsonValue &value : values) {
+        const QJsonObject item = value.toObject();
+        const double x = item.value(QStringLiteral("dstX")).toDouble(qQNaN());
+        const double y = item.value(QStringLiteral("dstY")).toDouble(qQNaN());
+        const double mvX = item.value(QStringLiteral("mvX")).toDouble(qQNaN());
+        const double mvY = item.value(QStringLiteral("mvY")).toDouble(qQNaN());
+        const double width = item.value(QStringLiteral("w")).toDouble(qQNaN());
+        const double height = item.value(QStringLiteral("h")).toDouble(qQNaN());
+        const double confidence =
+            item.value(QStringLiteral("confidence")).toDouble(1.0);
+        const int source = item.value(QStringLiteral("source")).toInt(1);
+        if (!std::isfinite(x) || !std::isfinite(y) || !std::isfinite(mvX) ||
+            !std::isfinite(mvY) || !std::isfinite(width) ||
+            !std::isfinite(height) || std::floor(x) != x || std::floor(y) != y ||
+            std::floor(width) != width || std::floor(height) != height ||
+            !std::isfinite(confidence) || confidence < 0.0 || confidence > 1.0 ||
+            width <= 0.0 || height <= 0.0 || source != -1 ||
+            std::abs(mvX) > static_cast<double>(sourceW) ||
+            std::abs(mvY) > static_cast<double>(sourceH) ||
+            x < -32768.0 || x > 32767.0 || y < -32768.0 || y > 32767.0 ||
+            width > 255.0 || height > 255.0)
+          continue;
+        MvEntry motion;
+        motion.dstX = static_cast<int16_t>(x);
+        motion.dstY = static_cast<int16_t>(y);
+        motion.mvX = static_cast<float>(mvX);
+        motion.mvY = static_cast<float>(mvY);
+        motion.w = static_cast<uint8_t>(width);
+        motion.h = static_cast<uint8_t>(height);
+        motion.source = static_cast<int8_t>(std::clamp(source, -128, 0));
+        motion.confidence = static_cast<float>(confidence);
+        vectors.push_back(motion);
+      }
+      cache.frames[static_cast<uint64_t>(rawIndex)] = std::move(vectors);
+    }
+    cache.sidecarSourceW = sidecarW;
+    cache.sidecarSourceH = sidecarH;
+    cache.loaded = true;
+  }
+  if (sourceW <= 0 || sourceH <= 0 || cache.sidecarSourceW != sourceW ||
+      cache.sidecarSourceH != sourceH) {
+    if (!cache.warned) {
+      logWarn("PlaybackEngine: dense motion replay dimensions {}x{} do not "
+              "match decoded source {}x{}: {}",
+              cache.sidecarSourceW, cache.sidecarSourceH, sourceW, sourceH,
+              path);
+      cache.warned = true;
+    }
+    return false;
+  }
+  // Decoder frame indices restart after a seek. Rebase the capture-relative
+  // origin for the new seek generation so frame zero is not looked up against
+  // the previous sequence's cached frameBase.
+  if (!cache.seekGenerationSet ||
+      cache.seekGeneration != denseMotionReplaySeekGeneration) {
+    cache.seekGeneration = denseMotionReplaySeekGeneration;
+    cache.seekGenerationSet = true;
+    cache.frameBase = 0;
+    cache.frameBaseSet = false;
+  }
+  if (!cache.frameBaseSet) {
+    cache.frameBase = frameIndex;
+    cache.frameBaseSet = true;
+  }
+  if (frameIndex < cache.frameBase)
+    return false;
+  const auto found = cache.frames.find(frameIndex - cache.frameBase);
+  if (found == cache.frames.end())
+    return false;
+  out = found->second;
+  return true;
 }
 
 float lookaheadConfidence(const DecodedVideoFrame &current,
@@ -394,7 +1012,8 @@ void PlaybackEngine::promoteStableFsrViewport() {
 void PlaybackEngine::setVulkanHandles(VkPhysicalDevice physical,
                                       VkDevice device, VkQueue queue,
                                       uint32_t queueFamily,
-                                      uint32_t presentationQueueFamily) {
+                                      uint32_t presentationQueueFamily,
+                                      VkInstance instance) {
   vkPhysical_ = physical;
   vkDevice_ = device;
   vkQueue_ = queue;
@@ -404,11 +1023,16 @@ void PlaybackEngine::setVulkanHandles(VkPhysicalDevice physical,
     logInfo("PlaybackEngine: no Vulkan device — FSR4 upscaling disabled");
     return;
   }
-  // We do not have the Vulkan instance here; the harness validates the
-  // provided device/capability on create.
-  vkCap_.valid = true;
-  vkCap_.deviceName = "selected GPU";
-  vkCap_.profile = Fsr4Profile::Int8Dot4;
+  // Probe the exact physical device selected by VulkanContext. The instance
+  // is required to resolve cooperative-matrix properties, including the
+  // FP16 fallback flag used by diagnostic generic dispatch. The production
+  // RDNA3 profile remains INT8 DOT4; this only stops startup from discarding
+  // capability facts discovered by the standalone probe.
+  vkCap_ = GpuCapabilityProbe::probe(physical, instance);
+  if (!vkCap_.valid) {
+    logWarn("PlaybackEngine: selected Vulkan device is not FSR4-capable: {}",
+            vkCap_.failReason);
+  }
   // When Vulkan is available, default to EASU-only mode so frames are always
   // GPU-upscaled (2x edge-adaptive) even when the neural FSR4 path is off.
   // setFsr4Enabled(true) will clear this when the user enables FSR4.
@@ -423,6 +1047,7 @@ void PlaybackEngine::setFsr4Enabled(bool enabled) {
     return;
   fsr4Enabled_.store(enabled, std::memory_order_release);
   fsr4FrameReady_.store(false, std::memory_order_release);
+  fsrTemporalResetRequested_.store(true, std::memory_order_release);
   fsr4NativePassthrough_.store(false, std::memory_order_release);
   if (!enabled) {
     // Disabling FSR4 neural upscaling. Tear down the harness (weights, CNN
@@ -462,6 +1087,7 @@ void PlaybackEngine::teardownFsr4Path() {
   // immediately, even before we finish tearing them down.
   fsr4Ready_.store(false, std::memory_order_release);
   fsr4FrameReady_.store(false, std::memory_order_release);
+  fsrTemporalResetRequested_.store(true, std::memory_order_release);
   fsr4NativePassthrough_.store(false, std::memory_order_release);
   // NOTE: do NOT clear easuOnlyMode_ here — it's a display policy, not a
   // teardown state. The decode loop re-creates the uploader lazily when
@@ -847,6 +1473,7 @@ bool PlaybackEngine::initFsr4Path(int decodedW, int decodedH, int modelW,
   fsr4OutH_.store(outH, std::memory_order_release);
   fsr4FrameReady_.store(false, std::memory_order_release);
   fsr4DumpedOutput_ = false;
+  fsr4DumpedModelInput_ = false;
   fsr4DumpedRaw_ = false;
   fsr4SequenceDumpCount_ = 0;
   fsr4SequenceFramesSeen_ = 0;
@@ -899,6 +1526,7 @@ void PlaybackEngine::setFsrViewport(uint32_t width, uint32_t height,
   // + pipeline rebuild on every resize and stall the UI on vkQueueWaitIdle.
   if (scale != oldScale || width != oldWidth || height != oldHeight) {
     if (scale != oldScale) {
+      fsrTemporalResetRequested_.store(true, std::memory_order_release);
       fsrTargetViewportW_.store(width, std::memory_order_release);
       fsrTargetViewportH_.store(height, std::memory_order_release);
       fsr4Ready_.store(false, std::memory_order_release);
@@ -1245,6 +1873,32 @@ bool PlaybackEngine::openUrlInternal(const QUrl &url) {
 
   if (info.videoIndex >= 0) {
     vdec_ = std::make_unique<VideoDecoder>();
+    // Resolve typed motion configuration before opening the decoder. VAAPI
+    // frames remain excellent for ordinary playback, but that handoff does
+    // not preserve FFmpeg motion side-data. A configured causal estimator
+    // therefore needs to request software decode at this boundary; the
+    // estimator itself still runs later on the unjittered decoded pair.
+    const MotionMode userMotionMode =
+        motionMode_.load(std::memory_order_acquire);
+    const bool userNeedsCodecMotion =
+        userMotionMode == MotionMode::AutoCheap ||
+        userMotionMode == MotionMode::Codec;
+    // Capture controls may explicitly disable motion even when the shared
+    // Quality Lab profile contains motion settings for the promoted arm.
+    // Resolve that override before opening the decoder, otherwise the typed
+    // profile forces software decode and FFmpeg side-data extraction for a
+    // control that intentionally must not consume either one.
+    const char *environmentMotionMode =
+        std::getenv("TFORGE_FSR4_MOTION_ESTIMATOR");
+    const bool environmentMotionModeIsOff =
+        environmentMotionMode &&
+        (std::strcmp(environmentMotionMode, "off") == 0 ||
+         std::strcmp(environmentMotionMode, "zero") == 0);
+    if (!environmentMotionModeIsOff &&
+        ((qualityLabConfig_.enabled && qualityLabConfig_.motionConfigured &&
+         qualityLabConfig_.motion.mode != MotionEstimatorMode::Off) ||
+         userNeedsCodecMotion))
+      vdec_->setMotionMetadataRequested(true);
     if (!vdec_->open(demux_->ctx(), info.videoIndex))
       vdec_.reset();
   }
@@ -1355,6 +2009,7 @@ void PlaybackEngine::seekUs(qint64 us) {
   // spec 02 Seek Handling: flush queued frames, reset temporal history,
   // set reset=true on first frame after seek, resume at source timestamps.
   seekTargetUs_.store(us);
+  seekGeneration_.fetch_add(1, std::memory_order_acq_rel);
   seekPending_.store(true);
 
   // Wake threads to observe the flush.
@@ -1559,19 +2214,147 @@ void PlaybackEngine::videoDecodeLoop() {
   // A newly opened decoder has no published history image yet. The first
   // decoded frame must take the reset path even without an explicit flush.
   bool firstAfterSeek = true;
+  uint64_t handledSeekGeneration =
+      seekGeneration_.load(std::memory_order_acquire);
+  // The last jitter that belongs to a successfully submitted history image.
+  // This is passed to the prepass so temporal reprojection can align jittered
+  // source phases instead of treating a static subpixel shift as motion.
+  bool hasPreviousJitter = false;
+  float previousJitterX = 0.0f;
+  float previousJitterY = 0.0f;
+  // Prior jitter is expressed in the decoded render-size coordinate space.
+  // Keep the dimensions that produced it so a source-size change cannot
+  // reuse those values in a different pixel-unit space.
+  uint32_t previousRenderWidth = 0;
+  uint32_t previousRenderHeight = 0;
+  // Tracks only successfully completed FSR dispatches. This prevents a
+  // skipped/reordered decoder frame or failed GPU submission from consuming
+  // history/recurrent state belonging to a different frame.
+  TemporalFrameContinuity temporalFrameContinuity;
   DecodedVideoFrame pendingDecodedFrame;
   bool hasPendingDecodedFrame = false;
   static const bool forceResetEnv =
       std::getenv("TFORGE_FSR4_FORCE_RESET") != nullptr;
   static const bool motionConfidenceReactiveEnv =
       std::getenv("TFORGE_FSR4_MOTION_CONFIDENCE_REACTIVE") != nullptr;
+  // The promoted best-findings temporal path enables only already-measured
+  // helpers: codec-motion confidence annotation and strict validation. The
+  // bounded CPU refinement probe was not a quality win and added measurable
+  // frame time, so it remains explicitly selectable for diagnostics only.
+  // Upstream: decoded frames and codec motion. Downstream: FSR temporal
+  // history/recurrent inputs. FSR1/EASU remains a separate opt-in because its
+  // matched evidence did not show a safe universal improvement.
+  static const bool bestFindingsTemporal =
+      std::getenv("TFORGE_FSR4_DISABLE_BEST_FINDINGS") == nullptr;
+  // Integrated video profile: combine only retained causal motion/history
+  // findings as one reproducible arm. Source-tap Mu-law ordering remains a
+  // separate diagnostic because its matched result was neutral. Synthetic
+  // jitter is also separate because zero jitter remains the video default.
+  static const bool integratedTemporalProfile =
+      std::getenv("TFORGE_FSR4_INTEGRATED_TEMPORAL") != nullptr ||
+      std::getenv("TFORGE_FSR4_INTEGRATED_HISTORY_CONFIDENCE") != nullptr ||
+      std::getenv("TFORGE_FSR4_INTEGRATED_BEST_FINDINGS") != nullptr ||
+      std::getenv("TFORGE_FSR4_INTEGRATED_BEST_FINDINGS_JITTER") != nullptr;
+  // Explicit comparison arm that combines the measured best-findings stack
+  // with synthetic jitter. It is intentionally separate from the promoted
+  // zero-jitter profile because prerecorded frames do not contain renderer
+  // jitter samples; the capture harness can therefore A/B this combination
+  // without changing the baseline or silently altering ordinary playback.
+  static const bool integratedBestFindingsJitter =
+      std::getenv("TFORGE_FSR4_INTEGRATED_BEST_FINDINGS_JITTER") != nullptr;
+  // This opt-in adds the measured history/confidence candidate to the
+  // integrated motion/color profile while preserving the base profile.
+  static const bool integratedHistoryConfidenceProfile =
+      std::getenv("TFORGE_FSR4_INTEGRATED_HISTORY_CONFIDENCE") != nullptr ||
+      std::getenv("TFORGE_FSR4_INTEGRATED_BEST_FINDINGS") != nullptr ||
+      std::getenv("TFORGE_FSR4_INTEGRATED_BEST_FINDINGS_JITTER") != nullptr;
+  // The integrated causal profile must not use a B-picture's past reference
+  // list as though it were the immediately previous displayed frame. Keep
+  // this guard opt-in so existing motion A/B controls remain reproducible.
+  // FFmpeg's past-reference sign does not identify the immediately previous
+  // displayed frame for every B-picture stream. Keep rejection opt-in until
+  // a broader capture set proves it is a net gain; this switch is a diagnostic
+  // A/B control, not a new default. Upstream: decoder picture type and runtime
+  // selection. Downstream: causal history seeds and dense motion expansion.
+  static const bool rejectBFrameMotion =
+      std::getenv("TFORGE_FSR4_MOTION_ALLOW_B_FRAMES") == nullptr &&
+      std::getenv("TFORGE_FSR4_MOTION_REJECT_B_FRAMES") != nullptr;
   static const char *jitterModeEnv = std::getenv("TFORGE_FSR4_JITTER_MODE");
+  // Future-frame probes need one decoded lookahead frame. The ordinary path
+  // remains packet-for-packet causal and does not drain another video packet.
+  static const bool futureLookaheadEnv =
+      std::getenv("TFORGE_FSR4_EXPERIMENTAL_BIDIRECTIONAL_MOTION") != nullptr ||
+      std::getenv("TFORGE_FSR4_EXPERIMENTAL_FUTURE_EVIDENCE_ONLY") != nullptr ||
+      std::getenv("TFORGE_FSR4_EXPERIMENTAL_DISPLAY_INTERPOLATED") != nullptr ||
+      std::getenv("TFORGE_FSR4_EXPERIMENTAL_INTERPOLATED_JITTER") != nullptr ||
+      std::getenv("TFORGE_FSR4_EXPERIMENTAL_FUTURE_ALIGNED_JITTER") != nullptr;
+  static const bool displayInterpolatedEnv =
+      std::getenv("TFORGE_FSR4_EXPERIMENTAL_DISPLAY_INTERPOLATED") != nullptr;
+  // This variant uses the synthesized midpoint as the reconstruction sample
+  // that replaces artificial render jitter, but keeps one output per decoded
+  // frame and preserves that frame's presentation timestamp.
+  static const bool interpolatedJitterEnv =
+      std::getenv("TFORGE_FSR4_EXPERIMENTAL_INTERPOLATED_JITTER") != nullptr;
+  static const bool futureAlignedJitterEnv =
+      std::getenv("TFORGE_FSR4_EXPERIMENTAL_FUTURE_ALIGNED_JITTER") != nullptr;
+  // Future-aligned/interpolated probes intentionally replace synthetic jitter
+  // with their own sample. The upload pass and FSR constants must agree.
+  static const bool syntheticJitterApplied =
+      !interpolatedJitterEnv && !futureAlignedJitterEnv;
+  // Opt-in RE-guided ordering probe. The official FSR source applies jitter
+  // inside its prepass input resolve after model-color conversion, whereas
+  // the established video path applies it during YUV upload. Keep motion
+  // estimation and FSR metadata unchanged; only move the color sample phase.
+  static const bool prepassJitterOrdering =
+      std::getenv("TFORGE_FSR4_EXPERIMENTAL_PREPASS_JITTER_ORDERING") != nullptr ||
+      std::getenv("TFORGE_FSR4_EXPERIMENTAL_SOURCE_TAP_MULAW") != nullptr ||
+      integratedBestFindingsJitter;
+  // Optional photometric rejection keeps a future-aligned sample out of
+  // disoccluded or badly matched pixels. A negative value disables this gate
+  // so the original future-aligned averaging candidate remains reproducible.
+  static const float futureAlignPhotometricThreshold = [] {
+    const char *value = std::getenv(
+        "TFORGE_FSR4_FUTURE_ALIGN_PHOTOMETRIC_THRESHOLD");
+    if (!value || !*value)
+      return -1.0f;
+    char *end = nullptr;
+    const float parsed = std::strtof(value, &end);
+    return end != value && *end == '\0' && std::isfinite(parsed)
+               ? std::clamp(parsed, 0.0f, 1.0f)
+               : -1.0f;
+  }();
+  static const bool interpolationProbeEnv =
+      displayInterpolatedEnv || interpolatedJitterEnv ||
+      futureAlignedJitterEnv;
+  static const char *interpolationMotionPath = std::getenv(
+      "TFORGE_FSR4_EXPERIMENTAL_INTERPOLATION_DENSE_MOTION");
   static const float controlledJitterStrength = [] {
     const char *value = std::getenv("TFORGE_FSR4_CONTROLLED_JITTER");
     return value ? std::clamp(std::strtof(value, nullptr), 0.0f, 1.5f) : 1.0f;
   }();
   static const char *jitterSequenceEnv =
       std::getenv("TFORGE_FSR4_JITTER_SEQUENCE");
+  static const bool fullAmplitudeJitterEnv =
+      std::getenv("TFORGE_FSR4_EXPERIMENTAL_FULL_JITTER") != nullptr;
+  // Keep an opt-in sign probe at the single boundary where synthetic jitter
+  // is converted from the authored source-pixel sample into the color-input
+  // and FSR metadata values. Both consumers must receive the same sign; the
+  // motion field remains unjittered. The default preserves the established
+  // positive convention, while the negative arm lets a capture disambiguate
+  // coordinate-orientation mistakes without changing normal playback.
+  static const float jitterSign = [] {
+    const char *value = std::getenv("TFORGE_FSR4_JITTER_SIGN");
+    return value && std::strcmp(value, "negative") == 0 ? -1.0f : 1.0f;
+  }();
+  // Diagnostic-only relative-sign probe. Unlike jitterSign, this changes only
+  // the physical color sample while leaving the FSR-reported metadata on the
+  // selected convention. It intentionally creates an A/B mismatch so the
+  // capture can determine whether the source sampling orientation, rather
+  // than the whole convention, is responsible for a quality loss.
+  static const float jitterSampleSign = [] {
+    const char *value = std::getenv("TFORGE_FSR4_JITTER_SAMPLE_SIGN");
+    return value && std::strcmp(value, "negative") == 0 ? -1.0f : 1.0f;
+  }();
   static const uint32_t jitterCadence = [] {
     const char *value = std::getenv("TFORGE_FSR4_JITTER_CADENCE");
     if (!value || !*value)
@@ -1593,6 +2376,8 @@ void PlaybackEngine::videoDecodeLoop() {
   static const bool dumpPresentationEnv =
       std::getenv("TFORGE_FSR4_DUMP_PRESENTATION") != nullptr;
   static const bool dumpRawEnv = std::getenv("TFORGE_FSR4_DUMP_RAW") != nullptr;
+  static const bool dumpModelInputEnv =
+      std::getenv("TFORGE_FSR4_DUMP_MODEL_INPUT") != nullptr;
   static const uint32_t dumpOutputFrame = [] {
     const char *value = std::getenv("TFORGE_FSR4_DUMP_OUTPUT_FRAME");
     return value ? static_cast<uint32_t>(std::strtoul(value, nullptr, 10)) : 0u;
@@ -1640,11 +2425,24 @@ void PlaybackEngine::videoDecodeLoop() {
   }();
   static const bool dumpMotionSidecarEnv =
       std::getenv("TFORGE_FSR4_DUMP_MOTION_SIDECAR") != nullptr;
+  static const bool dumpMotionTextureEnv =
+      std::getenv("TFORGE_FSR4_DUMP_MOTION_TEXTURE") != nullptr;
+  // Optional output-sized FP16 reprojection readback. Paired with the dense
+  // motion dump, it exposes the actual history warp before composition.
+  static const bool dumpReprojectedColorEnv =
+      std::getenv("TFORGE_FSR4_DUMP_REPROJECTED_COLOR") != nullptr;
+  // Optional pre-upload seed tracing records the exact sparse vectors after
+  // fallback/refinement/replay selection and source-to-model scaling. This is
+  // diagnostic-only: it localizes a bad seed without changing submitted data.
+  static const bool dumpMotionSeedsEnv =
+      std::getenv("TFORGE_FSR4_DUMP_MOTION_SEEDS") != nullptr;
   static const bool dumpEventTraceEnv =
       std::getenv("TFORGE_FSR4_DUMP_EVENT_TRACE") != nullptr;
-  // The default remains Current. Diagnostic runs can explicitly choose
-  // off/reduced/controlled without changing history, motion, or reconstruction
-  // rules; the environment value belongs in the capture manifest.
+  // Synthetic jitter is useful for controlled video experiments, but a decoded
+  // video frame cannot expose the renderer samples that real camera jitter
+  // would have produced. Keep normal playback on zero jitter unless the caller
+  // explicitly opts into a jitter mode; the selected mode belongs in the
+  // capture manifest so experimental results remain reproducible.
   if (jitterModeEnv && std::strcmp(jitterModeEnv, "off") == 0)
     sideBufferSynth_.setJitterMode(JitterMode::Off);
   else if (jitterModeEnv && std::strcmp(jitterModeEnv, "reduced") == 0)
@@ -1652,9 +2450,21 @@ void PlaybackEngine::videoDecodeLoop() {
   else if (jitterModeEnv && std::strcmp(jitterModeEnv, "controlled") == 0) {
     sideBufferSynth_.setJitterMode(JitterMode::Controlled);
     sideBufferSynth_.setControlledJitterStrength(controlledJitterStrength);
-  } else {
+  } else if (jitterModeEnv &&
+             (std::strcmp(jitterModeEnv, "synthetic") == 0 ||
+              std::strcmp(jitterModeEnv, "current") == 0)) {
     sideBufferSynth_.setJitterMode(JitterMode::Current);
+  } else {
+    // The default is zero jitter. An absent or unknown selector must not
+    // silently enable a temporal sampling experiment in production playback.
+    sideBufferSynth_.setJitterMode(JitterMode::Off);
   }
+  // The profile selects synthetic Halton jitter only when the caller did not
+  // provide an explicit jitter policy. This keeps `JITTER_MODE=off` usable as
+  // the matched control while making the combined profile self-contained.
+  if (integratedBestFindingsJitter &&
+      !(jitterModeEnv && *jitterModeEnv))
+    sideBufferSynth_.setJitterMode(JitterMode::Current);
   // The default remains Halton(2,3), one new sample per frame. The other
   // deterministic sequences/cadences are capture-only probes and do not
   // create future-frame or optical-flow dependencies.
@@ -1667,6 +2477,7 @@ void PlaybackEngine::videoDecodeLoop() {
   else
     sideBufferSynth_.setJitterSequence(JitterSequence::Halton23);
   sideBufferSynth_.setJitterCadence(jitterCadence);
+  sideBufferSynth_.setFullAmplitudeJitter(fullAmplitudeJitterEnv);
   sideBufferSynth_.setMotionConfidenceReactive(motionConfidenceReactiveEnv);
   static const char *dumpSequenceDirectory = [] {
     const char *value = std::getenv("TFORGE_FSR4_DUMP_SEQUENCE_DIR");
@@ -1703,9 +2514,19 @@ void PlaybackEngine::videoDecodeLoop() {
 
     if (pkt.isFlush) {
       vdec_->flush();
+      // Keep CPU-side motion analysis paired with the same flush boundary as
+      // FSR history. Otherwise the next source frame could compare against a
+      // luma frame from the previous seek/file sequence.
+      sideBufferSynth_.resetAnalysisHistory();
       pendingDecodedFrame = {};
       hasPendingDecodedFrame = false;
       firstAfterSeek = true;
+      hasPreviousJitter = false;
+      previousJitterX = 0.0f;
+      previousJitterY = 0.0f;
+      temporalFrameContinuity.clear();
+      handledSeekGeneration =
+          seekGeneration_.load(std::memory_order_acquire);
       continue;
     }
 
@@ -1713,7 +2534,40 @@ void PlaybackEngine::videoDecodeLoop() {
     DecodedVideoFrame df;
     double decodeCpuMs = 0.0;
     while (true) {
+      // Demux performs the decoder flush on its own thread, so the decode
+      // thread uses the generation counter to reset its CPU-side temporal
+      // companion state at the same boundary. A pending seek also stops this
+      // old packet from producing another frame before the flush completes.
+      const uint64_t currentSeekGeneration =
+          seekGeneration_.load(std::memory_order_acquire);
+      if (seekPending_.load(std::memory_order_acquire)) {
+        pendingDecodedFrame = {};
+        hasPendingDecodedFrame = false;
+        break;
+      }
+      if (currentSeekGeneration != handledSeekGeneration) {
+        sideBufferSynth_.resetAnalysisHistory();
+        pendingDecodedFrame = {};
+        hasPendingDecodedFrame = false;
+        firstAfterSeek = true;
+        hasPreviousJitter = false;
+        previousJitterX = 0.0f;
+        previousJitterY = 0.0f;
+        previousRenderWidth = 0;
+        previousRenderHeight = 0;
+        lastAnalysisPtsUs_ = -1;
+        temporalFrameContinuity.clear();
+        handledSeekGeneration = currentSeekGeneration;
+      }
       if (hasPendingDecodedFrame) {
+        // A pending frame may have been copied out of the decoder just before
+        // a seek request. It belongs to the old source sequence and must be
+        // discarded before any new frame can consume temporal history.
+        if (seekPending_.load(std::memory_order_acquire)) {
+          pendingDecodedFrame = {};
+          hasPendingDecodedFrame = false;
+          break;
+        }
         df = std::move(pendingDecodedFrame);
         pendingDecodedFrame = {};
         hasPendingDecodedFrame = false;
@@ -1725,33 +2579,301 @@ void PlaybackEngine::videoDecodeLoop() {
                           std::chrono::steady_clock::now() - decodeStart)
                           .count();
       }
-      DecodedVideoFrame nextDecodedFrame;
-      if (vdec_->receiveFrame(nextDecodedFrame)) {
-        pendingDecodedFrame = std::move(nextDecodedFrame);
-        hasPendingDecodedFrame = true;
+      const uint32_t currentRenderWidth =
+          static_cast<uint32_t>(std::max(0, df.width));
+      const uint32_t currentRenderHeight =
+          static_cast<uint32_t>(std::max(0, df.height));
+      const bool renderSizeChanged =
+          previousRenderWidth != 0 &&
+          (previousRenderWidth != currentRenderWidth ||
+           previousRenderHeight != currentRenderHeight);
+      if (renderSizeChanged) {
+        // A resize invalidates both temporal history and the prior jitter
+        // coordinate basis. The FSR reset path handles the images; clearing
+        // this flag prevents the prepass from subtracting an old-size phase.
+        hasPreviousJitter = false;
+        previousJitterX = 0.0f;
+        previousJitterY = 0.0f;
+      }
+      previousRenderWidth = currentRenderWidth;
+      previousRenderHeight = currentRenderHeight;
+      if (futureLookaheadEnv && !hasPendingDecodedFrame) {
+        // A decoder generally cannot return the next frame until another
+        // packet has been submitted. Pull only video packets here, because
+        // the demux thread keeps audio in a separate queue. Flush markers
+        // are put back so a seek cannot be consumed as future evidence.
+        while (running_.load() && !seekPending_.load()) {
+          DecodedVideoFrame nextDecodedFrame;
+          if (vdec_->receiveFrame(nextDecodedFrame)) {
+            pendingDecodedFrame = std::move(nextDecodedFrame);
+            hasPendingDecodedFrame = true;
+            break;
+          }
+          Packet lookaheadPacket;
+          {
+            std::lock_guard lock(pktMutex_);
+            if (videoPackets_.empty()) break;
+            lookaheadPacket = std::move(videoPackets_.front());
+            videoPackets_.pop_front();
+          }
+          pktCv_.notify_all();
+          if (lookaheadPacket.isFlush) {
+            std::lock_guard lock(pktMutex_);
+            videoPackets_.push_front(std::move(lookaheadPacket));
+            pktCv_.notify_all();
+            break;
+          }
+          vdec_->sendPacket(lookaheadPacket.isEof ? nullptr
+                                                  : lookaheadPacket.av);
+        }
+      } else if (!futureLookaheadEnv) {
+        // Preserve the historical cheap receive-only check on the default
+        // path. It can observe a decoder-buffered frame without pulling a new
+        // packet or changing normal decode scheduling.
+        DecodedVideoFrame nextDecodedFrame;
+        if (vdec_->receiveFrame(nextDecodedFrame)) {
+          pendingDecodedFrame = std::move(nextDecodedFrame);
+          hasPendingDecodedFrame = true;
+        }
       }
       // First frame after a seek/new-file must reset history (spec 02).
       const bool timestampDiscontinuity =
           lastAnalysisPtsUs_ >= 0 &&
           (df.ptsUs <= lastAnalysisPtsUs_ ||
            df.ptsUs - lastAnalysisPtsUs_ > 5'000'000);
+      const bool frameIndexDiscontinuity =
+          temporalFrameContinuity.needsReset(df.frameIndex);
+      const bool requestedTemporalReset =
+          fsrTemporalResetRequested_.exchange(false, std::memory_order_acq_rel);
       // A future-reference vector is only safe after an independently
       // validated future frame. This player remains causal, so timestamp
       // discontinuities reset the temporal state rather than attempting to
       // bridge an uncertain reference chain.
-      const bool reset = firstAfterSeek || timestampDiscontinuity;
+      const bool reset = firstAfterSeek || renderSizeChanged ||
+                         timestampDiscontinuity ||
+                         frameIndexDiscontinuity || forceResetEnv ||
+                         requestedTemporalReset;
       firstAfterSeek = false;
 
+      const int64_t analysisPtsBeforeFrame = lastAnalysisPtsUs_;
       const float ptsDeltaMs = lastAnalysisPtsUs_ >= 0 && df.ptsUs >= lastAnalysisPtsUs_
           ? static_cast<float>(df.ptsUs - lastAnalysisPtsUs_) / 1000.0f
           : 0.0f;
       lastAnalysisPtsUs_ = df.ptsUs;
       promoteStableFsrViewport();
+      // JitterOffset is expressed in render/source-pixel units by the FSR
+      // contract. The YUV/DRM upload owns the single color sampling offset;
+      // the prepass consumes the already-jittered color texture without
+      // shifting it a second time. Sizing the policy from the presentation
+      // viewport would multiply the phase for an upscale and mis-register
+      // color, motion, and history. Keep the upstream jitter policy tied to
+      // the decoded frame dimensions; downstream FSR constants still carry
+      // the source-to-output scale separately.
       sideBufferSynth_.setRenderSize(
+          static_cast<uint32_t>(std::max(0, df.width)),
+          static_cast<uint32_t>(std::max(0, df.height)));
+      sideBufferSynth_.setPresentationSize(
           fsrTargetViewportW_.load(std::memory_order_acquire),
           fsrTargetViewportH_.load(std::memory_order_acquire));
-      const LumaBuffer analysisLuma = makeAnalysisLuma(df);
-      std::vector<MvEntry> pastMotion = pastReferenceMotion(df.motionVectors);
+      // Install the exact render/output pair before update() selects the
+      // variable jitter phase. Previously this was done after update(), so
+      // the first frame after a resolution/scale change used the old phase
+      // count and was then reset for the following frame.
+      if (fsr4Enabled_.load(std::memory_order_acquire) &&
+          vkDevice_ != VK_NULL_HANDLE) {
+        float jitterPairScale = fsrScale_.load(std::memory_order_acquire);
+        if (const char *env = std::getenv("TFORGE_FSR4_FORCE_SCALE")) {
+          char *end = nullptr;
+          const float forced = std::strtof(env, &end);
+          if (end != env && std::isfinite(forced) && forced >= 1.0f)
+            jitterPairScale = forced;
+        }
+        const bool jitterPairForcedViewport =
+            std::getenv("TFORGE_FSR4_FORCE_VIEWPORT") != nullptr;
+        const FsrJitterPair jitterPair = computeFsrJitterPair(
+            static_cast<uint32_t>(std::max(0, df.width)),
+            static_cast<uint32_t>(std::max(0, df.height)), jitterPairScale,
+            jitterPairForcedViewport,
+            fsrViewportW_.load(std::memory_order_acquire),
+            fsrViewportH_.load(std::memory_order_acquire),
+            fsrTargetViewportW_.load(std::memory_order_acquire),
+            fsrTargetViewportH_.load(std::memory_order_acquire));
+        sideBufferSynth_.setFsrJitterPair(
+            jitterPair.modelW, jitterPair.modelH,
+            jitterPair.neuralTargetW, jitterPair.neuralTargetH);
+      }
+      // Resolve typed Quality Lab motion settings before constructing the
+      // analysis pair. The selected refinement mode determines whether the
+      // source evidence uses the configured 1/2, 1/4, or 1/8 grid; keeping
+      // this decision beside the estimator config prevents a JSON-only motion
+      // arm from silently falling back to the legacy analysis width.
+      const MotionEstimatorConfig motionEstimatorConfig =
+          qualityLabConfig_.motionConfigured
+              ? qualityLabConfig_.motion
+              : MotionEstimator::configFromEnvironment();
+      const MotionMode userMotionMode =
+          motionMode_.load(std::memory_order_acquire);
+      const bool explicitMotionSelector =
+          qualityLabConfig_.motionConfigured ||
+          std::getenv("TFORGE_FSR4_MOTION_ESTIMATOR") ||
+          std::getenv("TFORGE_FSR4_MOTION_ABLATION");
+      MotionEstimatorConfig effectiveMotionConfig = motionEstimatorConfig;
+      // A direct estimator selector is an intentional capture/playback
+      // override for the estimator mode only. Keep the typed Quality Lab
+      // thresholds and budgets intact, but do not let a JSON mode silently
+      // replace an explicitly requested `codec`, `refined`, or `off` run.
+      // The off case matters for A/B validation: it must really disable the
+      // configured estimator instead of falling back to persisted/configured
+      // codec motion. The ablation payload labels (`zero`, `block`) remain
+      // handled below, after the normal estimator has produced its causal
+      // field.
+      if (const char *environmentMotionMode =
+              std::getenv("TFORGE_FSR4_MOTION_ESTIMATOR");
+          environmentMotionMode && *environmentMotionMode) {
+        const MotionEstimatorConfig environmentMotionConfig =
+            MotionEstimator::configFromEnvironment();
+        effectiveMotionConfig.mode = environmentMotionConfig.mode;
+        // Keep explicit refinement-policy selectors authoritative too. The
+        // typed Quality Lab file supplies reproducible defaults, but a
+        // controlled capture must be able to turn edge-aware reconstruction
+        // on or off without rewriting that file. This is a policy override;
+        // vector direction, units, and FSR descriptors remain unchanged.
+        if (std::getenv("TFORGE_FSR4_MOTION_EDGE_AWARE"))
+          effectiveMotionConfig.edgeAwareUpscale =
+              environmentMotionConfig.edgeAwareUpscale;
+        if (std::getenv("TFORGE_FSR4_MOTION_FALLBACK_AFTER_FILTERING"))
+          effectiveMotionConfig.allowFallbackAfterFiltering =
+              environmentMotionConfig.allowFallbackAfterFiltering;
+        // Dense-grid discovery is an explicit diagnostic/capture override.
+        // Preserve the typed profile by default, but do not let a JSON motion
+        // block suppress a requested sparse-seed coverage experiment.
+        if (std::getenv("TFORGE_FSR4_MOTION_DENSE_GRID"))
+          effectiveMotionConfig.denseGridFallback =
+              environmentMotionConfig.denseGridFallback;
+      }
+      // Persisted settings are the normal-playback default. Keep explicit
+      // Quality Lab/runner selectors authoritative so captures remain
+      // reproducible and are not silently changed by a user's saved setting.
+      if (!explicitMotionSelector) {
+        if (userMotionMode == MotionMode::AutoCheap)
+          effectiveMotionConfig.mode = MotionEstimatorMode::CodecRefined;
+        else if (userMotionMode == MotionMode::Codec)
+          effectiveMotionConfig.mode = MotionEstimatorMode::Codec;
+        else
+          effectiveMotionConfig.mode = MotionEstimatorMode::Off;
+      }
+      // Keep this profile atomic: a saved UI motion selector must not turn a
+      // combined capture into a different estimator. An explicit benchmark
+      // selector still wins so each ablation remains independently testable.
+      if (integratedTemporalProfile && !explicitMotionSelector) {
+        effectiveMotionConfig.mode = MotionEstimatorMode::CodecRefined;
+        effectiveMotionConfig.edgeAwareUpscale = true;
+      }
+      // The combined profile also covers the case where FFmpeg exposes only
+      // unusable reference entries. Keep this opt-in so the established
+      // baseline remains a clean control while the quality profile can use a
+      // conservative global translation with reduced confidence.
+      if ((integratedTemporalProfile || integratedHistoryConfidenceProfile) &&
+          !explicitMotionSelector)
+        effectiveMotionConfig.allowFallbackAfterFiltering = true;
+      // Keep the live scene-cut detector on the same typed threshold as the
+      // motion estimator. Upstream: Quality Lab JSON or environment config;
+      // downstream: history/jitter reset and confidence gating.
+      sideBufferSynth_.setSceneCutThreshold(
+          effectiveMotionConfig.sceneCutThreshold);
+      const LumaBuffer analysisLuma = makeAnalysisLuma(
+          df, effectiveMotionConfig.mode != MotionEstimatorMode::Off);
+      std::vector<MvEntry> pastMotion = pastReferenceMotion(
+          df.motionVectors, rejectBFrameMotion, df.bFrame);
+      // Optional standalone estimator boundary. It consumes the original
+      // unjittered luma pair and normalized causal codec seeds, then returns
+      // the same source-pixel vectors already understood by the existing GPU
+      // expander. With the environment unset, the established path is left
+      // untouched; this is an explicit A/B mode for the new subsystem.
+      // An explicit Quality Lab motion block is the reproducible source of
+      // estimator settings. Files without that block retain the legacy
+      // environment parser so existing baseline captures remain unchanged.
+      motionEstimator_.beginFrame(reset);
+      if (effectiveMotionConfig.mode != MotionEstimatorMode::Off) {
+        pastMotion = motionEstimator_.estimate(
+            effectiveMotionConfig, analysisLuma,
+            sideBufferSynth_.previousLuma(), pastMotion,
+            static_cast<uint32_t>(std::max(0, df.width)),
+            static_cast<uint32_t>(std::max(0, df.height)));
+        if (profileUploadEnv) {
+          const auto &motionStats = motionEstimator_.stats();
+          logInfo("PlaybackEngine: motion estimator mode={} seeds={} accepted={} "
+                  "refined={} lowConfidence={} residual={:.5f} confidence={:.5f} "
+                  "cpuMs={:.3f}",
+                  effectiveMotionConfig.mode == MotionEstimatorMode::Codec
+                      ? "codec" : "codec_refined",
+                  motionStats.inputSeeds, motionStats.acceptedSeeds,
+                  motionStats.refinedSeeds, motionStats.lowConfidenceSeeds,
+                  motionStats.meanResidual, motionStats.meanConfidence,
+                  motionStats.cpuMilliseconds);
+        }
+      }
+      // Complete the persisted AutoCheap policy: use the refined codec field
+      // when causal seeds exist, otherwise run the bounded luma matcher. The
+      // Block and Zero settings are explicit payload policies; they must not
+      // leave codec vectors from the initial adapter in the field.
+      if (!explicitMotionSelector && !reset) {
+        if (userMotionMode == MotionMode::Zero) {
+          pastMotion.clear();
+        } else if (userMotionMode == MotionMode::Block ||
+                   (userMotionMode == MotionMode::AutoCheap &&
+                    motionEstimator_.stats().inputSeeds == 0)) {
+          pastMotion = sideBufferSynth_.estimateFallbackMotion(
+              analysisLuma, static_cast<uint32_t>(std::max(0, df.width)),
+              static_cast<uint32_t>(std::max(0, df.height)));
+        }
+      }
+      // Controlled Phase 2 replay: consume only the validated dense-flow
+      // tiles selected by the caller. A missing or malformed frame is a hard
+      // opt-in replay miss, not permission to fall back to codec vectors,
+      // because mixing correspondence sources would invalidate the A/B test.
+      if (const char *denseMotionPath =
+              std::getenv("TFORGE_FSR4_EXPERIMENTAL_DENSE_MOTION")) {
+        std::vector<MvEntry> denseMotion;
+        // Dense replay sidecars are relative to the first scored output, not
+        // to the decoder stream. Warmup frames must not anchor the sidecar or
+        // consume its frame zero; doing so silently disabled every later
+        // replay when a capture used DUMP_SEQUENCE_WARMUP.
+        const bool replayFrameReady = df.frameIndex >= dumpSequenceWarmup;
+        const uint64_t replayFrameIndex =
+            replayFrameReady ? df.frameIndex - dumpSequenceWarmup : 0;
+        if (replayFrameReady &&
+            loadDenseMotionReplay(
+                denseMotionPath, replayFrameIndex,
+                seekGeneration_.load(std::memory_order_acquire), df.width,
+                df.height, denseMotion)) {
+          if (std::getenv("TFORGE_FSR4_EXPERIMENTAL_DENSE_MOTION_HYBRID") &&
+              !pastMotion.empty()) {
+            // Keep the sparse causal field underneath the validated dense
+            // tiles. The GPU expansion's deterministic last-writer rule lets
+            // dense vectors override covered regions while sparse vectors
+            // remain available in occluded/unvalidated regions.
+            pastMotion.insert(pastMotion.end(), denseMotion.begin(),
+                              denseMotion.end());
+          } else {
+            pastMotion = std::move(denseMotion);
+          }
+          if (profileUploadEnv) {
+            logInfo("PlaybackEngine: dense motion replay frame={} relative={} vectors={}",
+                    df.frameIndex, replayFrameIndex, pastMotion.size());
+          }
+        } else {
+          pastMotion.clear();
+          static bool warnedDenseReplayMiss = false;
+          if (replayFrameReady && !warnedDenseReplayMiss) {
+            logWarn("PlaybackEngine: dense motion replay has no valid relative frame {} "
+                    "(decoder={} warmup={}) in {}",
+                    replayFrameIndex, df.frameIndex, dumpSequenceWarmup,
+                    denseMotionPath);
+            warnedDenseReplayMiss = true;
+          }
+        }
+      }
       // Diagnostic-only correspondence ablation: replace codec vectors with
       // the existing causal luma block matcher even when codec side data is
       // present. This isolates whether the decoder's sparse vectors are the
@@ -1770,9 +2892,15 @@ void PlaybackEngine::videoDecodeLoop() {
       // Optional cheap correction for codec vectors. The decoder vectors stay
       // the seed and the analysis-luma matcher only searches a one/two-pixel
       // neighborhood around each seed; the default path is unchanged.
+      const bool legacyMotionRefinement =
+          std::getenv("TFORGE_FSR4_EXPERIMENTAL_REFINE_MOTION") != nullptr;
       if (!pastMotion.empty() && !reset &&
           !std::getenv("TFORGE_FSR4_EXPERIMENTAL_REPLACE_MOTION") &&
-          std::getenv("TFORGE_FSR4_EXPERIMENTAL_REFINE_MOTION")) {
+          // An explicit standalone estimator owns the motion field. Keeping
+          // the legacy best-findings refinement behind Off prevents the
+          // `codec` selector from silently becoming codec-plus-refinement.
+          motionEstimatorConfig.mode == MotionEstimatorMode::Off &&
+          legacyMotionRefinement) {
         int refinementRadius = 1;
         if (const char *env = std::getenv("TFORGE_FSR4_MOTION_REFINE_RADIUS")) {
           char *end = nullptr;
@@ -1780,10 +2908,19 @@ void PlaybackEngine::videoDecodeLoop() {
           if (end != env && *end == '\0')
             refinementRadius = static_cast<int>(std::clamp(parsed, 0L, 2L));
         }
+        float maxCorrectionPixels = 1.0f;
+        if (const char *env =
+                std::getenv("TFORGE_FSR4_MOTION_MAX_CORRECTION")) {
+          char *end = nullptr;
+          const float parsed = std::strtof(env, &end);
+          if (end != env && *end == '\0' && std::isfinite(parsed))
+            maxCorrectionPixels = std::clamp(parsed, 0.0f, 16.0f);
+        }
         const auto refineStart = std::chrono::steady_clock::now();
         pastMotion = sideBufferSynth_.refineCodecMotion(
             analysisLuma, pastMotion, static_cast<uint32_t>(std::max(0, df.width)),
-            static_cast<uint32_t>(std::max(0, df.height)), refinementRadius);
+            static_cast<uint32_t>(std::max(0, df.height)), refinementRadius,
+            maxCorrectionPixels);
         if (profileUploadEnv) {
           const double refineMs = std::chrono::duration<double, std::milli>(
               std::chrono::steady_clock::now() - refineStart).count();
@@ -1796,30 +2933,240 @@ void PlaybackEngine::videoDecodeLoop() {
       // capture use the analysis-luma block matcher as the documented
       // AutoCheap fallback for those clips. It is computed before update()
       // replaces SideBufferSynth's previous analysis frame.
+      // Future-aligned jitter needs a usable current->previous field as well
+      // as its future->current field. Some review clips carry no codec motion
+      // side data, which otherwise makes SideBufferSynth report zero
+      // confidence and reset FSR on every frame. Reuse the existing bounded
+      // block matcher only for this explicit opt-in (or its already explicit
+      // block-motion candidate); the normal causal path is untouched.
+      const bool futureAlignedFallbackMotion =
+          futureAlignedJitterEnv &&
+          std::getenv("TFORGE_FSR4_EXPERIMENTAL_DENSE_MOTION") == nullptr;
       if (pastMotion.empty() && !reset &&
-          std::getenv("TFORGE_FSR4_EXPERIMENTAL_BLOCK_MOTION")) {
+          (std::getenv("TFORGE_FSR4_EXPERIMENTAL_BLOCK_MOTION") ||
+           futureAlignedFallbackMotion)) {
         pastMotion = sideBufferSynth_.estimateFallbackMotion(
             analysisLuma, static_cast<uint32_t>(std::max(0, df.width)),
             static_cast<uint32_t>(std::max(0, df.height)));
         if (profileUploadEnv) {
-          logInfo("PlaybackEngine: fallback block motion frame={} blocks={}",
+          logInfo("PlaybackEngine: {} fallback motion frame={} blocks={}",
+                  futureAlignedFallbackMotion ? "future-aligned" : "block",
                   df.frameIndex, pastMotion.size());
         }
+      }
+      // Optional bidirectional motion-consistency probe. The decode loop has
+      // already buffered the next frame, so estimate its correspondence back
+      // to the current frame and use only same-area agreement to adjust the
+      // causal field. This is deliberately after the fallback selection and
+      // before confidence/validity stages; the default remains causal.
+      if (!pastMotion.empty() && !reset && hasPendingDecodedFrame &&
+          std::getenv("TFORGE_FSR4_EXPERIMENTAL_BIDIRECTIONAL_MOTION")) {
+        const LumaBuffer futureAnalysis = makeAnalysisLuma(pendingDecodedFrame);
+        if (futureAnalysis.width == analysisLuma.width &&
+            futureAnalysis.height == analysisLuma.height &&
+            !futureAnalysis.data.empty()) {
+          SideBufferSynth futureMotionSynth;
+          futureMotionSynth.update(analysisLuma, 0.0f, false);
+          const auto futureMotion = futureMotionSynth.estimateFallbackMotion(
+              futureAnalysis, static_cast<uint32_t>(std::max(0, df.width)),
+              static_cast<uint32_t>(std::max(0, df.height)));
+          pastMotion = SideBufferSynth::fuseBidirectionalMotion(
+              pastMotion, futureMotion);
+          if (profileUploadEnv) {
+            logInfo("PlaybackEngine: bidirectional motion frame={} past={} future={}",
+                    df.frameIndex, pastMotion.size(), futureMotion.size());
+          }
+        }
+      }
+      // Future-frame evidence-only probe. The buffered next frame challenges
+      // current-to-previous motion, but its pixels never become the current
+      // color input and its opposite-direction vector is never averaged into
+      // the causal vector. This tests the interpolation hypothesis without
+      // displaying an interpolated frame or changing frame cadence.
+      if (!pastMotion.empty() && !reset && hasPendingDecodedFrame &&
+          std::getenv("TFORGE_FSR4_EXPERIMENTAL_FUTURE_EVIDENCE_ONLY")) {
+        const LumaBuffer futureAnalysis = makeAnalysisLuma(pendingDecodedFrame);
+        if (futureAnalysis.width == analysisLuma.width &&
+            futureAnalysis.height == analysisLuma.height &&
+            !futureAnalysis.data.empty()) {
+          SideBufferSynth futureMotionSynth;
+          futureMotionSynth.update(analysisLuma, 0.0f, false);
+          const auto futureMotion = futureMotionSynth.estimateFallbackMotion(
+              futureAnalysis, static_cast<uint32_t>(std::max(0, df.width)),
+              static_cast<uint32_t>(std::max(0, df.height)));
+          pastMotion = SideBufferSynth::gateMotionWithFutureEvidence(
+              pastMotion, futureMotion);
+          if (profileUploadEnv) {
+            logInfo("PlaybackEngine: future evidence-only frame={} past={} future={}",
+                    df.frameIndex, pastMotion.size(), futureMotion.size());
+          }
+        } else if (profileUploadEnv) {
+          logWarn("PlaybackEngine: future evidence skipped frame={} current-analysis={}x{} future-analysis={}x{}",
+                  df.frameIndex, analysisLuma.width, analysisLuma.height,
+                  futureAnalysis.width, futureAnalysis.height);
+        }
+      } else if (profileUploadEnv &&
+                 std::getenv("TFORGE_FSR4_EXPERIMENTAL_FUTURE_EVIDENCE_ONLY")) {
+        logWarn("PlaybackEngine: future evidence unavailable frame={} past={} reset={} pending={}",
+                df.frameIndex, pastMotion.size(), reset, hasPendingDecodedFrame);
+      }
+      // Optional Phase 3 history-confidence probe. Reject only vectors whose
+      // local destination patch is not supported by the previous analysis
+      // frame; uncovered pixels are then rejected by the existing shader
+      // validity path. Upstream: codec or validated replay motion. Downstream:
+      // motion upload, history confidence, and recurrent reprojection. The
+      // normal path remains unchanged unless explicitly enabled.
+      if (!pastMotion.empty() && !reset &&
+          (bestFindingsTemporal ||
+           std::getenv("TFORGE_FSR4_EXPERIMENTAL_VALIDATE_MOTION"))) {
+        float maxPatchError = 0.08f;
+        if (const char *value =
+                std::getenv("TFORGE_FSR4_MOTION_VALIDATION_MAX_ERROR")) {
+          char *end = nullptr;
+          const float parsed = std::strtof(value, &end);
+          if (end != value && *end == '\0' && std::isfinite(parsed))
+            maxPatchError = std::clamp(parsed, 0.0f, 1.0f);
+        }
+        pastMotion = sideBufferSynth_.validateCodecMotion(
+            analysisLuma, pastMotion,
+            static_cast<uint32_t>(std::max(0, df.width)),
+            static_cast<uint32_t>(std::max(0, df.height)), maxPatchError);
+        if (profileUploadEnv) {
+          logInfo("PlaybackEngine: validated motion frame={} vectors={} maxError={}",
+                  df.frameIndex, pastMotion.size(), maxPatchError);
+        }
+      }
+      // Optional continuous confidence map for Phase 3. This retains every
+      // vector and annotates it from local luma agreement; the existing GPU
+      // expansion carries the score to R8 validity, and the experimental
+      // prepass turns it into a smooth history weight.
+      if (!pastMotion.empty() && !reset &&
+          (bestFindingsTemporal ||
+           std::getenv("TFORGE_FSR4_EXPERIMENTAL_MOTION_CONFIDENCE_MAP"))) {
+        float errorScale = 0.04f;
+        if (const char *value = std::getenv("TFORGE_FSR4_MOTION_CONFIDENCE_SCALE")) {
+          char *end = nullptr;
+          const float parsed = std::strtof(value, &end);
+          if (end != value && *end == '\0' && std::isfinite(parsed))
+            errorScale = std::clamp(parsed, 0.001f, 1.0f);
+        }
+        pastMotion = sideBufferSynth_.scoreCodecMotion(
+            analysisLuma, pastMotion,
+            static_cast<uint32_t>(std::max(0, df.width)),
+            static_cast<uint32_t>(std::max(0, df.height)), errorScale);
       }
       const float futureAnalysisConfidence =
           hasPendingDecodedFrame
               ? lookaheadConfidence(df, pendingDecodedFrame)
               : 1.0f;
+      // Preserve the confidence that the real motion candidate would have
+      // supplied before a benchmark ablation changes the vector payload. This
+      // keeps the scene-cut detector, jitter phase, and temporal trust policy
+      // identical between the real-motion and zero-motion arms; otherwise a
+      // variable jitter sequence can make the A/B comparison non-causal.
+      const float preAblationMotionConfidence =
+          codecMotionConfidence(pastMotion, df.width, df.height) *
+          futureAnalysisConfidence;
+      // Benchmark-only Phase 1 motion ablation. The exact A–G matrix needs a
+      // real codec-vector arm, a real zero-vector arm, and a separately
+      // computed cheap block-matcher arm. Applying this after all normal
+      // motion validation/refinement keeps the ablation boundary explicit:
+      // `codec` preserves the ordinary path, `zero` removes correspondence,
+      // and `block` replaces it with the causal luma matcher. The default is
+      // unchanged when the variable is absent. Upstream: decoded-frame luma
+      // and the normal pastMotion candidate. Downstream: confidence, side
+      // buffers, history reprojection, and recurrent-state input.
+      const char *motionAblation =
+          std::getenv("TFORGE_FSR4_MOTION_ABLATION");
+      const bool zeroMotionAblation =
+          !reset && motionAblation && std::strcmp(motionAblation, "zero") == 0;
+      if (motionAblation) {
+        if (zeroMotionAblation) {
+          pastMotion.clear();
+        } else if (!reset && std::strcmp(motionAblation, "block") == 0) {
+          pastMotion = sideBufferSynth_.estimateFallbackMotion(
+              analysisLuma, static_cast<uint32_t>(std::max(0, df.width)),
+              static_cast<uint32_t>(std::max(0, df.height)));
+        }
+      }
+      // The sparse expansion stage resolves overlaps by retaining the last
+      // stamped vector. When explicitly requested, make that deterministic
+      // rule confidence-aware after every motion source/ablation has settled.
+      // Jitter is intentionally untouched so this remains a motion-only arm.
+      if (!pastMotion.empty() &&
+          (bestFindingsTemporal ||
+           std::getenv("TFORGE_FSR4_EXPERIMENTAL_CONFIDENCE_ORDERED_MOTION"))) {
+        orderMotionByConfidence(pastMotion);
+      }
       // Apply the UI/benchmark value on the decode thread immediately before
       // synthesizing side inputs. The setter is intentionally atomic because
       // it can be called from Qt's UI thread while this loop is running; the
       // synthesizer itself is owned and updated by this loop.
       sideBufferSynth_.setJitterStrength(
           jitterStrength_.load(std::memory_order_acquire));
+      // Previous-jitter metadata is part of the published-frame transaction,
+      // not merely scratch state for this dispatch. Snapshot it before the
+      // candidate phase is prepared so a later upload, dispatch, or
+      // presentation failure restores the exact prior history origin.
+      // Upstream: the last published FSR frame. Downstream: this frame's
+      // previous-jitter uniforms and the next frame's history alignment.
+      const bool hasPreviousJitterBeforeFrame = hasPreviousJitter;
+      const float previousJitterXBeforeFrame = previousJitterX;
+      const float previousJitterYBeforeFrame = previousJitterY;
+      const float sideMotionConfidence =
+          zeroMotionAblation ? preAblationMotionConfidence
+                             : codecMotionConfidence(pastMotion, df.width,
+                                                     df.height) *
+                                   futureAnalysisConfidence;
       const SideBufferInputs sideInputs = sideBufferSynth_.update(
-          analysisLuma, ptsDeltaMs, reset,
-          codecMotionConfidence(pastMotion, df.width, df.height) *
-              futureAnalysisConfidence);
+          analysisLuma, ptsDeltaMs, reset, sideMotionConfidence);
+      // update() advances a candidate jitter phase before this decode loop
+      // knows whether the frame can reach FSR. Keep rollback armed across
+      // every wait, abort, upload, and initialization exit. The existing
+      // successful-dispatch commit below disarms it only after submission.
+      // Upstream: SideBufferSynth::update(). Downstream: FSR color sampling
+      // and metadata, which must never skip a phase for an unsubmitted frame.
+      auto rollbackJitter = [&]() {
+        sideBufferSynth_.rollbackJitter(sideInputs.reset || reset);
+        // PTS analysis and jitter/history are one frame transaction. Restore
+        // the timestamp origin if this frame never reaches a published FSR
+        // output, so the next successful frame measures from the last
+        // published frame rather than from an unpublished attempt.
+        lastAnalysisPtsUs_ = analysisPtsBeforeFrame;
+        // The reset request is consumed before dispatch so this frame can
+        // carry it into the FSR constants. If the frame never publishes,
+        // restore the request; a newly recreated history resource must not be
+        // treated as valid merely because its first submission failed.
+        if (requestedTemporalReset)
+          fsrTemporalResetRequested_.store(true, std::memory_order_release);
+        previousJitterX = previousJitterXBeforeFrame;
+        previousJitterY = previousJitterYBeforeFrame;
+        hasPreviousJitter = hasPreviousJitterBeforeFrame;
+      };
+      struct JitterPhaseGuard {
+        decltype(rollbackJitter) &rollback;
+        bool committed = false;
+        ~JitterPhaseGuard() {
+          if (!committed)
+            rollback();
+        }
+        void markCommitted() { committed = true; }
+      } jitterPhaseGuard{rollbackJitter};
+      // Future-aligned history diagnostics need to distinguish a real
+      // history comparison from a reset-only frame. Keep this trace behind
+      // the existing upload profiler so normal playback has no extra logging
+      // or image-path work. Upstream: detector output and filtered motion.
+      // Downstream: the explicit reset bit, motion upload, and prepass history
+      // read. This is evidence-only; it does not change either path.
+      if (profileUploadEnv && futureAlignedJitterEnv) {
+        logInfo("PlaybackEngine: future-aligned handoff frame={} forcedReset={} "
+                "detectorReset={} motionConfidence={:.4f} motionBlocks={} "
+                "lookahead={} pending={} jitter=({}, {})",
+                df.frameIndex, reset, sideInputs.reset,
+                sideInputs.motionConfidence, pastMotion.size(),
+                futureAnalysisConfidence, hasPendingDecodedFrame,
+                sideInputs.jitterX, sideInputs.jitterY);
+      }
       // Never carry an analysis match across a detected cut. Codec motion is
       // subject to the same causal reset policy, so this keeps both sources
       // consistent when the side-buffer detector rejects the transition.
@@ -1840,7 +3187,119 @@ void PlaybackEngine::videoDecodeLoop() {
       // status remains separate from presentation policy.
       bool fsr4Upscaled = false;
       uint32_t fsr4OutW = 0, fsr4OutH = 0;
-      const DecodedVideoFrame *fsrFrame = &df;
+      DecodedVideoFrame *fsrFrame = &df;
+      DecodedVideoFrame interpolatedFrame;
+      // This is the correspondence used between displayed midpoint frames.
+      // It is intentionally separate from `pastMotion`, which was derived
+      // for the original decoded frame before midpoint synthesis.
+      std::vector<MvEntry> interpolatedMotion;
+      // A synthesized midpoint has no motion/history correspondence to the
+      // original `df` yet. Until a midpoint-to-midpoint field exists, force
+      // this diagnostic frame to start a fresh temporal sample and do not
+      // pair its pixels with the original frame's codec vectors. Upstream:
+      // the display-interpolation probe. Downstream: motion upload and the
+      // FSR prepass reset bit. The normal decoded-frame path is unaffected.
+      bool interpolatedFrameTemporalReset = false;
+      // This mode intentionally makes future pixels the actual FSR input and
+      // displayed result. It is a midpoint blend control, not a claim that
+      // motion-compensated interpolation is solved. If the source cannot be
+      // blended honestly, stay on the current frame and make the miss visible
+      // in the log rather than silently changing the experimental comparison.
+      bool motionCompensatedMidpoint = false;
+      if (interpolationProbeEnv && hasPendingDecodedFrame) {
+        std::vector<MvEntry> futureToCurrent;
+        if (interpolationMotionPath) {
+          // Dense sidecars index the future frame in the adjacent pair. The
+          // first current frame therefore consumes sidecar frame 1 (future
+          // frame 1 projected back to current frame 0). The loader's relative
+          // base keeps later requests aligned with the capture window.
+          loadDenseMotionReplay(
+              interpolationMotionPath, df.frameIndex + 1,
+              seekGeneration_.load(std::memory_order_acquire), df.width,
+              df.height, futureToCurrent);
+        } else {
+          const LumaBuffer futureAnalysis =
+              makeAnalysisLuma(pendingDecodedFrame);
+          if (futureAnalysis.width == analysisLuma.width &&
+              futureAnalysis.height == analysisLuma.height &&
+              !futureAnalysis.data.empty()) {
+            SideBufferSynth interpolationMotionSynth;
+            interpolationMotionSynth.update(analysisLuma, 0.0f, false);
+            futureToCurrent = interpolationMotionSynth.estimateFallbackMotion(
+                futureAnalysis, static_cast<uint32_t>(std::max(0, df.width)),
+                static_cast<uint32_t>(std::max(0, df.height)));
+          }
+        }
+        if (!futureToCurrent.empty()) {
+          motionCompensatedMidpoint = futureAlignedJitterEnv
+              ? makeFutureAlignedFrame(df, pendingDecodedFrame,
+                                       futureToCurrent, interpolatedFrame,
+                                       futureAlignPhotometricThreshold)
+              : makeMotionCompensatedMidpointFrame(
+                    df, pendingDecodedFrame, futureToCurrent, interpolatedFrame);
+          if (motionCompensatedMidpoint && !pastMotion.empty() &&
+              !futureAlignedJitterEnv) {
+            // A displayed midpoint contains evidence from both endpoints.
+            // Average the causal current->previous field with the
+            // future->current field so the next midpoint can reproject the
+            // previous midpoint instead of inheriting either endpoint's
+            // correspondence alone. This remains opt-in and uses the same
+            // validated same-area fusion primitive as the motion probe.
+            interpolatedMotion = SideBufferSynth::fuseBidirectionalMotion(
+                pastMotion, futureToCurrent);
+          }
+        }
+        if (!motionCompensatedMidpoint && !interpolationMotionPath)
+          motionCompensatedMidpoint =
+              makeMidpointFrame(df, pendingDecodedFrame, interpolatedFrame);
+        if (interpolationMotionPath && !motionCompensatedMidpoint) {
+          static bool loggedInterpolationMotionMiss = false;
+          if (!loggedInterpolationMotionMiss) {
+            logWarn("PlaybackEngine: dense interpolation motion has no valid "
+                    "future->current sidecar for frame {}", df.frameIndex);
+            loggedInterpolationMotionMiss = true;
+          }
+        }
+      }
+      if (interpolationProbeEnv && motionCompensatedMidpoint) {
+        fsrFrame = &interpolatedFrame;
+        // Use only a midpoint-to-midpoint field. If one could not be built,
+        // clear the endpoint field and reset rather than feed false motion.
+        if (futureAlignedJitterEnv && !pastMotion.empty()) {
+          // The future sample has already been warped onto the current
+          // coordinate system, so the existing causal field remains the
+          // correct field for current-frame history.
+          interpolatedFrame.motionVectors = pastMotion;
+        } else if (!interpolatedMotion.empty()) {
+          pastMotion = std::move(interpolatedMotion);
+          interpolatedFrame.motionVectors = pastMotion;
+        } else {
+          pastMotion.clear();
+          interpolatedFrame.motionVectors.clear();
+          interpolatedFrameTemporalReset = true;
+        }
+        if (interpolatedJitterEnv || futureAlignedJitterEnv) {
+          // This is a temporal sample replacement, not frame interpolation
+          // for presentation. Keep the original decode timeline so the
+          // candidate is scored against the same displayed-frame reference.
+          interpolatedFrame.ptsUs = df.ptsUs;
+          interpolatedFrame.durationUs = df.durationUs;
+        }
+        static bool loggedInterpolatedProbe = false;
+        if (!loggedInterpolatedProbe) {
+          logInfo("PlaybackEngine: motion-compensated interpolated-display "
+                  "probe active; midpoint decoded pixels are sent through FSR "
+                  "and published at midpoint PTS");
+          loggedInterpolatedProbe = true;
+        }
+      } else if (interpolationProbeEnv && hasPendingDecodedFrame) {
+        static bool loggedInterpolatedMiss = false;
+        if (!loggedInterpolatedMiss) {
+          logWarn("PlaybackEngine: interpolated-display probe skipped; "
+                  "adjacent frames are not compatible software 8-bit frames");
+          loggedInterpolatedMiss = true;
+        }
+      }
       if (fsr4Enabled_.load(std::memory_order_acquire) &&
           vkDevice_ != VK_NULL_HANDLE &&
           !fsrAbortRequested_.load(std::memory_order_acquire)) {
@@ -1853,74 +3312,46 @@ void PlaybackEngine::videoDecodeLoop() {
         }
         const bool forcedViewport =
             std::getenv("TFORGE_FSR4_FORCE_VIEWPORT") != nullptr;
-        const Size2D nativeTarget = nativeInt8FixedTarget(
-            alignEven(static_cast<uint32_t>(df.width)),
-            alignEven(static_cast<uint32_t>(df.height)));
-        // Keep the neural target independent of the window. The current
-        // fitted viewport is only the presentation target, so a resize can
-        // reuse the neural resources and dispatch the cheap cached scaler.
-        uint32_t neuralTargetW = nativeTarget.width;
-        uint32_t neuralTargetH = nativeTarget.height;
-        uint32_t displayW = std::max(
-            2u, fsrViewportW_.load(std::memory_order_acquire));
-        uint32_t displayH = std::max(
-            2u, fsrViewportH_.load(std::memory_order_acquire));
-        const auto fitToViewport = [&](uint32_t viewportW,
-                                       uint32_t viewportH) {
-          const double fit = std::min(
-              static_cast<double>(viewportW) / df.width,
-              static_cast<double>(viewportH) / df.height);
-          return std::pair<uint32_t, uint32_t>{
-              std::max(2u, alignEven(static_cast<uint32_t>(
-                                         std::round(df.width * fit)))),
-              std::max(2u, alignEven(static_cast<uint32_t>(
-                                         std::round(df.height * fit))))};
-        };
-        if (forcedViewport) {
-          const auto viewport = fsrViewportForBenchmark(
-              std::max(2u, fsrTargetViewportW_.load(std::memory_order_acquire)),
-              std::max(2u, fsrTargetViewportH_.load(std::memory_order_acquire)));
-          if (nativeTarget.width == viewport.first &&
-              nativeTarget.height == viewport.second) {
-            neuralTargetW = nativeTarget.width;
-            neuralTargetH = nativeTarget.height;
-          } else {
-            const auto fitted = fitToViewport(viewport.first, viewport.second);
-            neuralTargetW = fitted.first;
-            neuralTargetH = fitted.second;
-          }
-          displayW = neuralTargetW;
-          displayH = neuralTargetH;
-        } else {
-          const auto fitted = fitToViewport(displayW, displayH);
-          displayW = fitted.first;
-          displayH = fitted.second;
-        }
-        const uint32_t fsrInputW = std::max(
-            2u, alignEven(static_cast<uint32_t>(std::round(
-                                  neuralTargetW / selectedScale))));
-        const uint32_t fsrInputH = std::max(
-            2u, alignEven(static_cast<uint32_t>(std::round(
-                                  neuralTargetH / selectedScale))));
-        // Never enlarge a decoded frame before FSR. When the multiplier's
-        // nominal input is larger than the decoded source, clamp the model
-        // input to source dimensions; the GPU prefilter is then identity-size
-        // and no second softening filter is introduced.
-        const uint32_t modelW = std::min(fsrInputW, static_cast<uint32_t>(df.width));
-        const uint32_t modelH = std::min(fsrInputH, static_cast<uint32_t>(df.height));
-        // A same-size selection is an identity request, not an upscale. Keep
-        // it pixel-faithful and avoid paying for a reconstruction that has no
-        // new pixels to create. Any non-identity geometry follows FSR4 below.
-        const bool nativePassthrough =
-            neuralTargetW == static_cast<uint32_t>(df.width) &&
-            neuralTargetH == static_cast<uint32_t>(df.height) &&
-            displayW == static_cast<uint32_t>(df.width) &&
-            displayH == static_cast<uint32_t>(df.height);
+        const FsrJitterPair jitterPair = computeFsrJitterPair(
+            static_cast<uint32_t>(std::max(0, df.width)),
+            static_cast<uint32_t>(std::max(0, df.height)), selectedScale,
+            forcedViewport,
+            fsrViewportW_.load(std::memory_order_acquire),
+            fsrViewportH_.load(std::memory_order_acquire),
+            fsrTargetViewportW_.load(std::memory_order_acquire),
+            fsrTargetViewportH_.load(std::memory_order_acquire));
+        const uint32_t displayW = jitterPair.displayW;
+        const uint32_t displayH = jitterPair.displayH;
+        const bool nativePassthrough = jitterPair.nativePassthrough;
+        const bool preEasu = jitterPair.preEasu;
+        const uint32_t fsrModelW = jitterPair.modelW;
+        const uint32_t fsrModelH = jitterPair.modelH;
         const DecodedVideoFrame &fsrDf = *fsrFrame;
         std::vector<MvEntry> temporalMotion;
         if (!nativePassthrough) {
-          temporalMotion = scaleMotionToModel(
-            pastMotion, fsrDf.width, fsrDf.height, modelW, modelH);
+          temporalMotion = scaleMotionCoverageToModel(
+            pastMotion, fsrDf.width, fsrDf.height, fsrModelW, fsrModelH);
+          if (dumpMotionSeedsEnv) {
+            size_t nonZero = 0;
+            for (const MvEntry &seed : temporalMotion) {
+              if (seed.mvX != 0.0f || seed.mvY != 0.0f)
+                ++nonZero;
+            }
+            logInfo("PlaybackEngine: pre-upload motion seeds frame={} "
+                    "source={}x{} model={}x{} total={} nonZero={}",
+                    df.frameIndex, fsrDf.width, fsrDf.height, fsrModelW,
+                    fsrModelH, temporalMotion.size(), nonZero);
+            size_t printed = 0;
+            for (const MvEntry &seed : temporalMotion) {
+              if ((seed.mvX == 0.0f && seed.mvY == 0.0f) || printed >= 64)
+                continue;
+              logInfo("PlaybackEngine: seed frame={} dst=({}, {}) size={}x{} "
+                      "mv=({}, {}) confidence={} source={}",
+                      df.frameIndex, seed.dstX, seed.dstY, seed.w, seed.h,
+                      seed.mvX, seed.mvY, seed.confidence, seed.source);
+              ++printed;
+            }
+          }
         }
         // FSR presents from one shared Vulkan image. Do not let the decode
         // thread overwrite that image while the previous frame is still
@@ -1955,11 +3386,15 @@ void PlaybackEngine::videoDecodeLoop() {
                   : fsr4IntermediateUploaders_.front().get();
           if (!fsr4Ready_.load(std::memory_order_acquire) ||
               (configuredInput &&
-               ((uint32_t)fsrDf.width != configuredInput->sourceW() ||
-                (uint32_t)fsrDf.height != configuredInput->sourceH()))) {
+               (configuredInput->sourceW() !=
+                    static_cast<uint32_t>(fsrDf.width) ||
+                configuredInput->sourceH() !=
+                    static_cast<uint32_t>(fsrDf.height) ||
+                configuredInput->modelW() != fsrModelW ||
+                configuredInput->modelH() != fsrModelH))) {
             if (!initFsr4Path(fsrDf.width, fsrDf.height,
-                              static_cast<int>(modelW),
-                              static_cast<int>(modelH))) {
+                              static_cast<int>(fsrModelW),
+                              static_cast<int>(fsrModelH))) {
               fsr4Enabled_.store(
                   false,
                   std::memory_order_release); // init failed — stop retrying
@@ -1979,9 +3414,38 @@ void PlaybackEngine::videoDecodeLoop() {
             fsr4Ready_.load(std::memory_order_acquire) && fsr4Uploader_ &&
             fsr4Harness_) {
           const bool singlePass = fsr4PassSizes_.size() == 1;
+          // The two overlap slots own separate history and recurrent images.
+          // Alternating them would make a temporal dispatch read state from
+          // the wrong frame, so keep one causal state chain whenever either
+          // persistent temporal resource is enabled. Stateless playback can
+          // still use the overlap optimization below. Synthetic jitter is
+          // safe in that stateless case because there is no persistent
+          // temporal state commit to serialize.
+          const bool temporalStateEnabled =
+              std::getenv("TFORGE_FSR4_ENABLE_COLOR_HISTORY") != nullptr ||
+              std::getenv("TFORGE_FSR4_ENABLE_RECURRENT") != nullptr ||
+              integratedHistoryConfidenceProfile;
+          // Synthetic jitter is a transaction with the published frame: its
+          // phase must advance only after the matching color sample and FSR
+          // metadata have completed. The in-flight path returns before that
+          // completion, so allowing it here would consume a phase for a frame
+          // that may later fail or be dropped. Upstream: jitter mode and the
+          // selected temporal input path. Downstream: SideBufferSynth's phase
+          // and the next frame's FSR jitter offset.
+          const bool syntheticJitterEnabled =
+              syntheticJitterApplied &&
+              !(jitterModeEnv && std::strcmp(jitterModeEnv, "off") == 0) &&
+              !nativePassthrough && !prepassJitterOrdering;
           const bool asyncSlots =
-              singlePass && !nativePassthrough && fsr4InFlightUploader_ &&
+              !bestFindingsTemporal && singlePass && !temporalStateEnabled &&
+              !syntheticJitterEnabled &&
+              !nativePassthrough &&
+              !preEasu && fsr4InFlightUploader_ &&
               fsr4InFlightHarness_ &&
+              // In-flight submission is an explicit throughput probe until
+              // its fence/presentation result can own the same luma, jitter,
+              // and frame-continuity commit boundary as the blocking path.
+              std::getenv("TFORGE_FSR4_ENABLE_INFLIGHT") != nullptr &&
               std::getenv("TFORGE_FSR4_DISABLE_INFLIGHT") == nullptr;
           GpuImageUploader *firstUploader = nullptr;
           Fsr4DispatchHarness *firstHarness = nullptr;
@@ -2004,12 +3468,16 @@ void PlaybackEngine::videoDecodeLoop() {
               retiredGpuWaitCpuMs = completed.cpuWaitMs;
               firstUploader->completeDeferredFrameUploads();
               if (completed.ok) {
-                firstUploader->advanceHistory();
                 if (!firstUploader->dispatchPresentationScaler(displayW,
                                                                  displayH)) {
                   logWarn("PlaybackEngine: in-flight presentation scaler "
                           "failed");
                 } else {
+                  // Commit temporal state only after the completed frame has
+                  // also produced a valid presentation image. Otherwise a
+                  // presentation failure would make an unpublished frame the
+                  // history source for the next dispatch.
+                  firstUploader->advanceHistory();
                   fsr4PublishedUploader_.store(firstUploader,
                                                 std::memory_order_release);
                   fsr4FrameReady_.store(true, std::memory_order_release);
@@ -2056,10 +3524,54 @@ void PlaybackEngine::videoDecodeLoop() {
           double neutralUploadMs = 0.0;
           double uploadFinalizeMs = 0.0;
           VkCommandBuffer uploadCommandBuffer = VK_NULL_HANDLE;
+          // The uploader samples the decoded source image, while FSR reads
+          // the model-sized color image. Keep the same physical subpixel
+          // displacement by converting the decoded-pixel sample into model
+          // pixels only at the FSR metadata boundary. Upstream: the jitter
+          // policy is authored in decoded pixels. Downstream: prepass and
+          // history reprojection interpret FrameDispatchInput in model
+          // pixels. Without this conversion reduced 720p paths report a
+          // displacement in the wrong coordinate space.
+          const float jitterToModelX = fsrDf.width > 0
+              ? static_cast<float>(fsrModelW) /
+                    static_cast<float>(fsrDf.width)
+              : 1.0f;
+          const float jitterToModelY = fsrDf.height > 0
+              ? static_cast<float>(fsrModelH) /
+                    static_cast<float>(fsrDf.height)
+              : 1.0f;
+          const float modelJitterX = sideInputs.jitterX * jitterToModelX * jitterSign;
+          const float modelJitterY = sideInputs.jitterY * jitterToModelY * jitterSign;
+          const float modelPreviousJitterX = hasPreviousJitter
+              ? previousJitterX
+              : sideInputs.jitterX * jitterToModelX * jitterSign;
+          const float modelPreviousJitterY = hasPreviousJitter
+              ? previousJitterY
+              : sideInputs.jitterY * jitterToModelY * jitterSign;
           const bool initializeNeutral =
               sideInputs.reset || !fsr4FrameReady_.load(std::memory_order_acquire);
-          bool uploadOk = firstUploader->beginFrameUploads(!initializeNeutral);
+          // The EASU pre-neural candidate needs ordered submissions between
+          // color conversion, EASU, and the RGB10 model-image handoff. Keep
+          // the ordinary path batched, while the opt-in path uses the
+          // uploader's existing synchronous command submission boundaries.
+          bool uploadOk =
+              firstUploader->beginFrameUploads(!initializeNeutral && !preEasu);
           if (uploadOk) {
+            // The motion estimator consumed unjittered analysis luma above.
+            // Only the color construction receives this matching synthetic
+            // sampling offset; uploadMotion() remains unjittered by contract.
+            firstUploader->setInputJitter(
+                syntheticJitterApplied && !nativePassthrough &&
+                        !prepassJitterOrdering
+                    ? sideInputs.jitterX * jitterSign * jitterSampleSign
+                    : 0.0f,
+                syntheticJitterApplied && !nativePassthrough &&
+                        !prepassJitterOrdering
+                    ? sideInputs.jitterY * jitterSign * jitterSampleSign
+                    : 0.0f,
+                syntheticJitterApplied && !nativePassthrough &&
+                    !prepassJitterOrdering &&
+                    (sideInputs.jitterX != 0.0f || sideInputs.jitterY != 0.0f));
             const auto colorUploadStart = std::chrono::steady_clock::now();
             uploadOk = firstUploader->uploadColor(fsrDf);
             colorUploadMs =
@@ -2072,7 +3584,8 @@ void PlaybackEngine::videoDecodeLoop() {
             }
             if (!nativePassthrough) {
               const auto motionUploadStart = std::chrono::steady_clock::now();
-              uploadOk &= firstUploader->uploadMotion(temporalMotion);
+              uploadOk &= firstUploader->uploadMotion(
+                  temporalMotion, effectiveMotionConfig.edgeAwareUpscale);
               motionUploadMs =
                   std::chrono::duration<double, std::milli>(
                       std::chrono::steady_clock::now() - motionUploadStart)
@@ -2108,9 +3621,66 @@ void PlaybackEngine::videoDecodeLoop() {
                       std::chrono::steady_clock::now() - neutralUploadStart)
                       .count();
             }
-            // EASU 2x is NOT run before the FSR4 neural dispatch — the CNN
-            // was designed to take native-res input and do its own upscaling.
-            // EASU runs only for the FSR4-off display path (easuOnlyMode_).
+            if (uploadOk && preEasu) {
+              // EASU consumes the converted native display image. Its RGBA8
+              // result is then converted into the RGB10/A2 model image that
+              // FSR4 actually reads. This is the complete candidate path,
+              // not a display-only preview: native -> EASU 2x -> FSR4.
+              uploadOk &= firstUploader->dispatchEasu();
+              if (uploadOk && dumpModelInputEnv) {
+                std::vector<uint8_t> easuReadback;
+                uint32_t easuDumpW = 0, easuDumpH = 0;
+                if (firstUploader->readbackEasu(easuReadback, easuDumpW,
+                                                easuDumpH)) {
+                  const auto [minIt, maxIt] = std::minmax_element(
+                      easuReadback.begin(), easuReadback.end());
+                  logInfo("PlaybackEngine: pre-neural EASU image frame={} "
+                          "{}x{} byte-min={} byte-max={} fingerprint=0x{:016x}",
+                          fsrFrame->frameIndex, easuDumpW, easuDumpH,
+                          static_cast<unsigned>(*minIt),
+                          static_cast<unsigned>(*maxIt),
+                          diagnosticFingerprint(easuReadback));
+                } else {
+                  logWarn("PlaybackEngine: pre-neural EASU image readback "
+                          "failed");
+                }
+              }
+              uploadOk &= firstHarness->downscaleRgb10(
+                  firstUploader->easuColorImage(),
+                  firstUploader->easuColorView(), firstUploader->easuW(),
+                  firstUploader->easuH(), firstUploader->colorImage(),
+                  firstUploader->colorView(), firstUploader->modelW(),
+                  firstUploader->modelH());
+              if (uploadOk && dumpModelInputEnv &&
+                  !fsr4DumpedModelInput_) {
+                std::vector<uint8_t> modelReadback;
+                uint32_t modelDumpW = 0, modelDumpH = 0;
+                if (firstUploader->readbackModelColor(
+                        modelReadback, modelDumpW, modelDumpH)) {
+                  const auto *words = reinterpret_cast<const uint32_t *>(
+                      modelReadback.data());
+                  uint32_t minWord = UINT32_MAX;
+                  uint32_t maxWord = 0;
+                  const size_t count = static_cast<size_t>(modelDumpW) *
+                                       modelDumpH;
+                  for (size_t i = 0; i < count; ++i) {
+                    minWord = std::min(minWord, words[i]);
+                    maxWord = std::max(maxWord, words[i]);
+                  }
+                  logInfo("PlaybackEngine: pre-neural model input frame={} "
+                          "{}x{} packed-min=0x{:08x} packed-max=0x{:08x} "
+                          "fingerprint=0x{:016x}",
+                          fsrFrame->frameIndex, modelDumpW, modelDumpH,
+                          minWord, maxWord, diagnosticFingerprint(modelReadback));
+                } else {
+                  logWarn("PlaybackEngine: pre-neural model input readback "
+                          "failed");
+                }
+                fsr4DumpedModelInput_ = true;
+              }
+              if (!uploadOk)
+                logWarn("PlaybackEngine: EASU pre-neural handoff failed");
+            }
             const auto uploadFinalizeStart = std::chrono::steady_clock::now();
             // The decoded color and motion uploads belong to firstUploader.
             // This is an intermediate uploader for chained passes, so ending
@@ -2190,8 +3760,16 @@ void PlaybackEngine::videoDecodeLoop() {
             in.prefixCommandBuffer = uploadCommandBuffer;
             in.colorView = firstUploader->colorView();
             in.colorImage = firstUploader->colorImage();
+            // The raw decoded presentation image is the stable default source
+            // for postpass composition. The explicit pre-EASU diagnostic then
+            // replaces that source only after its opt-in dispatch has
+            // completed, keeping the ordinary temporal path on the raw image.
             in.sourceDisplayView = firstUploader->rawPresentationView();
             in.sourceDisplayImage = firstUploader->rawPresentationImage();
+            if (preEasu) {
+              in.sourceDisplayView = firstUploader->easuColorView();
+              in.sourceDisplayImage = firstUploader->easuColorImage();
+            }
             in.motionView = firstUploader->motionView();
             in.motionValidityView = firstUploader->motionValidityView();
             in.motionImage = firstUploader->motionImage();
@@ -2225,9 +3803,22 @@ void PlaybackEngine::videoDecodeLoop() {
             // same resolution. Reset the first pass too, otherwise its
             // temporal reprojection shifts the source seen by later passes.
             const bool multipass = fsr4PassSizes_.size() > 1;
-            in.reset = multipass || sideInputs.reset || forceResetEnv;
-            in.jitterX = sideInputs.jitterX;
-            in.jitterY = sideInputs.jitterY;
+            in.reset = multipass || sideInputs.reset || forceResetEnv ||
+                       interpolatedFrameTemporalReset;
+            // The midpoint itself is the real temporal phase sample in this
+            // candidate. Passing Halton offsets as well would combine two
+            // unrelated phase mechanisms and make this an interpolation-plus
+            // jitter experiment instead of a jitter replacement.
+            const bool replaceSyntheticJitter =
+                interpolatedJitterEnv || futureAlignedJitterEnv;
+            in.jitterX = replaceSyntheticJitter ? 0.0f : modelJitterX;
+            in.jitterY = replaceSyntheticJitter ? 0.0f : modelJitterY;
+            in.previousJitterX = replaceSyntheticJitter
+                                     ? 0.0f
+                                     : modelPreviousJitterX;
+            in.previousJitterY = replaceSyntheticJitter
+                                     ? 0.0f
+                                     : modelPreviousJitterY;
             in.frameTimeMs = ptsDeltaMs > 0.0f ? ptsDeltaMs : 16.6667f;
             in.historyConfidence = sideInputs.motionConfidence;
             in.reactiveAverage = sideInputs.reactiveAverage;
@@ -2243,6 +3834,23 @@ void PlaybackEngine::videoDecodeLoop() {
                                   !dumpPresentationEnv &&
                                   !dumpSequenceLimit && !dumpDecoderEnv &&
                                   !dumpRawEnv;
+            // Stateful single-pass playback can record the presentation scaler
+            // into the FSR command buffer. Stateless in-flight frames and
+            // chained passes keep their existing publication path because
+            // their completion/ownership boundaries are different.
+            bool presentationFused = false;
+            if (!runAsync && !nativePassthrough &&
+                std::getenv("TFORGE_FSR4_DISABLE_FUSED_PRESENTATION") == nullptr &&
+                fsr4PassSizes_.size() == 1 && firstUploader == fsr4Uploader_.get()) {
+              if (firstUploader->preparePresentationScaler(displayW, displayH)) {
+                in.appendPresentation =
+                    [firstUploader, displayW, displayH](VkCommandBuffer command) {
+                      return firstUploader->recordPresentationScaler(
+                          command, displayW, displayH);
+                    };
+                presentationFused = true;
+              }
+            }
             auto dr = runAsync ? firstHarness->dispatchFrameAsync(in)
                                : firstHarness->dispatchFrame(in);
             currentDispatchWaitCpuMs += dr.cpuWaitMs;
@@ -2250,8 +3858,6 @@ void PlaybackEngine::videoDecodeLoop() {
             double chainGpuMs = dr.gpuMs;
             if (!runAsync) {
               firstUploader->completeDeferredFrameUploads();
-              if (dr.ok)
-                firstUploader->advanceHistory();
             } else {
               // Keep the prefix command buffer and current slot resources
               // owned by the pending fence. The next decode iteration uses
@@ -2262,7 +3868,28 @@ void PlaybackEngine::videoDecodeLoop() {
               fsr4OutW = firstUploader->outputW();
               fsr4OutH = firstUploader->outputH();
             }
-
+            // A normal temporal capture can request the same model-input
+            // fingerprint without enabling EASU. Upstream: the completed
+            // color-upload command and FSR dispatch. Downstream: paired A/B
+            // provenance, which can now prove whether an opt-in prefilter
+            // changed the actual model input instead of only producing a log.
+            if (dumpModelInputEnv && !preEasu && !fsr4DumpedModelInput_ &&
+                !runAsync) {
+              std::vector<uint8_t> modelReadback;
+              uint32_t modelDumpW = 0, modelDumpH = 0;
+              if (firstUploader->readbackModelColor(
+                      modelReadback, modelDumpW, modelDumpH)) {
+                logInfo("PlaybackEngine: model input fingerprint "
+                        "(ordinary path) frame={} {}x{} "
+                        "fingerprint=0x{:016x}",
+                        fsrFrame->frameIndex, modelDumpW, modelDumpH,
+                        diagnosticFingerprint(modelReadback));
+              } else {
+                logWarn("PlaybackEngine: ordinary model input readback "
+                        "failed");
+              }
+              fsr4DumpedModelInput_ = true;
+            }
             // Feed each later pass from the preceding pass's completed output.
             const size_t passCount = fsr4PassSizes_.size();
             auto uploaderAt = [&](size_t index) -> GpuImageUploader * {
@@ -2353,8 +3980,16 @@ void PlaybackEngine::videoDecodeLoop() {
               if (dr.ok) {
                 chainDispatchMs += dr.dispatchMs;
                 chainGpuMs += dr.gpuMs;
-                current->advanceHistory();
               }
+            }
+            // Publish prior-jitter metadata only after every chained pass has
+            // completed. The phase guard below rolls back on any later-pass
+            // failure, so publishing after pass one would pair the next frame
+            // with metadata from a frame that was never fully displayed.
+            if (dr.ok) {
+              previousJitterX = in.jitterX;
+              previousJitterY = in.jitterY;
+              hasPreviousJitter = true;
             }
             const double pipelineCpuMs =
                 std::chrono::duration<double, std::milli>(
@@ -2380,7 +4015,7 @@ void PlaybackEngine::videoDecodeLoop() {
             GpuImageUploader *presentationUploader =
                 asyncSlots ? firstUploader : fsr4Uploader_.get();
             double presentationCpuMs = 0.0;
-            if (!runAsync && dr.ok &&
+            if (!runAsync && dr.ok && !presentationFused &&
                 presentationUploader) {
               const auto presentationStart = std::chrono::steady_clock::now();
               const bool presentationOk =
@@ -2394,6 +4029,15 @@ void PlaybackEngine::videoDecodeLoop() {
                 logWarn("PlaybackEngine: GPU presentation scaler failed");
                 dr.ok = false;
               }
+            }
+
+            if (dr.ok && !runAsync) {
+              // All chained passes share the same publication boundary. The
+              // history index for every pass advances only after the final
+              // presentation scaler succeeds, keeping failed frames out of
+              // every temporal state chain.
+              for (size_t pass = 0; pass < passCount; ++pass)
+                uploaderAt(pass)->advanceHistory();
             }
 
             static uint32_t fsrFrameCounter = 0;
@@ -2430,12 +4074,39 @@ void PlaybackEngine::videoDecodeLoop() {
             }
 
             if (!dr.ok) {
+              // The side-buffer phase was prepared before dispatch so the
+              // color upload and FSR metadata matched. If the complete chain
+              // or presentation submission failed, return that phase to the
+              // next attempt; otherwise dropped frames silently desynchronize
+              // the synthetic sample sequence from submitted FSR frames.
+              sideBufferSynth_.rollbackJitter(sideInputs.reset || reset);
               logWarn("PlaybackEngine: FSR4 dispatch failed: {}",
                       dr.failReason);
             } else {
+              // Only a fully successful FSR chain consumes the prepared
+              // jitter phase. Upstream: SideBufferSynth::update(). Downstream:
+              // the next frame's Halton phase and temporal history contract.
+              sideBufferSynth_.commitJitter();
+              jitterPhaseGuard.markCommitted();
+              // Commit only after the complete FSR chain succeeds. The next
+              // decoded frame may then consume this frame's persistent state.
+              temporalFrameContinuity.commit(sourceFrameIndex);
               static bool dumpedDecoder = false;
               if (!dumpedDecoder && dumpDecoderEnv &&
                   sourceFrameIndex >= dumpDecoderFrame) {
+                // Record the metadata of the exact frame that reached the
+                // FSR upload boundary. Upstream: VideoDecoder's resolved
+                // DecodedVideoFrame. Downstream: the retained player log used
+                // to explain color-matrix/transfer fallback decisions in
+                // future 720p A/B captures. This is opt-in diagnostics only;
+                // it does not alter the upload or reconstruction path.
+                logInfo("PlaybackEngine: decoder_metadata frame={} source_frame={} "
+                        "size={}x{} format={} range={} space={} transfer={} "
+                        "primaries={} pts_us={} input_transfer_flag={} input_hdr={}",
+                        fsrDf.frameIndex, df.frameIndex, fsrDf.width,
+                        fsrDf.height, fsrDf.avFormat, fsrDf.colorRange,
+                        fsrDf.colorSpace, fsrDf.colorTransfer,
+                        fsrDf.colorPrimaries, fsrDf.ptsUs, in.transfer, in.hdr);
                 std::vector<float> decoder;
                 if (fsr4Harness_->readbackFinalAccum(decoder)) {
                   constexpr size_t kMaxDiagnosticPixels = 65536;
@@ -2597,6 +4268,60 @@ void PlaybackEngine::videoDecodeLoop() {
                                      fsr4Readback_.data() + i * 4),
                                  3);
                     dump.flush();
+                    if (dump.good() && dumpMotionTextureEnv) {
+                      // These files are raw diagnostic payloads: RG16F motion
+                      // in source/model pixel units and one R8 validity byte
+                      // per model pixel. Reading them back after the dispatch
+                      // proves the exact dense textures bound to prepass,
+                      // rather than inferring GPU contents from sparse seeds.
+                      std::vector<uint8_t> denseMotionBytes;
+                      std::vector<uint8_t> validityBytes;
+                      uint32_t motionW = 0, motionH = 0;
+                      uint32_t validityW = 0, validityH = 0;
+                      const bool motionRead = fsr4Uploader_->readbackMotion(
+                          denseMotionBytes, motionW, motionH);
+                      const bool validityRead =
+                          fsr4Uploader_->readbackMotionValidity(
+                              validityBytes, validityW, validityH);
+                      char motionName[64];
+                      std::snprintf(motionName, sizeof(motionName),
+                                    "dense_motion_%04u.rg16f",
+                                    fsr4SequenceDumpCount_);
+                      char validityName[64];
+                      std::snprintf(validityName, sizeof(validityName),
+                                    "dense_motion_validity_%04u.r8",
+                                    fsr4SequenceDumpCount_);
+                      if (motionRead && validityRead && motionW == validityW &&
+                          motionH == validityH) {
+                        std::ofstream motionDump(
+                            std::filesystem::path(dumpMotionDirectory) /
+                                motionName,
+                            std::ios::binary | std::ios::trunc);
+                        std::ofstream validityDump(
+                            std::filesystem::path(dumpMotionDirectory) /
+                                validityName,
+                            std::ios::binary | std::ios::trunc);
+                        if (motionDump && validityDump) {
+                          motionDump.write(
+                              reinterpret_cast<const char *>(
+                                  denseMotionBytes.data()),
+                              static_cast<std::streamsize>(
+                                  denseMotionBytes.size()));
+                          validityDump.write(
+                              reinterpret_cast<const char *>(validityBytes.data()),
+                              static_cast<std::streamsize>(validityBytes.size()));
+                          logInfo("PlaybackEngine: dumped dense motion frame={} "
+                                  "{}x{} rg16f={} bytes validity={} bytes",
+                                  sourceFrameIndex, motionW, motionH,
+                                  denseMotionBytes.size(), validityBytes.size());
+                        }
+                      } else {
+                        logWarn("PlaybackEngine: dense motion readback failed "
+                                "motion={} validity={} dims={}x{}/{}x{}",
+                                motionRead, validityRead, motionW, motionH,
+                                validityW, validityH);
+                      }
+                    }
                     if (dump.good() && dumpMotionSidecarEnv) {
                       char motionName[64];
                       std::snprintf(motionName, sizeof(motionName),
@@ -2608,8 +4333,48 @@ void PlaybackEngine::videoDecodeLoop() {
                           *fsrFrame, sideInputs.reset,
                           sideInputs.histogramDelta, sideInputs.avgLumaDelta,
                           sideInputs.motionConfidence,
-                          pastReferenceMotion(fsrFrame->motionVectors), dumpW,
-                          dumpH, fsr4SequenceDumpCount_);
+                          pastMotion, dumpW, dumpH,
+                          fsr4SequenceDumpCount_);
+                    }
+                    // The FP16 reprojection diagnostic is an independent
+                    // artifact. Do not make it conditional on the PPM stream
+                    // state: presentation readback and history-warp readback
+                    // are separate validation signals, and a late PPM write
+                    // must not erase the motion diagnostic for that frame.
+                    if (dumpReprojectedColorEnv) {
+                      std::vector<uint8_t> reprojectedBytes;
+                      uint32_t reprojW = 0, reprojH = 0;
+                      const bool reprojRead =
+                          fsr4Uploader_->readbackReprojectedColor(
+                              reprojectedBytes, reprojW, reprojH);
+                      char reprojName[64];
+                      std::snprintf(reprojName, sizeof(reprojName),
+                                    "reprojected_color_%04u.rgba16f",
+                                    fsr4SequenceDumpCount_);
+                      const size_t expectedBytes =
+                          static_cast<size_t>(reprojW) * reprojH * 8u;
+                      if (reprojRead && expectedBytes == reprojectedBytes.size()) {
+                        std::ofstream reprojDump(
+                            std::filesystem::path(dumpMotionDirectory) /
+                                reprojName,
+                            std::ios::binary | std::ios::trunc);
+                        if (reprojDump) {
+                          reprojDump.write(
+                              reinterpret_cast<const char *>(
+                                  reprojectedBytes.data()),
+                              static_cast<std::streamsize>(
+                                  reprojectedBytes.size()));
+                          logInfo("PlaybackEngine: dumped reprojected color "
+                                  "frame={} {}x{} rgba16f={} bytes",
+                                  sourceFrameIndex, reprojW, reprojH,
+                                  reprojectedBytes.size());
+                        }
+                      } else {
+                        logWarn("PlaybackEngine: reprojected color readback "
+                                "failed read={} dims={}x{} bytes={}",
+                                reprojRead, reprojW, reprojH,
+                                reprojectedBytes.size());
+                      }
                     }
                     if (dump.good() && dumpEventTraceEnv) {
                       char eventName[64];
@@ -2630,6 +4395,11 @@ void PlaybackEngine::videoDecodeLoop() {
               }
               if (!runAsync) {
                 fsr4PublishedUploader_.store(presentationUploader,
+                                              std::memory_order_release);
+                // A successful neural publication must clear the native
+                // passthrough selector; otherwise a previous 1:1 frame can
+                // leave the render thread serving stale raw input forever.
+                fsr4NativePassthrough_.store(false,
                                               std::memory_order_release);
                 fsr4FrameReady_.store(true, std::memory_order_release);
                 fsr4Upscaled = true;
@@ -2757,10 +4527,10 @@ void PlaybackEngine::videoDecodeLoop() {
 
       // Build the render frame from either the upscaled RGBA or raw YUV.
       VideoFrameForRender rf;
-      rf.ptsUs = df.ptsUs;
-      rf.durationUs = df.durationUs;
-      rf.keyframe = df.keyframe;
-      rf.frameIndex = df.frameIndex;
+      rf.ptsUs = fsrFrame->ptsUs;
+      rf.durationUs = fsrFrame->durationUs;
+      rf.keyframe = fsrFrame->keyframe;
+      rf.frameIndex = fsrFrame->frameIndex;
       rf.reset = reset;
       if (fsr4Upscaled) {
         // FSR4 output is presented from the native Vulkan image by
@@ -2772,13 +4542,13 @@ void PlaybackEngine::videoDecodeLoop() {
         rf.planes = 0;
       } else {
         // Raw decoded frame (graceful degradation / FSR4 disabled).
-        rf.width = df.width;
-        rf.height = df.height;
-        rf.avFormat = df.avFormat;
-        rf.planes = df.planes;
-        for (int i = 0; i < df.planes; ++i) {
-          rf.linesize[i] = df.linesize[i];
-          rf.plane[i] = std::move(df.plane[i]);
+        rf.width = fsrFrame->width;
+        rf.height = fsrFrame->height;
+        rf.avFormat = fsrFrame->avFormat;
+        rf.planes = fsrFrame->planes;
+        for (int i = 0; i < fsrFrame->planes; ++i) {
+          rf.linesize[i] = fsrFrame->linesize[i];
+          rf.plane[i] = std::move(fsrFrame->plane[i]);
         }
       }
 

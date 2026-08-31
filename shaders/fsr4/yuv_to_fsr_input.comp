@@ -14,6 +14,7 @@ layout(push_constant) uniform Push {
     vec4 range;        // yOffset, yScale, chromaOffset, chromaScale
     vec4 matrix;       // rV, gU, gV, bU
     vec4 chroma;       // chromaPhase x/y, source bit depth, reserved
+    vec4 jitter;       // render-pixel x/y, enabled, reserved
 } pc;
 
 layout(set = 0, binding = 0, r8) readonly uniform image2D u_y;
@@ -39,6 +40,21 @@ float loadYCached(ivec2 p, ivec2 tileBase) {
     return yTile[local.y * Y_TILE_WIDTH + local.x];
 }
 
+// Sample the decoded luma at a subpixel phase. The source image is already at
+// the FSR render size, so this is the single pre-FSR resampling operation that
+// realizes the reported synthetic jitter. Coordinates clamp at the border;
+// they never wrap across the frame.
+float loadYJittered(vec2 position, ivec2 size, ivec2 tileBase) {
+    position = clamp(position, vec2(0.0), vec2(size - ivec2(1)));
+    ivec2 base = ivec2(floor(position));
+    vec2 f = fract(position);
+    float a = loadYCached(base, tileBase);
+    float b = loadYCached(min(base + ivec2(1, 0), size - ivec2(1)), tileBase);
+    float c = loadYCached(min(base + ivec2(0, 1), size - ivec2(1)), tileBase);
+    float d = loadYCached(min(base + ivec2(1), size - ivec2(1)), tileBase);
+    return mix(mix(a, b, f.x), mix(c, d, f.x), f.y);
+}
+
 vec2 loadUvCached(ivec2 p, ivec2 tileBase) {
     const ivec2 local = p - tileBase;
     return uvTile[local.y * UV_TILE_WIDTH + local.x];
@@ -53,7 +69,7 @@ vec4 catmullRomWeights(float f) {
                  0.5 * f3 - 0.5 * f2);
 }
 
-vec2 loadUvBicubic(ivec2 p, ivec2 size, ivec2 uvSize, ivec2 tileBase) {
+vec2 loadUvBicubic(vec2 p, ivec2 size, ivec2 uvSize, ivec2 tileBase) {
     // Reconstruct 4:2:0 chroma at the luma pixel center. The cubic footprint
     // avoids the soft 2x2 bilinear chroma cells that are especially visible
     // around text and high-contrast screen-recording edges.
@@ -74,7 +90,7 @@ vec2 loadUvBicubic(ivec2 p, ivec2 size, ivec2 uvSize, ivec2 tileBase) {
     return clamp(result, 0.0, 1.0);
 }
 
-vec2 loadUvBilinear(ivec2 p, ivec2 uvSize, ivec2 tileBase) {
+vec2 loadUvBilinear(vec2 p, ivec2 uvSize, ivec2 tileBase) {
     vec2 uvPos = (vec2(p) + vec2(0.5)) * 0.5 - pc.chroma.xy;
     ivec2 base = ivec2(floor(uvPos));
     vec2 f = fract(uvPos);
@@ -85,7 +101,7 @@ vec2 loadUvBilinear(ivec2 p, ivec2 uvSize, ivec2 tileBase) {
     return mix(mix(c00, c10, f.x), mix(c01, c11, f.x), f.y);
 }
 
-vec2 loadUvFiltered(ivec2 p, ivec2 size, ivec2 uvSize, ivec2 tileBase) {
+vec2 loadUvFiltered(vec2 p, ivec2 size, ivec2 uvSize, ivec2 tileBase) {
     const uint flags = floatBitsToUint(pc.chroma.w);
     return (flags & YUV_FLAG_CHROMA_BILINEAR) != 0u
         ? loadUvBilinear(p, uvSize, tileBase)
@@ -188,8 +204,16 @@ void main() {
     ivec2 p = ivec2(gl_GlobalInvocationID.xy);
     if (p.x >= size.x || p.y >= size.y) return;
 
-    float y = loadYCached(p, yTileBase);
-    vec2 uv = loadUvFiltered(p, size, uvSize, uvTileBase);
+    // The official-ordering experiment keeps this upload grid unjittered;
+    // the prepass then applies the phase to its model-space resolve. The
+    // normal path still realizes synthetic jitter here.
+    const vec2 samplePosition = vec2(p) +
+        ((pc.jitter.z > 0.5) ? pc.jitter.xy : vec2(0.0));
+    float y = loadYJittered(samplePosition, size, yTileBase);
+    // Chroma follows the same source position. Bilinear chroma is the default
+    // for jittered input; the existing integer-path filter remains unchanged
+    // when jitter is disabled.
+    vec2 uv = loadUvFiltered(samplePosition, size, uvSize, uvTileBase);
     float u = uv.x;
     float v = uv.y;
     vec3 rgb = yuvToRgb(y, u, v);

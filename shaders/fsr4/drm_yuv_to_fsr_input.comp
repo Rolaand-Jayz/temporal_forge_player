@@ -19,6 +19,7 @@ layout(push_constant) uniform Push {
     vec4 range;  // yOffset, yScale, chromaOffset, chromaScale
     vec4 matrix; // rV, gU, gV, bU
     vec4 chroma; // chromaPhase x/y, source bit depth, reserved
+    vec4 jitter; // render-pixel x/y, enabled, reserved
 } pc;
 
 const int Y_TILE_WIDTH = 18;
@@ -32,6 +33,20 @@ shared vec2 uvTile[UV_TILE_WIDTH * UV_TILE_WIDTH];
 float loadYCached(ivec2 p, ivec2 tileBase) {
     ivec2 local = p - tileBase;
     return yTile[local.y * Y_TILE_WIDTH + local.x];
+}
+
+// Clamp-to-edge bilinear sampling realizes the same subpixel source jitter as
+// the software-decoder conversion shader, without adding another full-frame
+// resampling pass before FSR.
+float loadYJittered(vec2 position, ivec2 size, ivec2 tileBase) {
+    position = clamp(position, vec2(0.0), vec2(size - ivec2(1)));
+    ivec2 base = ivec2(floor(position));
+    vec2 f = fract(position);
+    float a = loadYCached(base, tileBase);
+    float b = loadYCached(min(base + ivec2(1, 0), size - ivec2(1)), tileBase);
+    float c = loadYCached(min(base + ivec2(0, 1), size - ivec2(1)), tileBase);
+    float d = loadYCached(min(base + ivec2(1), size - ivec2(1)), tileBase);
+    return mix(mix(a, b, f.x), mix(c, d, f.x), f.y);
 }
 
 vec2 loadUvCached(ivec2 p, ivec2 tileBase) {
@@ -48,7 +63,7 @@ vec4 catmullRomWeights(float f) {
                  0.5 * f3 - 0.5 * f2);
 }
 
-vec2 loadUvBicubic(ivec2 p, ivec2 uvSize, ivec2 tileBase) {
+vec2 loadUvBicubic(vec2 p, ivec2 uvSize, ivec2 tileBase) {
     // Keep the DRM PRIME path identical in reconstruction quality to the
     // regular YUV path.  Bilinear chroma creates a soft 2x2 lattice which
     // becomes visible after neural upscaling, especially around text.
@@ -69,7 +84,7 @@ vec2 loadUvBicubic(ivec2 p, ivec2 uvSize, ivec2 tileBase) {
     return clamp(result, 0.0, 1.0);
 }
 
-vec2 loadUvBilinear(ivec2 p, ivec2 uvSize, ivec2 tileBase) {
+vec2 loadUvBilinear(vec2 p, ivec2 uvSize, ivec2 tileBase) {
     vec2 uvPos = (vec2(p) + vec2(0.5)) * 0.5 - pc.chroma.xy;
     ivec2 base = ivec2(floor(uvPos));
     vec2 f = fract(uvPos);
@@ -80,7 +95,7 @@ vec2 loadUvBilinear(ivec2 p, ivec2 uvSize, ivec2 tileBase) {
     return mix(mix(c00, c10, f.x), mix(c01, c11, f.x), f.y);
 }
 
-vec2 loadUvFiltered(ivec2 p, ivec2 uvSize, ivec2 tileBase) {
+vec2 loadUvFiltered(vec2 p, ivec2 uvSize, ivec2 tileBase) {
     return (floatBitsToUint(pc.chroma.w) & YUV_FLAG_CHROMA_BILINEAR) != 0u
         ? loadUvBilinear(p, uvSize, tileBase)
         : loadUvBicubic(p, uvSize, tileBase);
@@ -144,8 +159,13 @@ void main() {
     ivec2 p = ivec2(gl_GlobalInvocationID.xy);
     if (any(greaterThanEqual(p, size))) return;
 
-    float y = loadYCached(p, yTileBase);
-    vec3 rgb = yuvToRgb(y, loadUvFiltered(p, uvSize, uvTileBase));
+    // Keep the DRM import path consistent with the ordinary YUV uploader:
+    // upload-time jitter is disabled by the official-ordering opt-in and the
+    // prepass owns the model-space resolve phase.
+    const vec2 samplePosition = vec2(p) +
+        ((pc.jitter.z > 0.5) ? pc.jitter.xy : vec2(0.0));
+    float y = loadYJittered(samplePosition, size, yTileBase);
+    vec3 rgb = yuvToRgb(y, loadUvFiltered(samplePosition, uvSize, uvTileBase));
 
     float blur = loadYCached(ivec2(max(p.x - 1, 0), p.y), yTileBase) +
                  loadYCached(ivec2(min(p.x + 1, size.x - 1), p.y), yTileBase) +

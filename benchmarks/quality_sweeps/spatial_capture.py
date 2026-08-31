@@ -95,6 +95,7 @@ def load_region_annotations(
     frame: int,
     output_dimensions: str,
     repo_root: Path,
+    require_asset: bool = True,
 ) -> dict[tuple[str, str], dict[str, Any]]:
     """Load exactly one source-backed output-space region for each selection."""
     selected = _selected_classes(class_selections)
@@ -145,7 +146,7 @@ def load_region_annotations(
                 f"annotation frame does not match capture for {scene}/{quality_class}"
             )
         asset_path = _resolve(raw.get("assetPath"), base=repo_root, name="assetPath")
-        if not asset_path.is_file():
+        if require_asset and not asset_path.is_file():
             raise SpatialCaptureError(f"annotation asset does not exist: {asset_path}")
         region = raw.get("staticRegion")
         if not isinstance(region, Mapping):
@@ -203,6 +204,7 @@ def load_capture_input(path: Path, *, repo_root: Path) -> dict[tuple[str, str], 
         frame=document.get("frame"),
         output_dimensions=document.get("outputDimensions"),
         repo_root=repo_root,
+        require_asset=document.get("evidenceMode") != "metrics_only",
     )
 
 

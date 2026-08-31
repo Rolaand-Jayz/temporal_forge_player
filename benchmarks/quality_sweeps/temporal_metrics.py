@@ -364,11 +364,18 @@ def temporal_motion_compensated_errors(
             vectors = _np.asarray(motion, dtype=_np.float64)
             if vectors.shape != (height, width, 2) or not _np.isfinite(vectors).all():
                 raise ValueError("motion must match the frame dimensions and contain finite values")
+            validity_value = getattr(motion, "validity", None)
+            if validity_value is None:
+                correspondence_valid = _np.ones((height, width), dtype=bool)
+            else:
+                correspondence_valid = _np.asarray(validity_value, dtype=bool)
+                if correspondence_valid.shape != (height, width):
+                    raise ValueError("motion validity must match the frame dimensions")
             sample_x = grid_x + vectors[:, :, 0]
             sample_y = grid_y + vectors[:, :, 1]
             candidate_sample, valid = sample(candidates[index - 1], sample_x, sample_y)
             reference_sample, reference_valid = sample(references[index - 1], sample_x, sample_y)
-            valid &= reference_valid & selected_array
+            valid &= reference_valid & selected_array & correspondence_valid
             if not valid.any():
                 raise ValueError(f"motion has no valid samples for transition frame {index}")
             residual = (
@@ -387,6 +394,15 @@ def temporal_motion_compensated_errors(
             errors.append(None)
             continue
         vectors = _normalise_motion(motion, height, width)
+        validity_value = getattr(motion, "validity", None)
+        if validity_value is None:
+            correspondence_valid = [[True] * width for _ in range(height)]
+        else:
+            correspondence_valid = [list(row) for row in validity_value]
+            if len(correspondence_valid) != height or any(
+                len(row) != width for row in correspondence_valid
+            ):
+                raise ValueError("motion validity must match the frame dimensions")
         current_candidate = candidates[index]
         previous_candidate = candidates[index - 1]
         current_reference = references[index]
@@ -395,7 +411,7 @@ def temporal_motion_compensated_errors(
         count = 0
         for y in range(height):
             for x in range(width):
-                if not selected[y][x]:
+                if not selected[y][x] or not correspondence_valid[y][x]:
                     continue
                 dx, dy = vectors[y][x]
                 previous_candidate_sample = _bilinear_sample(

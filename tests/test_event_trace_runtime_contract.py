@@ -25,6 +25,10 @@ class EventTraceRuntimeContractTests(unittest.TestCase):
             "detectorInputs",
             "thresholdProvenance",
             "ptsUs",
+            "decoderReceiveIndex",
+            "jitterX",
+            "jitterY",
+            "jitterApplied",
         ):
             self.assertIn(marker, source, marker)
 

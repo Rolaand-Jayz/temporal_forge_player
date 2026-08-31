@@ -8,6 +8,7 @@ selector="${2:-1280x720}"
 results="${3:-$root/results/quality.csv}"
 asset_manifest="${TFORGE_QUALITY_ASSET_MANIFEST:-${results%.csv}.assets.csv}"
 frame_index="${TFORGE_QUALITY_FRAME:-48}"
+capture_attempts="${TFORGE_QUALITY_CAPTURE_ATTEMPTS:-120}"
 tag="${TFORGE_QUALITY_TAG:-}"
 preset="${TFORGE_BENCHMARK_PRESET:-saved}"
 clip_filter="${TFORGE_QUALITY_CLIP:-}"
@@ -19,6 +20,11 @@ if [[ -f "$review_pipeline_config" ]]; then
     # shellcheck disable=SC1090
     source "$review_pipeline_config"
 fi
+# Capture this opt-out before clearing the inherited variable. The single
+# frame runner uses the same player switch, and each capture must record an
+# explicit value rather than silently inheriting a previous campaign arm.
+disable_best_findings="${TFORGE_FSR4_DISABLE_BEST_FINDINGS:-}"
+unset TFORGE_FSR4_DISABLE_BEST_FINDINGS
 
 # Quality captures must not inherit the interactive user's persisted settings.
 # Upstream: the checked-in neutral benchmark settings below. Downstream: every
@@ -56,6 +62,10 @@ if [[ ! -x "$binary" ]]; then
     printf 'Player binary is not executable: %s\n' "$binary" >&2
     exit 1
 fi
+[[ "$capture_attempts" =~ ^[1-9][0-9]*$ ]] || {
+    printf 'TFORGE_QUALITY_CAPTURE_ATTEMPTS must be a positive integer: %s\n' "$capture_attempts" >&2
+    exit 1
+}
 # The player is launched from a background environment command below. Make
 # relative paths absolute so the launch does not depend on that child shell's
 # working directory.
@@ -137,6 +147,9 @@ while IFS=, read -r \
     if [[ "$preset" != "saved" ]]; then
         benchmark_env+=("TFORGE_BENCHMARK_PRESET=$preset")
     fi
+    if [[ -n "$disable_best_findings" ]]; then
+        benchmark_env+=("TFORGE_FSR4_DISABLE_BEST_FINDINGS=$disable_best_findings")
+    fi
     # Keep benchmark runs reproducible while allowing controlled experiments
     # with runtime quality/performance switches.  Do not pass the caller's
     # entire environment through: unrelated desktop settings can change the
@@ -162,12 +175,14 @@ while IFS=, read -r \
         TFORGE_FSR4_EXPERIMENTAL_POSTPASS_SWAP_TAIL_MAPPING \
         TFORGE_FSR4_EXPERIMENTAL_POSTPASS_REVERSE_TAIL_CHANNELS \
         TFORGE_FSR4_CHAIN_PASSES \
+        TFORGE_FSR4_TRUE_FSR1_EASU \
         TFORGE_FSR4_EXPERIMENTAL_SINGLE_HISTORY_BLEND \
         TFORGE_FSR4_EXPERIMENTAL_LEGACY_ROUND \
         TFORGE_FSR4_EXPERIMENTAL_LEGACY_RECURRENT_BIAS \
         TFORGE_FSR4_EXPERIMENTAL_MOTION_SIGN \
         TFORGE_FSR4_EXPERIMENTAL_MOTION_SCALE \
         TFORGE_FSR4_EXPERIMENTAL_MOTION_ROUNDING \
+        TFORGE_FSR4_MOTION_ESTIMATOR \
         TFORGE_FSR4_EXPERIMENTAL_HISTORY_INTERPOLATION \
         TFORGE_FSR4_EXPERIMENTAL_RECURRENT_RESET_ONLY \
         TFORGE_FSR4_EXPERIMENTAL_MOTION_SIGN \
@@ -187,11 +202,24 @@ while IFS=, read -r \
         TFORGE_FSR4_LEARNED_STRENGTH \
         TFORGE_FSR4_DISABLE_LEARNED_CONFIDENCE_GATE \
         TFORGE_FSR4_LEARNED_CONFIDENCE_BLEND \
+        TFORGE_FSR4_LEARNED_CONFIDENCE_FLOOR \
         TFORGE_FSR4_HISTORY_CONFIDENCE_THRESHOLD \
         TFORGE_FSR4_MOTION_CONFIDENCE_REACTIVE \
+        TFORGE_FSR4_EXPERIMENTAL_PHOTOMETRIC_HISTORY_GATE \
+        TFORGE_FSR4_EXPERIMENTAL_UNJITTERED_MOTION_SAMPLE \
+        TFORGE_FSR4_EXPERIMENTAL_JITTERED_MOTION_SAMPLE \
+        TFORGE_FSR4_EXPERIMENTAL_CURRENT_INVALID_HISTORY \
         TFORGE_FSR4_EXPERIMENTAL_MOTION_MAX_BLOCKS \
+        TFORGE_FSR4_ENABLE_HW_ANALYSIS_LUMA \
         TFORGE_FSR4_EXPERIMENTAL_REFINE_MOTION \
         TFORGE_FSR4_MOTION_REFINE_RADIUS \
+        TFORGE_FSR4_MOTION_MAX_CORRECTION \
+        TFORGE_FSR4_MOTION_MIN_ERROR_IMPROVEMENT \
+        TFORGE_FSR4_MOTION_MIN_ERROR_MARGIN \
+        TFORGE_FSR4_DUMP_MOTION_SIDECAR \
+        TFORGE_FSR4_DUMP_MOTION_TEXTURE \
+        TFORGE_FSR4_DUMP_REPROJECTED_COLOR \
+        TFORGE_FSR4_DUMP_MOTION_SEEDS \
         TFORGE_FSR4_DISABLE_MOTION_VALIDITY \
         TFORGE_FSR4_DRS \
         TFORGE_FSR4_FORCE_VIEWPORT \
@@ -227,11 +255,19 @@ while IFS=, read -r \
         TFORGE_FSR4_FP16_FINAL_SCALAR \
         TFORGE_FSR4_FP8_SCALE \
         TFORGE_FSR4_FP8_ROUNDING \
+        TFORGE_FSR4_FP16_FP8_BOUNDARY \
         TFORGE_FSR4_COOP_MAX_STEP \
         TFORGE_FSR4_MAX_STEPS \
         TFORGE_FSR4_HDR_OUTPUT \
         TFORGE_DISABLE_HW_DECODE \
         TFORGE_FSR4_JITTER_MODE \
+        TFORGE_FSR4_MOTION_ESTIMATOR \
+        TFORGE_FSR4_INTEGRATED_TEMPORAL \
+        TFORGE_FSR4_INTEGRATED_HISTORY_CONFIDENCE \
+        TFORGE_FSR4_INTEGRATED_BEST_FINDINGS \
+        TFORGE_FSR4_INTEGRATED_BEST_FINDINGS_JITTER \
+        TFORGE_FSR4_MOTION_FALLBACK_AFTER_FILTERING \
+        TFORGE_FSR4_MOTION_ALLOW_B_FRAMES \
         TFORGE_FSR4_CONTROLLED_JITTER \
         TFORGE_FSR4_JITTER_SEQUENCE \
         TFORGE_FSR4_JITTER_CADENCE \
@@ -267,7 +303,7 @@ while IFS=, read -r \
     source_width=0
     source_height=0
     expected_source_bytes=0
-    for ((attempt = 0; attempt < 120; ++attempt)); do
+    for ((attempt = 0; attempt < capture_attempts; ++attempt)); do
         output_bytes=0
         source_bytes=0
         output_magic=""

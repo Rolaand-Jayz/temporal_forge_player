@@ -64,6 +64,49 @@ static void test_nested_values_and_clamps() {
     std::filesystem::remove(path, ec);
 }
 
+static void test_motion_values_are_resolved_from_quality_lab() {
+    const auto path = std::filesystem::temp_directory_path() /
+                      "temporal_forge_quality_lab_motion_test.json";
+    {
+        std::ofstream file(path);
+        file << R"json({
+          "qualityLab": {
+            "enabled": true,
+            "motion": {
+              "mode": "codec_refined",
+              "refinementScale": 8,
+              "searchRadius": 3,
+              "maxCorrectionPixels": 2.5,
+              "minErrorImprovement": 0.01,
+              "minErrorMargin": 0.02,
+              "maxRefinedSeeds": 777,
+              "confidenceErrorScale": 0.08,
+              "confidenceThreshold": 0.25,
+              "sceneCutThreshold": 0.7,
+              "edgeAwareUpscale": false,
+              "allowFallbackAfterFiltering": true
+            }
+          }
+        })json";
+    }
+    const auto config = loadQualityLabConfig(path);
+    CHECK(config.motionConfigured);
+    CHECK(config.motion.mode == MotionEstimatorMode::CodecRefined);
+    CHECK(config.motion.refinementScale == 8u);
+    CHECK(config.motion.searchRadius == 3);
+    CHECK(std::fabs(config.motion.maxCorrectionPixels - 2.5f) < 1e-6f);
+    CHECK(std::fabs(config.motion.minErrorImprovement - 0.01f) < 1e-6f);
+    CHECK(std::fabs(config.motion.minErrorMargin - 0.02f) < 1e-6f);
+    CHECK(config.motion.maxRefinedSeeds == 777u);
+    CHECK(std::fabs(config.motion.confidenceErrorScale - 0.08f) < 1e-6f);
+    CHECK(std::fabs(config.motion.confidenceThreshold - 0.25f) < 1e-6f);
+    CHECK(std::fabs(config.motion.sceneCutThreshold - 0.7f) < 1e-6f);
+    CHECK(!config.motion.edgeAwareUpscale);
+    CHECK(config.motion.allowFallbackAfterFiltering);
+    std::error_code ec;
+    std::filesystem::remove(path, ec);
+}
+
 static void test_checked_in_quality_default_is_scale_aware_candidate() {
     const auto config = loadQualityLabConfig(
         std::filesystem::path(TFORGE_SOURCE_ROOT) / "config" /
@@ -79,6 +122,7 @@ static void test_checked_in_quality_default_is_scale_aware_candidate() {
 int main() {
     test_missing_file_is_disabled_control();
     test_nested_values_and_clamps();
+    test_motion_values_are_resolved_from_quality_lab();
     test_checked_in_quality_default_is_scale_aware_candidate();
     if (g_failures == 0) {
         std::printf("quality_lab_config_tests: OK\n");

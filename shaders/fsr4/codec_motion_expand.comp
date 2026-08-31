@@ -10,7 +10,8 @@ struct MotionVector {
     ivec2 dst;
     vec2 motion;
     uvec2 extent;
-    uvec2 padding;
+    float confidence;
+    uint padding;
 };
 
 layout(std430, binding = 0) readonly buffer MotionVectors {
@@ -23,11 +24,24 @@ layout(std430, binding = 1) buffer Owners {
 
 layout(binding = 2, rg16f) writeonly uniform image2D motionImage;
 layout(binding = 3, r8) writeonly uniform image2D validityImage;
+// The model-sized current color is used only by the optional resolve. Its
+// luma edges keep neighboring block vectors from blending across a surface
+// boundary; the default sparse resolve never reads this binding.
+layout(binding = 4, rgb10_a2) readonly uniform image2D sourceColor;
 
 layout(push_constant) uniform Push {
     uvec4 dimensions; // width, height, vector count, vector base
     uint resolve;
+    uint edgeAware;
 } pc;
+
+// The codec field is sparse at block boundaries.  A small edge-aware hole
+// fill is used only by the existing diagnostic resolve: it may borrow a
+// nearby covered vector when the center pixel has no owner, but it lowers
+// confidence so the temporal path can reject uncertain history.  Keeping the
+// radius small avoids turning this fallback into a cheap, full-frame optical
+// flow approximation.
+const int EDGE_AWARE_HOLE_RADIUS = 2;
 
 void stampVector() {
     uint vectorIndex = pc.dimensions.w + gl_WorkGroupID.x;
@@ -54,9 +68,90 @@ void resolvePixels() {
 
     uint owner = owners[p.y * pc.dimensions.x + p.x];
     vec2 motion = owner == 0u ? vec2(0.0) : vectors[owner - 1u].motion;
+    float confidence = owner == 0u
+        ? 0.0 : clamp(vectors[owner - 1u].confidence, 0.0, 1.0);
+    if (pc.edgeAware != 0u && owner == 0u) {
+        // Find the nearest compatible covered vector for a small uncovered
+        // boundary hole.  Luma similarity rejects the common case where the
+        // nearest seed belongs to the opposite side of a strong edge.
+        const vec3 lumaWeights = vec3(0.2126, 0.7152, 0.0722);
+        const float centerLuma = dot(imageLoad(sourceColor, ivec2(p)).rgb,
+                                     lumaWeights);
+        float bestScore = 0.0;
+        uint fallbackOwner = 0u;
+        for (int oy = -EDGE_AWARE_HOLE_RADIUS;
+             oy <= EDGE_AWARE_HOLE_RADIUS; ++oy) {
+            for (int ox = -EDGE_AWARE_HOLE_RADIUS;
+                 ox <= EDGE_AWARE_HOLE_RADIUS; ++ox) {
+                if (ox == 0 && oy == 0)
+                    continue;
+                const ivec2 q = clamp(ivec2(p) + ivec2(ox, oy), ivec2(0),
+                                      ivec2(pc.dimensions.xy) - ivec2(1));
+                const uint neighbor = owners[uint(q.y) * pc.dimensions.x +
+                                             uint(q.x)];
+                if (neighbor == 0u)
+                    continue;
+                const float neighborLuma =
+                    dot(imageLoad(sourceColor, q).rgb, lumaWeights);
+                const float spatial = exp(-0.5 * float(ox * ox + oy * oy));
+                const float lumaWeight =
+                    exp(-abs(neighborLuma - centerLuma) * 18.0);
+                const float score = spatial * lumaWeight;
+                if (score > bestScore) {
+                    bestScore = score;
+                    fallbackOwner = neighbor;
+                }
+            }
+        }
+        if (fallbackOwner != 0u && bestScore >= 0.15) {
+            owner = fallbackOwner;
+            motion = vectors[owner - 1u].motion;
+            // A borrowed seed is evidence, not a block-level measurement.
+            // Keep it below the normal confidence so history gating remains
+            // conservative at reconstructed boundaries.
+            const float fallbackConfidence = 0.5 * bestScore;
+            confidence = min(
+                clamp(vectors[owner - 1u].confidence, 0.0, 1.0),
+                fallbackConfidence);
+        }
+    }
+    if (pc.edgeAware != 0u && owner != 0u) {
+        const vec3 lumaWeights = vec3(0.2126, 0.7152, 0.0722);
+        const vec3 centerColor = imageLoad(sourceColor, ivec2(p)).rgb;
+        const float centerLuma = dot(centerColor, lumaWeights);
+        vec2 weightedMotion = vec2(0.0);
+        float weightedConfidence = 0.0;
+        float weightSum = 0.0;
+        for (int oy = -1; oy <= 1; ++oy) {
+            for (int ox = -1; ox <= 1; ++ox) {
+                ivec2 q = clamp(ivec2(p) + ivec2(ox, oy), ivec2(0),
+                                ivec2(pc.dimensions.xy) - ivec2(1));
+                uint neighbor = owners[uint(q.y) * pc.dimensions.x + uint(q.x)];
+                if (neighbor == 0u)
+                    continue;
+                vec2 candidate = vectors[neighbor - 1u].motion;
+                float candidateConfidence = clamp(
+                    vectors[neighbor - 1u].confidence, 0.0, 1.0);
+                float neighborLuma = dot(imageLoad(sourceColor, q).rgb,
+                                         lumaWeights);
+                float spatial = exp(-0.5 * float(ox * ox + oy * oy));
+                float lumaWeight = exp(-abs(neighborLuma - centerLuma) * 18.0);
+                float motionWeight = exp(-length(candidate - motion) * 0.18);
+                float weight = spatial * lumaWeight * motionWeight;
+                weightedMotion += candidate * weight;
+                weightedConfidence += candidateConfidence * weight;
+                weightSum += weight;
+            }
+        }
+        if (weightSum > 1.0e-5) {
+            motion = weightedMotion / weightSum;
+            confidence = weightedConfidence / weightSum;
+        }
+    }
     imageStore(motionImage, ivec2(p), vec4(motion, 0.0, 0.0));
-    imageStore(validityImage, ivec2(p),
-               vec4(owner == 0u ? 0.0 : 1.0, 0.0, 0.0, 1.0));
+    imageStore(validityImage, ivec2(p), vec4(
+        confidence,
+        0.0, 0.0, 1.0));
 }
 
 void main() {

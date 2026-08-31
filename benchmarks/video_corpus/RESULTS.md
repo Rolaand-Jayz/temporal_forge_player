@@ -1,5 +1,637 @@
 # Real-world corpus results
 
+## 2026-08-27 matched causal baseline across the complete real-world pairs
+
+The current causal path was rerun on every repository clip that has a matching
+lossless 2160p reference: 426x240 input to 1920x1080 output, eight scored
+frames, software decode, color history enabled, and the normal display CAS
+stage at `0.20`. Synthetic families were excluded. Big Buck Bunny branches
+and grass were also excluded because this checkout has no matching lossless
+2160p references for those clips; no reference was invented.
+
+| scene | Temporal Forge SSIM | Lanczos SSIM | Temporal Forge error | Lanczos error | result |
+| --- | ---: | ---: | ---: | ---: | --- |
+| Sintel cave | `0.989660` | `0.989304` | `0.128499` | `0.136021` | spatial and temporal win |
+| Sintel rooftop | `0.800088` | `0.798489` | `0.520471` | `0.393071` | spatial win, temporal loss |
+| Tears daylight | `0.855108` | `0.853780` | `1.429048` | `1.430643` | small spatial and temporal win |
+| Tears debris | `0.937446` | `0.936707` | `0.002190` | `0.018746` | spatial and temporal win |
+
+This is evidence that the causal Temporal Forge path is a conditional net win
+on the available matched corpus, not a universal win. The rooftop temporal
+loss remains the blocking case for promotion of a new global temporal policy.
+The authoritative per-scene CSVs are under
+`/mnt/external/Temporal Forge/quality-campaign/causal-baseline-real-20260827`.
+
+## 2026-08-27 rooftop motion and resolve gate
+
+The rooftop temporal loss was isolated with three matched eight-frame reruns
+at the same 426x240 -> 1920x1080 settings. Zeroing motion changes the output
+and improves the Temporal Forge temporal error slightly, but it remains well
+behind Lanczos. Replacing the normal motion path with bounded block motion is
+neutral, while adding the previously useful `0.85` history-confidence
+threshold worsens the result.
+
+| path | SSIM | temporal error |
+| --- | ---: | ---: |
+| normal causal path | `0.800088` | `0.520486` |
+| zero motion | `0.800064` | `0.515243` |
+| bounded block motion | `0.800088` | `0.520486` |
+| single history + confidence `0.85` | `0.800112` | `0.521586` |
+| Lanczos control | `0.798489` | `0.393071` |
+
+Motion therefore participates in the rooftop result but is not the sole cause
+of the temporal deficit. No arm is promoted. Captures are under
+`/mnt/external/Temporal Forge/quality-campaign/rooftop-motion-gate-20260827`.
+
+## 2026-08-27 rooftop jitter gate
+
+The clean current path was also compared with synthetic jitter disabled on the
+same software-decoded rooftop sequence. Jitter-off is slightly worse both
+spatially and temporally, so removing synthetic jitter is not a fix for this
+scene.
+
+| path | SSIM | temporal error |
+| --- | ---: | ---: |
+| current source-sized jitter | `0.800088` | `0.520486` |
+| jitter off | `0.800019` | `0.523000` |
+| Lanczos control | `0.798489` | `0.393071` |
+
+The normal jitter policy remains unchanged. Capture:
+`/mnt/external/Temporal Forge/quality-campaign/rooftop-jitter-gate-20260827`.
+
+## 2026-08-27 rooftop history gate
+
+Disabling display-color history on the rooftop sequence changed the output,
+but slightly worsened temporal error. History is therefore participating and
+is not simply harmful on this scene.
+
+| path | SSIM | temporal error |
+| --- | ---: | ---: |
+| color history enabled | `0.800088` | `0.520486` |
+| color history disabled | `0.800112` | `0.521571` |
+| Lanczos control | `0.798489` | `0.393071` |
+
+This does not justify a history-policy change. Capture:
+`/mnt/external/Temporal Forge/quality-campaign/rooftop-history-gate-20260827`.
+
+## 2026-08-27 rooftop history-weight gate
+
+The prepass history weight was also compared with the explicit fixed `0.1`
+interpretation. The result is effectively neutral and remains far behind the
+spatial temporal control.
+
+| path | SSIM | temporal error |
+| --- | ---: | ---: |
+| current center-weight history | `0.800088` | `0.520486` |
+| fixed history weight `0.1` | `0.800089` | `0.520586` |
+| Lanczos control | `0.798489` | `0.393071` |
+
+No history-weight policy change was made. Capture:
+`/mnt/external/Temporal Forge/quality-campaign/rooftop-history-weight-gate-20260827`.
+
+## 2026-08-27 rooftop recurrent-state gate
+
+Resetting recurrent state without changing color history produced the same
+rooftop metrics as the current path to the recorded precision
+(`0.800088` SSIM and `0.520486` temporal error). This arm is a no-op on the
+current native dispatch configuration, so it provides no basis for a policy
+change. Capture:
+`/mnt/external/Temporal Forge/quality-campaign/rooftop-recurrent-gate-20260827`.
+
+The corrected recurrent-feedback arm explicitly enabled recurrent input. It
+changed the result and reduced temporal error to `0.518428`, but remained well
+behind Lanczos. Combining recurrent feedback with zero motion returned the
+zero-motion result (`0.515243`), confirming that recurrent state is only useful
+when the motion-valid history path is active. Neither arm is promoted.
+
+## 2026-08-27 display CAS alignment
+
+The live display path now applies one post-reconstruction CAS stage at strength
+`0.20`, matching the game display behavior. It is not a pre-FSR filter and it
+does not add a second sharpening stage. `TFORGE_FSR4_CAS_STRENGTH` remains an
+explicit override for controlled captures, and `TFORGE_FSR4_DISABLE_CAS` still
+disables the display stage.
+
+## 2026-08-28 pre-FSR input-sharpen contamination check
+
+The temporal diagnostic baseline was compared with the same software-decoded
+motion path, output target, and single display CAS `.20`, changing only the
+input luma sharpen amount. The benchmark configuration had been requesting
+`.30`, even though the Phase 1 objective requires no sharpening. Two real
+scenes were captured with fresh motion sidecars and strict temporal metrics:
+
+| scene | input sharpen `.00` | input sharpen `.30` |
+| --- | ---: | ---: |
+| Tears daylight temporal error | `0.014965826` | `0.015150999` |
+| Sintel cave temporal error | `0.013080481` | `0.013082101` |
+
+The `.00` arm also had lower static flicker and edge variance on both scenes.
+This supports removing pre-FSR input sharpening from the campaign baseline;
+it does not change the runtime display CAS, which remains one post-reconstruction
+pass at `.20`. The benchmark settings now record `sharpness: 0.0`; `.30` remains
+available only as an explicit capture override.
+
+## 2026-08-27 true FSR1 handoff correction and future-frame boundary
+
+The earlier true-FSR1 black-output note was a command-recording bug, not a
+shader-quality result. `uploadColor()` performs nested conversion stages, and
+the old `beginUploadCmd()` reset the command buffer when the inner stage was
+entered. That discarded the YUV conversion before the FSR1 result was handed
+to the RGB10 model image. The uploader now preserves an already-active
+recording, so the conversion, EASU, and model handoff remain in one ordered
+submission.
+
+The corrected opt-in path is:
+
+`decoded native -> AMD FSR1 EASU 2x -> RGB10 model handoff -> Temporal Forge`
+
+On the matched 640x360 -> 1920x1080 Sintel cave probe, the output is no longer
+black and measured `SSIM 0.991488` versus Lanczos `0.991192`. The result is
+scene-dependent, not a universal promotion: the same corrected path was below
+Lanczos on Big Buck Bunny branches and grass, while improving Sintel rooftop.
+It remains an opt-in candidate pending more matched temporal validation.
+
+## 2026-08-27 interpolated sample as jitter replacement
+
+The display-interpolation probe was separated from a jitter-replacement probe.
+`TFORGE_FSR4_EXPERIMENTAL_INTERPOLATED_JITTER` keeps one output per decoded
+frame, preserves the current frame's timestamp, disables synthetic Halton
+jitter, and uses the adjacent-frame midpoint as the FSR sample. It uses a
+fused endpoint motion field when available so the temporal metadata matches
+the synthesized pixels.
+
+On the real Tears daylight `640x360 -> 1920x1080` capture with bounded block
+motion and color history enabled, it scored `0.894231` SSIM and `1.391200`
+temporal-delta absolute error, versus `0.897819` and `1.159777` for Lanczos.
+This is **rejected as a promoted jitter replacement**. It is a valid
+same-cadence experiment, but midpoint color is not a substitute for a correct
+subpixel sample at the current timestamp. Capture:
+`/mnt/external/Temporal Forge/quality-campaign/interpolated-jitter-replacement-20260827/tos-daylight`.
+
+The future-frame hypothesis is also now explicit in the source boundary. The
+existing lookahead probes do not synthesize an interpolated frame. They use a
+buffered next decoded frame only for luma/motion evidence; FSR consumes the
+current `df`, and the renderer publishes that current frame's output. There is
+therefore no hidden interpolated image being upscaled but omitted from display.
+A real interpolation/display experiment would require a separate frame
+synthesis stage with its own timing, motion, and artifact evaluation; it should
+not be conflated with the current evidence-only probes.
+
+AMF Video SR 1.1 was checked as an external baseline. Local FFmpeg exposes
+`sr_amf` with `algorithm=sr1-1`, but the runtime probe failed because
+`libamfrt64.so.1` is unavailable, so no AMF image or quality claim was added to
+the campaign. This does not alter the native Vulkan Temporal Forge path.
+
+The actual-display hypothesis was then tested with the opt-in
+`TFORGE_FSR4_EXPERIMENTAL_DISPLAY_INTERPOLATED` path. With hardware decode
+explicitly disabled, adjacent decoded YUV frames were averaged into a midpoint
+frame, sent through the maintained FSR1 EASU prepass and Temporal Forge, and
+published with a midpoint PTS. The runtime log confirms the midpoint was the
+FSR input and displayed result; it was not an evidence-only probe.
+
+The first capture is **inconclusive as a quality comparison**: it reported
+`SSIM 0.896806` versus Lanczos `0.897819`, and temporal delta absolute error
+`1.494294` versus Lanczos `1.159777`, but the runner's ordinary frame-index
+reference still represented the current source frame rather than the midpoint
+timestamp. That timing mismatch is expected to penalize moving content and
+cannot support a rejection. The runtime boundary is proven; the quality
+question remains open until the reference is built from the same adjacent-frame
+midpoints. A worthwhile implementation still needs motion compensation,
+validated forward/backward consistency, and disocclusion handling.
+
+The timing was then corrected with paired midpoint assets. Both the low
+resolution input and the high-resolution reference were built from the same
+adjacent-frame averages; the candidate used the runtime midpoint-display probe,
+while the control used those midpoint frames as ordinary input. On four Tears
+daylight frames at 640x360 -> 1920x1080:
+
+| path | SSIM | temporal delta absolute error |
+| --- | ---: | ---: |
+| FSR1 + runtime midpoint display | `0.902743` | `0.578383` |
+| FSR1 + matched midpoint input control | `0.913488` | `0.663147` |
+| matched midpoint Lanczos control | `0.911389` | `0.602147` |
+
+To isolate the prepass from the display-interpolation question, the same
+runtime midpoint-display capture was repeated with true FSR1 disabled. It
+scored `0.910916` SSIM and `0.950069` temporal-delta absolute error. Adding
+FSR1 therefore lowered this aligned midpoint result to `0.902743`; FSR1 is
+not a safe universal pre-temporal stage for this path. The no-FSR1 capture is
+retained at
+`/mnt/external/Temporal Forge/quality-campaign/future-display-aligned-20260827/candidate-no-fsr1`.
+
+The runtime interpolation path is **rejected for now**: it loses spatial SSIM
+to the matched control even though it reaches the real FSR input and display
+path. The capture is retained at
+`/mnt/external/Temporal Forge/quality-campaign/future-display-aligned-20260827`.
+This does not prove motion-compensated interpolation cannot help; it shows that
+a raw midpoint blend is not a useful substitute for validated motion,
+occlusion handling, and correctly aligned temporal state.
+
+The future-aligned same-cadence path was also probed with explicit
+photometric rejection (`TFORGE_FSR4_FUTURE_ALIGN_PHOTOMETRIC_THRESHOLD=0.08`)
+and the requested single display CAS stage at `0.20`. That capture used the
+hardware-frame path and the interpolation probe skipped synthesis, so its
+numbers are invalid as future-aligned quality evidence. The directory was
+removed during cleanup; the valid software-frame rerun below supersedes it.
+
+The midpoint probe was then corrected so synthesized pixels do not inherit
+the endpoint's motion/history metadata. When both endpoint fields were
+available, the current-to-previous and future-to-current fields were fused
+for midpoint-to-midpoint history; otherwise the midpoint reset history
+instead of using false correspondence. With bounded block motion enabled,
+the fused run scored `0.911312` SSIM and `0.927605` temporal-delta absolute
+error. The reset-only run scored `0.910916` and `0.950067`, while the matched
+midpoint history control scored `0.911571` and `0.612980`. The fusion is
+therefore **rejected as a promoted fix**: it repairs the metadata mismatch and
+improves the malformed probe, but remains far behind the temporal control.
+Capture:
+`/mnt/external/Temporal Forge/quality-campaign/future-display-aligned-20260827/candidate-history-fused-block-motion`.
+
+The midpoint probe was then upgraded to shift the current and next samples
+toward one another using the existing adjacent-frame block-motion estimate
+before averaging. This motion-compensated display path was runtime-validated
+and scored `0.902307` SSIM on the same aligned four-frame capture. It was below
+the raw midpoint-display result (`0.902743`) and below the matched midpoint
+input control (`0.913488`). The cheap block field is therefore **rejected as
+the interpolation fix**; it does not establish that a validated dense-flow
+interpolator is impossible, only that this correspondence/synthesis shortcut
+does not recover the missing temporal benefit. Its capture is under
+`/mnt/external/Temporal Forge/quality-campaign/future-display-motion-comp-20260827`.
+
+Finally, the midpoint color warp was fed validated dense future->current tiles
+from `validate_dense_motion.py` rather than the cheap block estimate. The
+sidecar reported roughly 98.5% validated coverage for the four usable adjacent
+pairs, and the runtime consumed those tiles for the first four midpoint
+outputs. SSIM was `0.902629`, a small improvement over the cheap block-motion
+probe (`0.902307`) but still below the matched midpoint-input control
+(`0.913488`). This is **rejected as a promoted interpolation path** on this
+scene. It establishes that better correspondence alone, when used in this
+simple CPU midpoint synthesis, is not enough to recover the temporal benefit.
+The capture and flow provenance are under
+`/mnt/external/Temporal Forge/quality-campaign/future-display-dense-flow-20260827`.
+
+## 2026-08-27 future-aligned jitter: valid software-frame handoff
+
+The first future-aligned captures were not valid evidence: the VAAPI/DRM
+decode path supplied hardware surfaces, so the interpolation probe correctly
+refused to synthesize a complete YUV frame. Those captures must not be read as
+successful future-aligned runs and were removed during campaign cleanup.
+
+With hardware decode explicitly disabled, the probe accepted adjacent software
+YUV frames and the runtime log confirmed the actual synthesized frame entered
+FSR. The clip had no usable codec motion, so the future-aligned opt-in now uses
+the existing bounded block matcher for its current-to-previous field. Frames
+1--5 reported motion confidence `0.8571`, `0.7980`, `0.8683`, `0.8589`, and
+`0.8630`, with 474--691 motion blocks and no detector resets.
+
+The valid daylight history A/B remains a regression against Lanczos:
+
+| path | SSIM | temporal delta absolute error |
+| --- | ---: | ---: |
+| future-aligned + color history | `0.854706` | `1.462618` |
+| future-aligned, color history off | `0.854723` | `1.463160` |
+| Lanczos | `0.855082` | `1.333806` |
+
+History is now proven to participate, but it is not a promotion. Valid
+captures are under
+`/mnt/external/Temporal Forge/quality-campaign/future-aligned-software-handoff-20260827`,
+`future-aligned-history-software-on-20260827`, and
+`future-aligned-history-software-off-20260827`.
+
+The matched causal control on the same software-decoded clip separates the
+future-blend regression from the underlying Temporal Forge path:
+
+| path | SSIM | temporal delta absolute error |
+| --- | ---: | ---: |
+| causal Temporal Forge + color history | `0.856530` | `1.328426` |
+| Lanczos | `0.855082` | `1.333806` |
+| future-aligned + color history | `0.854706` | `1.462618` |
+
+This is a small conditional Temporal Forge win. The future-frame blend is the
+quality regression on this clip, so it remains opt-in and is not part of the
+causal baseline. Capture:
+`/mnt/external/Temporal Forge/quality-campaign/causal-software-baseline-20260827`.
+
+## 2026-08-27 true FSR1 shader build probe
+
+The repository's vendored FidelityFX SDK includes AMD's maintained FSR1 EASU
+implementation. A separate Vulkan GLSL entry point compiles that source with
+the player's RGBA8 input/output formats, and `TFORGE_FSR4_TRUE_FSR1_EASU`
+now reaches the runtime dispatch. The first real smoke capture is rejected:
+the path logged the maintained EASU dispatch but produced a black output
+(`YMIN=YAVG=YMAX=16` after video encoding). The remaining issue is therefore
+runtime image/handoff correctness, not shader discovery or build wiring. No
+quality or performance claim is made. The existing `TFORGE_FSR4_PRE_EASU`
+path remains the local spatial fallback and is not being renamed as FSR1.
+
+Diagnostic capture: `/mnt/external/Temporal Forge/quality-campaign/true-fsr1-easu-smoke2-20260827`.
+
+## 2026-08-27 FSR1/EASU pre-neural probe
+
+The existing spatial fallback shader was wired as an explicit opt-in
+`TFORGE_FSR4_PRE_EASU` candidate to verify the handoff mechanics. A source
+audit found that this shader is not AMD's FidelityFX FSR1 EASU: its default
+branch is the local bicubic kernel. This capture is therefore not a valid FSR1
+quality result and is retained only as a rejected handoff diagnostic. The real
+FidelityFX source is vendored but still needs its sampler and constant-buffer
+integration before a true FSR1 probe.
+
+| scene | pre-EASU SSIM / temporal error | Lanczos SSIM / temporal error |
+| --- | ---: | ---: |
+| Sintel cave | `0.834457 / 0.138539` | `0.989305 / 0.136166` |
+| Tears daylight | `0.591132 / 3.257997` | `0.852897 / 1.511197` |
+
+This is a clear quality rejection, not a wiring failure. It remains available
+only as a diagnostic candidate. Captures are under
+`/mnt/external/Temporal Forge/quality-campaign/pre-easu-20260827`.
+
+## 2026-08-27 future-frame evidence probe
+
+The safer evidence-only arm was also exercised on the same real 426x240
+Sintel cave and Tears daylight clips. It uses the buffered next frame only to
+lower motion/history confidence when the correspondence disagrees; it never
+changes the causal vector, current color input, displayed frame, or frame
+cadence. The videos and player provenance are under
+`/mnt/external/Temporal Forge/quality-campaign/future-evidence-only-20260827`.
+The runner could not produce an authoritative temporal CSV for this pair
+because the source clips did not provide a complete motion sidecar for the
+required transition, so this run is a wiring/runtime check rather than a
+quality claim.
+
+The existing opt-in bidirectional motion path was checked as the safe version
+of the proposed interpolation idea. The next decoded frame is used only to
+validate/fuse motion evidence; its pixels are not used as the displayed
+current frame. Four scored frames were captured at 426x240 to 1920x1080.
+
+| scene | future-assisted SSIM / temporal error | Lanczos SSIM / temporal error |
+| --- | ---: | ---: |
+| Sintel cave | `0.989657 / 0.133581` | `0.989305 / 0.136166` |
+| Tears daylight | `0.854276 / 1.539604` | `0.852897 / 1.511197` |
+
+It slightly helped cave SSIM but worsened daylight and did not establish a
+general win. The idea is valid as evidence assistance, but feeding an
+interpolated frame as FSR's current color would display the wrong moment and
+is not acceptable. Captures are under
+`/mnt/external/Temporal Forge/quality-campaign/future-motion-assist-20260827`.
+
+The corrected evidence-only arm then matched future blocks after projecting
+their future->current motion back into current coordinates. It produced a
+fresh four-frame runtime capture with no display or cadence change:
+
+| scene | evidence-only SSIM / raw luma frame-difference | Lanczos SSIM / raw luma frame-difference |
+| --- | ---: | ---: |
+| Sintel cave | `0.989836 / 0.004824` | `0.989496 / 0.001626` |
+| Tears daylight | `0.851532 / 1.694997` | `0.849933 / 1.724337` |
+
+The raw difference is a diagnostic stability signal, not the campaign's
+authoritative warped temporal metric. This remains inconclusive overall:
+daylight improved slightly, cave became less stable, and the source clips did
+not provide complete motion sidecars for the stricter paired temporal CSV.
+The corrected capture is under
+`/mnt/external/Temporal Forge/quality-campaign/future-evidence-only-corrected-20260827`.
+
+The same evidence-only arm was then run with synthetic jitter disabled to
+test the interaction directly:
+
+| scene | evidence-only, jitter off SSIM / raw luma frame-difference | Lanczos SSIM / raw luma frame-difference |
+| --- | ---: | ---: |
+| Sintel cave | `0.989833 / 0.002734` | `0.989496 / 0.001626` |
+| Tears daylight | `0.851445 / 1.689783` | `0.849933 / 1.724337` |
+
+Disabling jitter improved stability relative to the jitter-on evidence-only
+capture (`0.004824 -> 0.002734` on cave and `1.694997 -> 1.689783` on
+daylight), but did not produce a general temporal win. This keeps the arm
+diagnostic-only and shifts the next investigation toward per-pixel history
+rejection rather than another jitter sequence.
+The capture is under
+`/mnt/external/Temporal Forge/quality-campaign/future-evidence-only-jitter-off-20260827`.
+
+After fixing packet lookahead and enabling the hardware-analysis luma bridge,
+the full proposed path was captured with real causal and future fields
+(`past=336`, `future=336` in the player log). The matched jitter-off result
+was:
+
+| scene | future evidence + block motion, jitter off SSIM / raw luma frame-difference | Lanczos SSIM / raw luma frame-difference |
+| --- | ---: | ---: |
+| Sintel cave | `0.989837 / 0.004415` | `0.989496 / 0.001626` |
+| Tears daylight | `0.851434 / 1.691123` | `0.849933 / 1.724337` |
+
+The future check is therefore proven active, but remains rejected as a general
+solution: it does not close the cave stability gap and only marginally helps
+daylight. Artifacts are under
+`/mnt/external/Temporal Forge/quality-campaign/future-evidence-only-lookahead-jitter-off-20260827`.
+
+The earlier probe was then repeated with the hardware-analysis bridge enabled
+and bounded causal block motion, so the future branch had real inputs. The
+player log records `future evidence-only ... past=336 future=336` on frames
+1-3 for both scenes.
+
+| scene | future evidence + hardware luma SSIM / raw luma frame-difference | Lanczos SSIM / raw luma frame-difference |
+| --- | ---: | ---: |
+| Sintel cave | `0.989841 / 0.008538` | `0.989496 / 0.001626` |
+| Tears daylight | `0.851574 / 1.701677` | `0.849933 / 1.724337` |
+
+Compared with the same hardware-analysis/block-motion run before lookahead,
+the future check was effectively neutral on cave and slightly better on
+daylight. It still does not establish a general temporal win, so it remains an
+opt-in diagnostic. This is the first capture that proves the proposed future
+evidence path is actually executing. Artifacts are under
+`/mnt/external/Temporal Forge/quality-campaign/future-evidence-only-lookahead-20260827`.
+
+## 2026-08-27 denser motion-analysis input
+
+The cheap causal block matcher previously analyzed a fixed 96-pixel-wide luma
+image. A bounded opt-in now allows a 192-pixel analysis width, giving the
+matcher more edge evidence while preserving the existing source-pixel vector
+contract and keeping the normal path unchanged.
+
+| scene | 192-wide analysis SSIM / temporal-delta error |
+| --- | ---: |
+| Sintel cave | `0.989654 / 0.132647` |
+| Tears daylight | `0.855165 / 1.453648` |
+
+The denser input is effectively neutral on both real scenes. More samples do
+not fix the temporal deficit by themselves, so this remains an opt-in
+diagnostic. The semantic motion coordinate/reference interpretation remains
+the next motion investigation. Artifacts are under
+`/mnt/external/Temporal Forge/quality-campaign/dense-analysis-motion-20260827`.
+
+## 2026-08-27 jitter-sequence probe
+
+The current Halton(2,3) sequence was compared with Halton(3,2) and a
+deterministic alternating sequence at `426x240 -> 1920x1080`, with the same
+current jitter amplitude and no motion or sharpening changes.
+
+| scene | sequence | SSIM mean | temporal-delta error |
+| --- | --- | ---: | ---: |
+| Sintel cave | Halton(2,3) | `0.989654` | `0.132648` |
+| Sintel cave | Halton(3,2) | `0.989653` | `0.132600` |
+| Sintel cave | alternating | `0.989654` | `0.132247` |
+| Tears daylight | Halton(2,3) | `0.855165` | `1.453638` |
+| Tears daylight | Halton(3,2) | `0.855124` | `1.453813` |
+| Tears daylight | alternating | `0.855161` | `1.454747` |
+
+Alternating jitter is marginally better on cave but worse on daylight; the
+reverse pattern applies to the two Halton variants at tiny magnitude. No
+sequence is promoted globally. The current source-sized Halton(2,3) policy
+remains the default, and the alternatives remain explicit diagnostic controls.
+Artifacts are under
+`/mnt/external/Temporal Forge/quality-campaign/jitter-sequence-20260827`.
+
+## 2026-08-27 confidence-ordered sparse motion probe
+
+The sparse motion expander currently resolves overlapping blocks with a
+deterministic last-writer rule. I added an opt-in arm that stable-sorts the
+selected motion blocks by confidence before that existing rule, so a higher
+confidence block wins an overlap without changing the baseline or the GPU
+expander itself. Jitter was held at the normal current policy and both runs
+used the same `426x240 -> 1920x1080` Sintel cave capture.
+
+| arm | SSIM mean / temporal delta error |
+| --- | ---: |
+| baseline | `0.989654 / 0.132648` |
+| confidence-ordered motion | `0.989654 / 0.132650` |
+
+The result is identical within capture noise, so this is rejected as a quality
+lead and remains diagnostic-only. It also indicates that the current codec
+vectors do not carry enough confidence variation for upload-order resolution
+to be the main motion problem on this scene. Artifacts are under
+`/mnt/external/Temporal Forge/quality-campaign/motion-confidence-order-20260827`.
+
+## 2026-08-27 photometric history-gate probe
+
+The Phase 3 per-pixel photometric history gate was compared against the same
+history-enabled, jitter-off control at `640x360 -> 1920x1080`, with 12 warm-up
+frames and 8 scored frames. The gate uses current-versus-motion-reprojected
+history luma agreement to reduce history accumulation on mismatched pixels.
+
+| scene | control SSIM / temporal error | photometric gate SSIM / temporal error | Lanczos temporal error |
+| --- | ---: | ---: | ---: |
+| Tears daylight | `0.901127 / 1.105186` | `0.901127 / 1.105183` | `1.061814` |
+| Sintel cave | `0.935011 / 0.392445` | `0.935011 / 0.392445` | `0.345594` |
+
+The gate is effectively neutral on both scenes; the tiny daylight change is
+below the useful quality signal and the cave result is identical. It is not a
+general fix for the temporal deficit and remains diagnostic-only. Artifacts
+are under `/mnt/external/Temporal Forge/quality-campaign/photometric-history-gate-20260827`.
+
+## 2026-08-27 motion model-coordinate audit
+
+The motion path had two separate coordinate issues. PlaybackEngine was scaling
+vector magnitudes before upload even though the prepass already converts the
+source-pixel vector by `slot1.xy`. The motion texture is also model-sized, but
+the prepass was indexing it with decoded source-pixel coordinates and clamping
+the result. The source now preserves vector magnitudes in source pixels,
+scales only sparse block coverage for model rasterization, and maps the motion
+lookup coordinate into model space before sampling.
+
+The first matched captures used the wrong history environment variable and
+therefore measured history-off behavior; those results are not used for a
+quality decision. The corrected history-enabled probe deliberately used a
+smaller `640x360` neural model from a `1280x720` source so the non-identity
+path was exercised. The full coordinate correction produced:
+
+| scene | Temporal Forge SSIM / temporal error | Lanczos SSIM / temporal error |
+| --- | ---: | ---: |
+| Sintel cave | `0.964281 / 0.331059` | `0.955245 / 0.086683` |
+| Sintel rooftop | `0.922591 / 0.447071` | `0.921260 / 0.048029` |
+
+The spatial SSIM is competitive, but temporal stability remains substantially
+behind Lanczos on both scenes. This validates the coordinate contract without
+establishing a general Temporal Forge win or justifying promotion. Artifacts
+are under
+`/mnt/external/Temporal Forge/quality-campaign/motion-model-coordinate-fix-20260827`.
+
+## 2026-08-27 corrected codec-versus-zero motion gate
+
+The primary 640x360-to-1920x1080 motion ablation was rerun with the actual
+forwarded variable `TFORGE_FSR4_ENABLE_COLOR_HISTORY=1` and jitter disabled.
+Codec motion was compared with the explicit zero-motion ablation on the same
+eight scored frames and no sharpening.
+
+| scene | codec SSIM / temporal error | zero motion SSIM / temporal error | Lanczos temporal error |
+| --- | ---: | ---: | ---: |
+| Tears daylight | `0.900805 / 1.102414` | `0.900904 / 1.100587` | `1.061814` |
+| Sintel cave | `0.934948 / 0.388789` | `0.934926 / 0.389121` | `0.345594` |
+
+Codec motion is nearly neutral: it is marginally better on cave temporal
+error, while zero motion is marginally better on daylight. It is not the
+single explanation for the temporal deficit, and neither arm beats Lanczos on
+temporal stability. Artifacts are under
+`/mnt/external/Temporal Forge/quality-campaign/codec-vs-zero-corrected-20260827`.
+
+## 2026-08-27 dense motion plus recurrent-coordinate combination
+
+Validated Farneback dense-motion replay was combined with the current-output
+recurrent-state coordinate probe at `640x360 -> 1920x1080`. The control used
+the same dense motion and sampled recurrent state at the motion-reprojected
+history coordinate. Both arms used color history and recurrence, software
+decode, 12 warm-up frames, 8 scored frames, and no CAS. Artifacts are under
+`/mnt/external/Temporal Forge/quality-campaign/dense-motion-recurrent-coordinate-640-20260827`.
+
+| scene | dense control SSIM / error | current-coordinate SSIM / error | Lanczos error |
+| --- | ---: | ---: | ---: |
+| Tears daylight | `0.901057 / 1.076516` | `0.901044 / 1.078616` | `1.061814` |
+| Sintel cave | `0.935084 / 0.392899` | `0.935083 / 0.392895` | `0.345594` |
+| Sintel rooftop | `0.826192 / 0.285271` | `0.826120 / 0.282614` | `0.141014` |
+
+The coordinate change is effectively neutral on cave, slightly better on
+rooftop, and worse on daylight; it remains behind Lanczos on every scene.
+Decision: `REJECTED` as a general combination and retained as diagnostic-only.
+
+## 2026-08-27 recurrent-state coordinate probe
+
+The recurrent-state coordinate assumption was isolated at both
+`1280x720 -> 1920x1080` and `640x360 -> 1920x1080`. The control sampled the
+previous recurrent state at the motion-reprojected history coordinate; the
+diagnostic arm sampled it at the current output coordinate. Both arms used
+color history and recurrence, software decode, 12 warm-up frames, 8 scored
+frames, and no CAS. The fresh captures are under
+`/mnt/external/Temporal Forge/quality-campaign/recurrent-coordinate-1280-input-20260827`
+and
+`/mnt/external/Temporal Forge/quality-campaign/recurrent-coordinate-640-input-20260827`.
+
+| input | scene | control SSIM / error | current-coordinate SSIM / error | Lanczos error |
+| --- | --- | ---: | ---: | ---: |
+| 1280x720 | Tears daylight | `0.972334 / 0.476541` | `0.972413 / 0.471330` | `0.486557` |
+| 1280x720 | Sintel cave | `0.957785 / 0.193337` | `0.957366 / 0.187690` | `0.086683` |
+| 1280x720 | Sintel rooftop | `0.924110 / 0.290600` | `0.924334 / 0.306443` | `0.048029` |
+| 640x360 | Tears daylight | `0.901248 / 1.082226` | `0.901219 / 1.077298` | `1.061814` |
+| 640x360 | Sintel cave | `0.935050 / 0.394952` | `0.934984 / 0.392766` | `0.345594` |
+| 640x360 | Sintel rooftop | `0.826152 / 0.283500` | `0.826220 / 0.288257` | `0.141014` |
+
+The alternate coordinate improves the temporal-error signal on daylight and
+cave at both input tiers but worsens rooftop and remains behind Lanczos on the
+difficult scenes. Decision: `REJECTED` as a general state-path promotion;
+retain as a diagnostic input for future correspondence tests.
+
+## 2026-08-27 1280x720-input history versus recurrence decomposition
+
+The previous state-on run enabled color history and recurrent feedback
+together. This follow-up separated them at `1280x720 -> 1920x1080` so a
+regression cannot be attributed to the wrong state subsystem. Each arm used
+software decode, 12 warm-up frames, 8 scored frames, no CAS, and identical
+output settings on three real motion scenes. Artifacts are under
+`/mnt/external/Temporal Forge/quality-campaign/state-decomposition-1280-input-20260827`.
+
+| scene | arm | SSIM | temporal error | Lanczos temporal error |
+| --- | --- | ---: | ---: | ---: |
+| Tears daylight | Neutral | `0.972472` | `0.421946` | `0.486557` |
+| Tears daylight | Color history only | `0.972485` | `0.429750` | `0.486557` |
+| Tears daylight | Recurrent only | `0.972503` | `0.468371` | `0.486557` |
+| Sintel cave | Neutral | `0.957258` | `0.177854` | `0.086683` |
+| Sintel cave | Color history only | `0.957298` | `0.180019` | `0.086683` |
+| Sintel cave | Recurrent only | `0.957490` | `0.187620` | `0.086683` |
+| Sintel rooftop | Neutral | `0.923680` | `0.264586` | `0.048029` |
+| Sintel rooftop | Color history only | `0.923672` | `0.273900` | `0.048029` |
+| Sintel rooftop | Recurrent only | `0.924776` | `0.318129` | `0.048029` |
+
+Both state systems are active, but neither improves temporal error over the
+neutral path. Recurrent feedback gives the largest spatial lift on rooftop
+while also producing the largest temporal regression. `REJECTED` as a state
+promotion; the remaining problem is correspondence/state content, not a
+flag-forwarding failure.
+
 Measured 2026-07-17 through 2026-07-18 on an RX 7900 GRE using the native RDNA3
 INT8 path. Quality measurements use frame 48 and the matching lossless native-4K
 frame.
@@ -2351,3 +2983,551 @@ The promoted build was recaptured at 640x360 -> 1920x1080 for all four scenes;
 its eight-frame metrics reproduce the validated single-blend arm within capture
 variation. No shader reconstruction math, motion generation, sharpening, or
 model logic was changed by the promotion.
+
+## 2026-08-27 single-CAS display baseline and dense-motion replay gate
+
+The normal display path was corrected to use one post-reconstruction CAS stage
+at strength `0.20`. The legacy RCAS-like stage is neutral by default, so these
+results are the first matched baseline under the requested display policy. The
+four complete real-world pairs were rerun in parallel at 426x240 -> 1920x1080
+with software decode, color history enabled, and eight scored frames:
+
+| Scene | Temporal Forge SSIM | Lanczos SSIM | Temporal Forge error | Lanczos error |
+| --- | ---: | ---: | ---: | ---: |
+| Sintel cave | `0.989660` | `0.989304` | `0.128502` | `0.136021` |
+| Sintel rooftop | `0.800101` | `0.798489` | `0.521671` | `0.393071` |
+| Tears daylight | `0.855112` | `0.853780` | `1.429237` | `1.430643` |
+| Tears debris | `0.937450` | `0.936707` | `0.002409` | `0.018746` |
+
+The single-CAS change does not alter the campaign conclusion: Temporal Forge
+is a spatial and temporal win on cave, daylight, and debris, while rooftop is
+still a temporal loss.
+
+As a direct motion-quality test, validated forward/backward dense flow was
+generated from the real rooftop clip and replayed through the existing opt-in
+dense-motion path. Farneback produced `0.800106 / 0.522471` (SSIM / temporal
+error), and DIS produced `0.800093 / 0.521100`, versus the matched single-CAS
+causal baseline `0.800101 / 0.521671`. Both replay fields changed the output
+and passed coverage/consistency validation, but neither improved temporal
+quality. The replay contract also had a real bug: validated tile confidence
+was computed but dropped during export and defaulted to `1.0` in the player.
+After preserving confidence and enabling the confidence map, Farneback scored
+`0.800127 / 0.523528`, improving spatial SSIM but worsening temporal error
+further. The evidence points beyond simply choosing a stronger flow estimator
+or adding a confidence scalar; the next investigation is the FSR
+motion/history coordinate and state-consumption contract. Artifacts:
+
+`/mnt/external/Temporal Forge/quality-campaign/dense-motion-rooftop-20260827`
+
+The dense field plus explicitly enabled recurrent feedback reduced rooftop
+temporal error to `0.517728` and changed the output, compared with `0.523528`
+for confidence-aware dense flow without recurrence and `0.521671` for the
+single-CAS causal baseline. It is still worse than zero motion with recurrence
+(`0.515243`) and much worse than Lanczos (`0.393071`), so this is evidence that
+recurrence can consume the replay field, not a promotion candidate.
+
+The same dense/recurrent arm with the FSR motion-sign override scored
+`0.519243`; forcing its motion scale to zero scored `0.520357`. Both controls
+changed the output but did not approach Lanczos, so sign or scale alone is not
+the missing temporal fix.
+
+The postpass history-consumption decision was rechecked under the single-CAS
+baseline on rooftop with color history and recurrent feedback enabled. Restoring
+the former double history blend produced `0.800299` SSIM and `0.560014`
+temporal error, versus `0.800101` and `0.521671` for the promoted single-history
+resolve. The single-history promotion is therefore not the source of the
+rooftop temporal deficit and remains the better measured policy.
+
+## 2026-08-27 previous-reference-only motion check
+
+The primary diagnostic tier was rerun on the real Sintel rooftop sequence at
+`640x360 -> 1920x1080`, with software decode, color history enabled, eight
+scored frames, and the single display CAS stage at `.20`. The control retained
+all accepted causal past-reference vectors. The candidate enabled
+`TFORGE_FSR4_EXPERIMENTAL_PREVIOUS_REFERENCE_ONLY=1`, keeping only FFmpeg's
+immediately previous reference-list vectors for the single previous-display
+history image.
+
+| Arm | SSIM mean | SSIM minimum | Temporal error | Lanczos temporal error |
+| --- | ---: | ---: | ---: | ---: |
+| Control | `0.844870` | `0.843280` | `0.175257` | `0.087028` |
+| Previous reference only | `0.844870` | `0.843279` | `0.175243` | `0.087028` |
+
+The candidate changed the output, but the SSIM delta was below `0.000001`
+and the temporal-error improvement was about `0.000014`, which is not a
+meaningful quality gain. It is rejected as the explanation for the rooftop
+deficit and remains diagnostic-only. Metrics were written to the temporary
+capture paths `/tmp/tforge-prevref-control-20260827.csv` and
+`/tmp/tforge-prevref-only-20260827.csv`.
+
+## 2026-08-27 recurrent-state coordinate recheck
+
+The recurrent-state sampling coordinate was isolated on the same real Sintel
+rooftop sequence at `640x360 -> 1920x1080`, using software decode, color
+history, recurrent feedback, eight scored frames, and display CAS `.20`.
+The control sampled recurrent state at the motion-reprojected history
+coordinate. The candidate enabled
+`TFORGE_FSR4_EXPERIMENTAL_RECURRENT_CURRENT_COORD=1`, sampling it at the
+current output coordinate instead.
+
+| Arm | SSIM mean | SSIM minimum | Temporal error |
+| --- | ---: | ---: | ---: |
+| Reprojected coordinate | `0.844828` | `0.843131` | `0.175571` |
+| Current output coordinate | `0.844891` | `0.843285` | `0.182000` |
+
+Current-coordinate sampling raised SSIM by only `0.000063` but worsened the
+temporal absolute error by `0.006429`. It is rejected as a temporal-quality
+improvement and remains diagnostic-only. Metrics were written to
+`/tmp/tforge-recurrentcoord-control-20260827.csv` and
+`/tmp/tforge-recurrentcoord-current-20260827.csv`.
+
+## 2026-08-27 direct FP16/FP8-boundary probe
+
+The active direct FP16 pointwise/spatial path was compared with an opt-in
+probe that applies the recovered FP8 CopySat boundary at those stages. Both
+runs used the same real Sintel rooftop clip, software decode, color history,
+`640x360 -> 1920x1080`, eight scored frames, and the single display CAS stage
+at `.20`.
+
+| Arm | SSIM mean | SSIM minimum | Temporal error | Lanczos temporal error |
+| --- | ---: | ---: | ---: | ---: |
+| Control | `0.844976` | `0.840988` | `0.188443` | `0.093500` |
+| FP16/FP8 boundary | `0.844976` | `0.840987` | `0.188429` | `0.093500` |
+
+The candidate changed a few pixels but produced no meaningful quality gain.
+It remains diagnostic-only and is not promoted or enabled by default. The
+temporary metric files were `/tmp/tforge-fp8-boundary-control-20260827.csv`
+and `/tmp/tforge-fp8-boundary-candidate-20260827.csv`.
+
+## 2026-08-28 motion-validity gate A/B
+
+The explicit per-pixel motion-validity gate was compared with the legacy
+assume-covered control on the same software-decoded Sintel rooftop input at
+`640x360 -> 1920x1080`. Both runs used four warm-up frames, eight scored
+frames, color history, and the single display CAS stage at `.20`. This tests
+whether sparse coverage rejection is suppressing otherwise useful history;
+it does not change vector generation.
+
+| Arm | SSIM mean | Temporal error | Motion-compensated error |
+| --- | ---: | ---: | ---: |
+| Explicit validity gate | `0.694727` | `0.408176` | `0.032879468` |
+| Assume covered | `0.694726` | `0.409204` | `0.032877421` |
+
+The gate changed the output, but the differences are too small to identify
+coverage rejection as the rooftop root cause. This is rejected as a promotion
+and remains diagnostic-only. Fresh capture evidence is under
+`/tmp/tforge-validity-ab-20260828-003209/` (temporary scratch was later
+removed during the evidence cleanup).
+
+## 2026-08-28 capture-runtime gate
+
+The next serial control capture was not admitted to the campaign. The player
+aborted before producing a frame, including when launched with `--help`.
+Independent environment checks reported no usable Vulkan physical device
+(`vulkaninfo`: `VK_ERROR_INITIALIZATION_FAILED`) and no `/dev/kfd` device for
+the AMD runtime. This is a capture-environment failure, not a quality result;
+no metrics or output frames from that attempt are retained.
+
+## 2026-08-28 reference temporal-composition correction
+
+The archived FSR reference describes the postpass temporal composition as the
+learned sigmoid blend between the current adaptive reconstruction and the
+motion-reprojected history. The host had previously promoted a single-history
+resolve that bypassed this blend by default. The default is now restored to the
+reference composition; `TFORGE_FSR4_EXPERIMENTAL_SINGLE_HISTORY_BLEND=1` remains
+available for explicit regression comparisons, and
+`TFORGE_FSR4_EXPERIMENTAL_RESTORE_DOUBLE_HISTORY_BLEND=1` takes precedence when
+both compatibility variables are set.
+
+This is a targeted semantic correction. The corrected default was exercised by
+the Phase 1 matrix above; it is not promoted as a universal quality solution
+because the matrix still has a rooftop temporal loss. The rebuilt binary and
+focused contracts pass.
+
+## 2026-08-28 corrected Phase 1 A-G matrix
+
+The host-visible AMD Vulkan device returned, so the exact Phase 1 matrix was
+rerun after the temporal-composition and rejected-history corrections. This
+was the required `640x360 -> 1920x1080` real-scene screen with display CAS
+fixed at `.20`, software decode, 12 warm-up frames, and eight scored frames.
+Fresh per-row artifacts and environment provenance are under:
+
+`/mnt/external/Temporal Forge/quality-campaign/phase6-reference-correction-20260828/phase1-ablation`
+
+| Scene | Arm A | Arm B | Arm C | Arm D | Arm E | Arm F | Arm G |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| Sintel cave | 0.401449 | 0.343842 | 0.337015 | 0.354296 | 0.362264 | 0.415499 | 0.356168 |
+| Sintel rooftop | 0.496243 | 0.463471 | 0.673357 | 0.489129 | 0.504143 | 0.820843 | 0.466957 |
+| Tears daylight | 1.106523 | 0.403118 | 0.101817 | 0.427441 | 0.460001 | 0.844463 | 0.436381 |
+
+Values are temporal absolute error; lower is better. Lanczos controls were
+`0.345594` (cave), `0.141014` (rooftop), and `1.061814` (daylight). Arm C
+(recurrence only) is best on cave and daylight; arm B (history only) is best
+among the state arms on rooftop. Arm F (zero motion) is worst on every scene.
+This is **SUPPORTED** evidence that temporal state is consumed, **REJECTED**
+evidence for zero motion or jitter-off as general fixes, and **INCONCLUSIVE**
+for a globally promotable state policy because rooftop remains far behind
+Lanczos. The next test is targeted correspondence/history rejection on the
+rooftop failure.
+
+## 2026-08-28 reference disocclusion-history correction
+
+The archived FSR reference uses zero model-space history when motion
+correspondence is rejected, uncovered, or outside the history image. The
+prepass now follows that behavior by default instead of substituting the
+current frame, which allows the network to distinguish a disocclusion from a
+valid static same-pixel history sample. The former fallback is available only
+with `TFORGE_FSR4_EXPERIMENTAL_CURRENT_INVALID_HISTORY=1`.
+
+This is a targeted temporal semantic correction. The corrected default was
+exercised by the Phase 1 matrix above; it is not promoted as a universal
+quality solution because rooftop remains unresolved.
+Build, shader compilation, CTest, and the focused Python contracts pass.
+
+## 2026-08-28 rejected-history A/B on Sintel rooftop
+
+The new rejected-history behavior was isolated in a matched 24-frame capture at
+`640x360 -> 1920x1080`, with 12 warm-up frames, history enabled, recurrence
+disabled, jitter on, software decode, and one display CAS pass at `.20`.
+
+| Arm | SSIM | Temporal absolute error | Lanczos temporal absolute error |
+| --- | ---: | ---: | ---: |
+| Default: rejected correspondence publishes zero history | 0.770715 | 0.003245 | 0.218925 |
+| Compatibility: rejected correspondence reuses current frame | 0.820894 | 0.785506 | 0.218925 |
+
+The environment files confirm that the only intended difference was
+`TFORGE_FSR4_EXPERIMENTAL_CURRENT_INVALID_HISTORY=1` on the compatibility arm.
+**SUPPORTED** — the reference-style zero-history behavior is a large temporal
+win for this difficult rooftop sequence. It trades spatial SSIM in this run,
+so it is not a blanket quality promotion yet; repeat it on another real scene
+and inspect the spatial/temporal tradeoff before changing the production
+policy.
+
+The same matched A/B on Tears daylight produced:
+
+| Arm | SSIM | Temporal absolute error | Lanczos temporal absolute error |
+| --- | ---: | ---: | ---: |
+| Default: rejected correspondence publishes zero history | 0.862082 | 0.192650 | 1.027326 |
+| Compatibility: rejected correspondence reuses current frame | 0.901267 | 1.087753 | 1.027326 |
+
+This generalizes the temporal direction of the rooftop result: zero history
+beats the current-as-history fallback on both real scenes, although the
+fallback can score higher on single-frame SSIM. The temporal correction is
+therefore retained as the reference-aligned default, with the spatial tradeoff
+kept visible for later multi-scene promotion review.
+
+## 2026-08-28 validated dense-motion replay on Sintel rooftop
+
+Validated Farneback replay was compared with codec motion at the primary
+`640x360 -> 1920x1080` tier. Both arms used 24 scored frames, 12 warm-up
+frames, color history enabled, recurrence disabled, jitter enabled, software
+decode, and one display CAS pass at `.20`. The dense sidecar used the accepted
+current-destination-to-previous-reference/source-pixel schema and the player
+log confirms it was consumed.
+
+| Arm | SSIM | Temporal absolute error | Lanczos SSIM | Lanczos temporal absolute error |
+| --- | ---: | ---: | ---: | ---: |
+| Codec motion | 0.770588 | 0.031406 | 0.821704 | 0.218925 |
+| Validated Farneback replay | 0.785689 | 1.058556 | 0.821704 | 0.218925 |
+
+Artifacts are under
+`/mnt/external/Temporal Forge/quality-campaign/phase6-reference-correction-20260828/dense-rooftop-farneback` and
+`/mnt/external/Temporal Forge/quality-campaign/phase6-reference-correction-20260828/dense-rooftop-ab-corrected`.
+**REJECTED** as a general promotion: dense replay improves spatial SSIM over
+the codec arm but substantially worsens temporal error and remains below the
+matched Lanczos control on both measures. Keep the diagnostic tool and sidecar
+format for later confidence/disocclusion work; do not replace codec motion
+with this replay policy.
+
+## 2026-08-28 photometric history-gate A/B
+
+The existing photometric history gate was tested against the same history-only
+control at `640x360 -> 1920x1080`, with 24 scored frames, 12 warm-up frames,
+jitter enabled, software decode, and display CAS `.20`.
+
+| Scene | Control SSIM | Gate SSIM | Control temporal error | Gate temporal error | Lanczos temporal error |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Sintel cave | 0.922188 | 0.921876 | 0.574320 | 0.546976 | 0.451168 |
+| Sintel rooftop | 0.770588 | 0.804325 | 0.031406 | 0.261535 | 0.218925 |
+| Tears daylight | 0.861062 | 0.885326 | 0.219136 | 0.146437 | 1.027326 |
+
+**SUPPORTED as a conditional opt-in, not a default promotion:** the gate
+improves daylight in both spatial and temporal terms and improves cave
+temporal error with a negligible SSIM loss, but it worsens rooftop temporal
+error and does not beat Lanczos on the difficult scenes. Fresh artifacts are
+under `/mnt/external/Temporal Forge/quality-campaign/phase6-reference-correction-20260828/photometric-gate-ab`.
+
+## 2026-08-28 1280x720 scale validation of confidence candidate
+
+The same confidence, validation, ordering, and photometric-history combination
+was compared with its matched control at `1280x720 -> 1920x1080`, using 24
+scored frames, 12 warm-up frames, jitter, software decode, and display CAS
+`.20`.
+
+| Scene | Control SSIM | Candidate SSIM | Control temporal error | Candidate temporal error | Lanczos temporal error |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Sintel cave | 0.950537 | 0.951488 | 0.321922 | 0.281072 | 0.077767 |
+| Sintel rooftop | 0.790647 | 0.838254 | 1.091415 | 0.988288 | 0.051218 |
+| Tears daylight | 0.861128 | 0.907092 | 1.559501 | 1.610895 | 0.483743 |
+| Tears debris | 0.883952 | 0.926481 | 1.665011 | 1.525380 | 0.025358 |
+
+**REJECTED for promotion at this scale:** the candidate improves spatial SSIM
+on all four scenes and reduces temporal error on cave, rooftop, and debris,
+but neither arm approaches the Lanczos temporal baseline. The conditional
+temporal advantage is therefore specific to the more severe 640x360 tier so
+far. Fresh artifacts are under
+`/mnt/external/Temporal Forge/quality-campaign/phase6-reference-correction-20260828/scale-1280-combo-ab`.
+
+## 2026-08-28 validated confidence plus photometric gate combination
+
+The existing motion-validation, continuous-confidence, confidence-ordered
+motion, and photometric-history controls were combined without changing the
+reconstruction code. The matched `640x360 -> 1920x1080` runs used 24 scored
+frames, 12 warm-up frames, history enabled, recurrence disabled, jitter on,
+software decode, and display CAS `.20`.
+
+| Scene | SSIM | Lanczos SSIM | Temporal absolute error | Lanczos temporal absolute error |
+| --- | ---: | ---: | ---: | ---: |
+| Sintel cave | 0.921724 | 0.918185 | 0.553824 | 0.451168 |
+| Sintel rooftop | 0.795833 | 0.821704 | 0.018395 | 0.218925 |
+| Tears daylight | 0.884579 | 0.900211 | 0.136185 | 1.027326 |
+| Tears debris | 0.933104 | 0.959316 | 0.637130 | 0.012501 |
+
+**SUPPORTED as a conditional temporal candidate, not a global promotion:** it
+beats Lanczos temporal error on rooftop and daylight by wide margins, but loses
+spatially to Lanczos on all four scenes and loses temporally on cave and debris.
+The result isolates a meaningful temporal benefit without proving a universal
+quality win.
+
+The same combination with the previously measured learned strength `0.075`
+raised spatial SSIM on rooftop/daylight but regressed temporal error to
+`0.319971` and `0.668189`, respectively. Lower learned contribution is not a
+free fix; it trades away the temporal gain. Artifacts are under
+`/mnt/external/Temporal Forge/quality-campaign/phase6-reference-correction-20260828/confidence-gate-combo`
+and
+`/mnt/external/Temporal Forge/quality-campaign/phase6-reference-correction-20260828/confidence-gate-combo-learned0075`.
+
+## 2026-08-28 426x240 severe-scale validation of confidence candidate
+
+The same confidence, validation, ordering, and photometric-history combination
+was compared with its matched control at `426x240 -> 1920x1080`. Both arms
+used 24 scored frames, 12 warm-up frames, history enabled, recurrence disabled,
+jitter enabled, software decode, and one display CAS pass at `.20`.
+
+| Scene | Control SSIM | Candidate SSIM | Control temporal error | Candidate temporal error | Lanczos temporal error |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Sintel cave | 0.922496 | 0.922233 | 0.854809 | 0.845275 | 0.753187 |
+| Sintel rooftop | 0.774777 | 0.778310 | 0.899436 | 0.855698 | 0.519238 |
+| Tears daylight | 0.853532 | 0.854937 | 1.260027 | 1.147543 | 1.342423 |
+| Tears debris | 0.928805 | 0.928941 | 0.089146 | 0.044012 | 0.071952 |
+
+The candidate reduced temporal error versus its control on all four scenes.
+It beat Lanczos temporally on daylight and debris, while remaining behind
+Lanczos on cave and rooftop. Spatially it beat the matched Lanczos SSIM on
+cave and rooftop but remained behind on daylight and debris. **SUPPORTED as a
+conditional severe-scale candidate, not a global promotion:** this is useful
+evidence that the combination can help at 426x240, but it does not establish
+a single policy that wins across all content. Fresh artifacts are under
+`/mnt/external/Temporal Forge/quality-campaign/phase6-reference-correction-20260828/scale-426-combo-ab`.
+
+## 2026-08-28 future-aligned jitter probe
+
+The future-aligned jitter probe was compared with the validated confidence,
+motion-validation, confidence-ordering, and photometric-history candidate at
+`640x360 -> 1920x1080`. Both arms used 24 scored frames, 12 warm-up frames,
+history enabled, recurrence disabled, software decode, and display CAS `.20`.
+The probe used one-frame lookahead to synthesize a motion-compensated temporal
+sample while preserving one output per decoded frame; it did not publish extra
+interpolated frames.
+
+| Scene | Control SSIM | Future SSIM | Control temporal error | Future temporal error |
+| --- | ---: | ---: | ---: | ---: |
+| Sintel cave | 0.921724 | 0.930166 | 0.553824 | 0.615613 |
+| Sintel rooftop | 0.795833 | 0.799963 | 0.018395 | 0.243670 |
+| Tears daylight | 0.884579 | 0.882526 | 0.136185 | 0.364929 |
+| Tears debris | 0.932751 | 0.929630 | 0.637130 | 0.323198 |
+
+**REJECTED as a general jitter solution:** the probe worsened temporal error
+on three of four scenes. Debris improved against the candidate control but
+remained far behind its Lanczos temporal error (`0.012501`). The lookahead
+idea remains diagnostic-only until correspondence and occlusion handling are
+stronger. Fresh artifacts are under
+`/mnt/external/Temporal Forge/quality-campaign/phase6-reference-correction-20260828/future-aligned-jitter-ab`.
+
+## 2026-08-28 unjittered motion sampling and history interpolation probes
+
+Two isolated coordinate/history probes were compared with the validated
+confidence and photometric-history candidate at `640x360 -> 1920x1080`, using
+24 scored frames, 12 warm-up frames, software decode, and display CAS `.20`.
+Unjittered motion sampling changed SSIM by less than `0.0005` on every scene;
+it improved rooftop temporal error from `0.016739` to `0.015367` but worsened
+cave and daylight by `0.000179` and `0.002305`. Bilinear history interpolation
+improved rooftop temporal error from `0.018395` to `0.015574` and debris from
+`0.637130` to `0.635824`, while worsening cave and daylight from `0.553824`
+to `0.554132` and `0.137851`. Neither clears the promotion gate; both remain
+diagnostic options. Artifacts are under
+`/mnt/external/Temporal Forge/quality-campaign/phase6-reference-correction-20260828/unjittered-motion-sample-ab`
+and
+`/mnt/external/Temporal Forge/quality-campaign/phase6-reference-correction-20260828/history-interpolation-ab`.
+
+## 2026-08-28 corrected confidence/history plus recurrence A/B
+
+The corrected A/B left `TFORGE_FSR4_ENABLE_RECURRENT` absent in control and
+present only in the candidate. At `640x360 -> 1920x1080`, recurrence improved
+rooftop and daylight temporal error but worsened cave and debris. Spatial
+changes were negligible. **SUPPORTED only as a content-dependent opt-in, not
+a global promotion.** Fresh artifacts are under
+`/mnt/external/Temporal Forge/quality-campaign/phase6-reference-correction-20260828/confidence-history-recurrence-ab-corrected`.
+
+## 2026-08-28 future-evidence-only and reactive-confidence probes
+
+Future-frame evidence was used only to challenge the causal correspondence;
+future pixels were not displayed. Against the validated confidence/history
+candidate at `640x360 -> 1920x1080`, it improved debris temporal error
+(`0.634951 -> 0.547152`) and spatial SSIM (`0.932778 -> 0.935835`) but
+worsened temporal error on cave (`0.552283 -> 0.553392`), rooftop
+(`0.016788 -> 0.064870`), and daylight (`0.140926 -> 0.182137`). **Rejected**
+as a global motion fix.
+
+The existing reactive-confidence opt-in was then tested with the same four
+scenes and configuration. Its metrics were effectively unchanged from the
+control (including identical rows on cave, daylight, and debris); it is not a
+measured quality lever in this path and was not promoted. Fresh artifacts are
+under
+`/mnt/external/Temporal Forge/quality-campaign/phase6-reference-correction-20260828/future-evidence-only-ab`
+and
+`/mnt/external/Temporal Forge/quality-campaign/phase6-reference-correction-20260828/reactive-confidence-ab`.
+
+## 2026-08-28 bidirectional motion-consistency probe
+
+The existing bidirectional motion opt-in fused causal codec motion with a
+cheap future-to-current consistency estimate, without displaying future
+pixels. At `640x360 -> 1920x1080`, it raised SSIM on rooftop, daylight, and
+debris but worsened temporal error on cave, rooftop, and daylight. Debris
+temporal error improved from `0.634951` to `0.515200`, but remained far above
+Lanczos (`0.012501`). **Rejected as a global promotion.** Fresh artifacts are
+under
+`/mnt/external/Temporal Forge/quality-campaign/phase6-reference-correction-20260828/bidirectional-motion-ab`.
+
+## 2026-08-28 4K CAS and generic FP8-boundary isolation
+
+Turning display CAS off for the current `1280x720 -> 3840x2160` path slightly
+reduced SSIM from `0.928594` to `0.928373`; CAS `.20` remains the required
+display policy and is not the source of the spatial deficit.
+
+The suspected generic 32-to-64 FP8 boundary was then tested with native INT8
+disabled. Control and `TFORGE_FSR4_FP16_FP8_BOUNDARY=1` produced identical
+metrics (`0.928594` SSIM and `1.412223` temporal error) and the same output
+configuration. Stage 12 was confirmed as `cin=32`, `cout=64`, but both arms
+used the scalar FP8 path; the direct FP16 shaders containing the separate
+boundary switch were not selected. The normal 720p-to-4K path uses native
+INT8 instead, so this is not an explanation for the active 4K quality loss.
+Artifacts are under
+`/mnt/external/Temporal Forge/quality-campaign/generic-720-4k-fp8-control-20260828`,
+`/mnt/external/Temporal Forge/quality-campaign/generic-720-4k-fp8-boundary-20260828`,
+and
+`/mnt/external/Temporal Forge/quality-campaign/temporal-720-4k-cas-off-20260828`.
+
+## 2026-08-28 current 720p-to-1080p validation after motion cache
+
+The current corrected path was exercised on Tears of Steel daylight at
+`1280x720 -> 1920x1080` for 12 scored frames with software decode and
+`codec_refined` motion enabled. The player confirmed decoded `1280x720`, model
+`1280x720`, and output `1920x1080`.
+
+The run measured SSIM `0.964884` versus `0.975371` for Lanczos. Temporal
+absolute error was `0.373503` versus `0.494501` for Lanczos, so the current
+path is temporally more stable on this sequence but still spatially behind.
+Steady frame logs were approximately `2.2-2.8 ms` pipeline and `1.87-2.37
+ms` GPU. This confirms the cache optimization did not create a quality or
+timing regression at the normal 1080p target. Artifacts are under
+`/mnt/external/Temporal Forge/quality-campaign/temporal-720-to-1080-current-20260828`.
+
+## 2026-08-28 motion-refinement CPU cache check
+
+The refined codec-motion estimator now caches the current-frame 3x3 luma
+patch once per sampled seed and reuses it for every candidate displacement.
+The search radius, candidate ordering, clamp-to-edge behavior, confidence
+calculation, returned coverage, and default estimator mode are unchanged.
+This removes repeated current-patch sampling without changing the FSR-facing
+motion contract.
+
+A fresh host-Vulkan capture of Tears of Steel daylight at `1280x720 ->
+3840x2160`, with `codec_refined` motion enabled, measured steady-state GPU
+time of `6.98-7.21 ms` and pipeline time of `7.41-7.67 ms` across eight
+frames. Refiner CPU samples were `0.35-0.60 ms`; the first frame remained a
+one-time initialization outlier at `20.16 ms` pipeline time because neutral
+resources were uploaded. The capture produced the same class of FSR output
+and completed the quality runner successfully; its SSIM was `0.928594` versus
+`0.938809` for the matched Lanczos control. Artifacts are under
+`/mnt/external/Temporal Forge/quality-campaign/motion-timing-after-cache-720-20260828`.
+
+## 2026-08-28 forced 720p-to-1080p four-scene validation
+
+The first pass of this check was discarded because the benchmark followed the
+2160p reference and produced 3840x2160 output. The corrected rerun explicitly
+set `TFORGE_FSR4_FORCE_VIEWPORT=1920x1080`; all four captures confirmed
+`1280x720 -> 1920x1080` output.
+
+The eight-frame SSIM results were: Tears daylight `0.965846` vs Lanczos
+`0.975135`, Tears debris `0.987615` vs `0.989057`, Sintel cave `0.994921` vs
+`0.994099`, and Sintel rooftop `0.942238` vs `0.936779`. The temporal absolute
+error was lower than Lanczos for Tears daylight, Sintel cave, and Sintel
+rooftop, but higher for Tears debris. Steady pipeline timing was approximately
+`1.7-3.0 ms` and GPU timing `1.4-2.3 ms` across these runs. Artifacts are under
+`/mnt/external/Temporal Forge/quality-campaign/temporal-720-1080-*-forced-20260828`.
+
+## 2026-08-28 intermediate-ratio pre-EASU rejection
+
+The opt-in `1280x720 -> 2560x1440 -> 3840x2160` path was exercised with
+`TFORGE_FSR4_PRE_EASU=1`. It produced SSIM `0.929975` versus `0.938809` for
+the matched Lanczos control, a small improvement over the direct current
+path's `0.928594` but still below the spatial baseline. More importantly, the
+intermediate 1.5x neural stage selected the generic graph and measured
+`176.275 ms` GPU / `177.916 ms` pipeline time per frame. That is not a
+practical real-time path, so it remains rejected and is not enabled by
+default. Artifacts are under
+`/mnt/external/Temporal Forge/quality-campaign/temporal-720-4k-preeasu-20260828`.
+
+## 2026-08-28 jitter phase/reset correction and 4K A/B
+
+The jitter policy was corrected so reset frames emit phase 1 before sampling,
+cadence starts at zero rather than assuming an unobserved setup frame, and
+phase repetition uses the actual FSR model/output dimensions rather than the
+decoded source and window dimensions. Focused jitter, side-buffer, and
+full-suite tests pass after the change.
+
+A matched Tears daylight `1280x720 -> 3840x2160` A/B showed jitter-on SSIM
+`0.928594` versus jitter-off `0.935025`. Jitter-on had lower temporal error
+(`1.412223` versus `1.581706` absolute error against the reference temporal
+delta), so synthetic jitter currently improves temporal alignment while
+reducing spatial SSIM on this sequence. It remains under evaluation rather
+than being declared a universal quality win. Artifacts are under
+`/mnt/external/Temporal Forge/quality-campaign/temporal-720-4k-jitter-phasefix-20260828`,
+`/mnt/external/Temporal Forge/quality-campaign/temporal-720-4k-jitter-on-20260828`,
+and
+`/mnt/external/Temporal Forge/quality-campaign/temporal-720-4k-jitter-off-20260828`.
+### 2026-08-28 — authoritative software-decode motion/jitter A/B
+
+The first temporal capture using `run_temporal_quality.sh` with explicit
+`codec_refined` motion initially produced zero seeds because VAAPI hardware
+decode did not preserve the FFmpeg motion-vector side data. Repeating the
+capture with `TFORGE_DISABLE_HW_DECODE=1` produced 3,151–6,489 codec seeds per
+frame and 0.32–0.68 ms CPU refinement work. This is the valid motion-enabled
+measurement for the current implementation.
+
+For real Tears of Steel daylight, 1280x720 input to 3840x2160 output, eight
+frames, software decode, and codec-refined motion, synthetic jitter on scored
+SSIM `0.928594` versus Lanczos `0.938809`. The matched jitter-off run scored
+SSIM `0.935025`, improving by `0.006431` and reducing the Lanczos gap from
+`0.010215` to `0.003784`. Jitter-off remains below Lanczos and is not promoted
+as a quality win yet, but the A/B isolates synthetic jitter as a substantial
+quality loss for this prerecorded-video path.
+
+The jitter-on run measured steady frame times of approximately `7.64–9.19 ms`
+total with `7.17–8.62 ms` GPU time. The matched jitter-off run measured
+`8.67–9.12 ms` total with `8.18–8.51 ms` GPU time. The first warm-up frame was
+approximately `24.19 ms` total and `9.96 ms` GPU time. Artifacts are under
+`benchmarks/video_corpus/results/temporal_refined_4k_timing_logged_20260828`,
+`benchmarks/video_corpus/results/temporal_refined_4k_jitteroff_20260828`, and
+`benchmarks/video_corpus/results/temporal_refined_4k_timing_20260828`.

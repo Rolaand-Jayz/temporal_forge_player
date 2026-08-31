@@ -53,6 +53,7 @@ def _record_paths(records_dir: Path, expected_frames: int) -> list[Path]:
 def _load_records(records_dir: Path, expected_frames: int) -> list[dict[str, Any]]:
     records: list[dict[str, Any]] = []
     previous_pts: float | None = None
+    previous_decoder_index: int | None = None
     for index, path in enumerate(_record_paths(records_dir, expected_frames)):
         try:
             value = json.loads(path.read_text(encoding="utf-8"))
@@ -69,6 +70,12 @@ def _load_records(records_dir: Path, expected_frames: int) -> list[dict[str, Any
         if previous_pts is not None and pts <= previous_pts:
             raise ValueError("event trace timestamps must be strictly increasing")
         previous_pts = pts
+        decoder_index = value.get("decoderReceiveIndex")
+        if isinstance(decoder_index, bool) or not isinstance(decoder_index, int):
+            raise ValueError(f"{path}.decoderReceiveIndex must be an integer")
+        if previous_decoder_index is not None and decoder_index != previous_decoder_index + 1:
+            raise ValueError("event trace decoder receive indices must be contiguous")
+        previous_decoder_index = decoder_index
         inputs = value.get("detectorInputs")
         provenance = value.get("thresholdProvenance")
         if not isinstance(inputs, Mapping) or not isinstance(provenance, Mapping):
