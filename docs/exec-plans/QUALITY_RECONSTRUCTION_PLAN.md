@@ -3877,3 +3877,18 @@ passed for panel/control construction, independent selection state, loaded
 asset status, missing-asset fallback, and 720p zoom clamping. The harness is
 portable by design: it has no framework, build step, backend, database, or
 network dependency.
+
+## 2026-08-31 — true-downscaling NativeAA control
+
+The first matched reduction probe used 1920x1080 high-quality inputs and a
+1280x720 delivery target. NativeAA 1.0x with CAS 0.20 was compared against
+the runner's conventional Lanczos and bicubic controls. Spatial frame-48
+results and four 12-frame temporal captures (12 warmup frames) are retained
+under `benchmarks/quality_sweeps/fsr_downscale_nativeaa_20260831/` with the
+exact configuration and binary/source hashes in its README.
+
+NativeAA lost spatial SSIM to both conventional controls on all four real
+scenes. It also lost temporal SSIM and had higher temporal-delta absolute
+error than Lanczos on every scene. This rejects NativeAA-assisted downscaling
+for 1920x1080 → 1280x720; it does not close the remaining resolution-ratio
+matrix or the CAS placement experiment.

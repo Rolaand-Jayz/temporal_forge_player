@@ -113,6 +113,17 @@ made from absent images. Flicker/shimmer and halo/ringing are represented by
 the temporal delta and edge-SSIM signals; they are not treated as visually
 verified findings.
 
+## True downscaling follow-up
+
+The first controlled true-downscaling slice is retained under
+`benchmarks/quality_sweeps/fsr_downscale_nativeaa_20260831/`. It uses four real
+1920x1080 inputs reduced to 1280x720, with NativeAA 1.0x and CAS 0.20 compared
+against conventional Lanczos and bicubic controls. NativeAA was below both
+controls on spatial SSIM for all four scenes; the matched 12-frame temporal
+rows also had lower SSIM and greater temporal-delta absolute error than the
+Lanczos control on every scene. This rejects NativeAA-assisted downscaling for
+this tested condition while leaving other input/output ratios open.
+
 ## Winner and runner-up
 
 The aggregate numerical winner is 3.00x with Lanczos reduction. The practical
