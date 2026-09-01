@@ -66,6 +66,15 @@ def image_record(path: Path) -> dict[str, object]:
                 path.stat().st_mtime, dt.timezone.utc).isoformat()}
 
 
+def csv_record(path: Path) -> dict[str, object]:
+    with path.open(newline="", encoding="utf-8") as stream:
+        rows = list(csv.DictReader(stream))
+    return {"path": str(path), "bytes": path.stat().st_size, "rows": len(rows),
+            "sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
+            "mtime": dt.datetime.fromtimestamp(path.stat().st_mtime,
+                                                 dt.timezone.utc).isoformat()}
+
+
 class PausingRunner:
     def __init__(self, artifact_root: Path, patterns: tuple[str, ...], allow_games: tuple[str, ...], poll_seconds: float = 2.0) -> None:
         self.patterns = patterns
@@ -97,6 +106,7 @@ class PausingRunner:
 
     def run(self, command: list[str], label: str, cwd: Path = ROOT) -> None:
         self.wait_until_clear(label)
+        self.record("command_start", {"label": label, "command": command})
         proc = subprocess.Popen(command, cwd=cwd, start_new_session=True)
         paused = False
         try:
@@ -117,6 +127,7 @@ class PausingRunner:
                 os.killpg(proc.pid, signal.SIGCONT)
             if proc.returncode:
                 raise subprocess.CalledProcessError(proc.returncode, command)
+            self.record("command_complete", {"label": label, "returncode": proc.returncode})
         except BaseException:
             if proc.poll() is None:
                 if paused:
@@ -155,6 +166,8 @@ def main() -> int:
     parser.add_argument("--only", action="append", metavar="INPUTxOUTPUT",
                         help="limit this invocation to selected pair(s); repeatable")
     parser.add_argument("--resume", action="store_true")
+    parser.add_argument("--data-only", action="store_true",
+                        help="recapture campaign CSV/raw data without rewriting harness images")
     parser.add_argument("--allow-game", action="append", default=[], metavar="PATTERN",
                         help="allow a matching game pattern without pausing; repeatable")
     parser.add_argument("--game-pattern", action="append", default=[], metavar="PATTERN",
@@ -202,6 +215,30 @@ def main() -> int:
         if manifest:
             command.extend(["--manifest", str(manifest.resolve())])
         runner.run(command, f"capture {stem}/nativeaa")
+        if args.data_only:
+            csv_paths = [pair_root / f"fsr_{placement}.csv" for placement in ("pre", "post", "none")]
+            csv_paths.append(native_csv)
+            records = [csv_record(path) for path in csv_paths]
+            expected_rows = len(SCALES) * len(SCENES)
+            if any(record["rows"] != expected_rows for record in records):
+                raise SystemExit(f"{stem} data incomplete: expected {expected_rows} rows per arm")
+            completed = now()
+            marker_data = {"input": input_height, "output": output_height,
+                           "scenes": list(SCENES), "scales": list(SCALES),
+                           "arms": ["fsr_pre", "fsr_post", "fsr_none", "nativeaa"],
+                           "data_only": True, "completed_at": completed,
+                           "guard_log": str(runner.log), "csv_records": records}
+            atomic_json(marker, marker_data)
+            history = []
+            if campaign_manifest.is_file():
+                history = json.loads(campaign_manifest.read_text(encoding="utf-8")).get("pairs", [])
+                history = [entry for entry in history if entry.get("pair") != stem]
+            history.append({"pair": stem, "marker": str(marker), "completed_at": completed,
+                            "arms": len(records), "rows_per_arm": expected_rows})
+            atomic_json(campaign_manifest, {"version": 1, "mode": "data-only",
+                                            "updated_at": now(), "pairs": history})
+            print(f"completed {stem}: {sum(record['rows'] for record in records)} data rows")
+            continue
         for scene in SCENES:
             pre_scene = roots["pre"] / "scale_2_00" / scene
             raw = source_raw(pre_scene)
