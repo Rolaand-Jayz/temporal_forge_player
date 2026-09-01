@@ -326,3 +326,18 @@ still loses edge detail on some scenes. 2.25x is the synthetic edge/text
 edge-SSIM winner but has no aggregate quality advantage. Direct 2x remains the
 production-safe default because no candidate wins consistently across spatial,
 temporal, difficult-material, artifact, and performance gates.
+
+## 2026-09-01 harness completion
+
+The three-scene harness campaign completed all 17 required resolution pairs:
+360/480/540p to 720/1080/1440/2160p where valid, plus 720p to 1080/1440/2160p
+and 1080p to 1440/2160p. Each pair contains 23 methods across Tears of Steel
+daylight, Sintel rooftop, and Sintel cave, for 69 verified images per pair and
+1,173 current campaign images. The harness also retains 29 earlier evidence
+images outside the current matrix. Completion markers, exact filenames, and
+dimensions were checked; no zero-byte PNGs were found.
+
+The `current_cas20` and `fsr_direct_cas20` labels are explicitly documented as
+the same 2.00x pre-CAS render at the delivery grid, while source-derived
+bilinear/CAS and conventional controls are generated from the matched decoded
+input frame. This provenance is recorded in each pair's completion marker.

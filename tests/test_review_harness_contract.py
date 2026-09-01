@@ -43,6 +43,12 @@ class ReviewHarnessContractTests(unittest.TestCase):
         ):
             self.assertIn(method, self.html)
 
+    def test_harness_uses_three_campaign_scenes(self) -> None:
+        for scene in ("tos_daylight", "sintel_rooftop", "sintel_cave"):
+            self.assertIn(scene, self.html)
+        for scene in ("bbb_grass", "bbb_branches", "tos_debris"):
+            self.assertNotIn(f"'{scene}'", self.html)
+
     def test_comparison_integrity_and_missing_asset_behavior(self) -> None:
         for token in ("clip-path", "sweep-input", "panX", "panY", "NO IMAGE", "naturalWidth", "1920", "1080"):
             self.assertIn(token, self.html)
@@ -50,6 +56,13 @@ class ReviewHarnessContractTests(unittest.TestCase):
         self.assertIn("image.src = `images/${name}`", self.html)
         self.assertIn("image.src = 'images/no_image.svg'", self.html)
         self.assertIn("state[side][button.closest('[data-key]').dataset.key]", self.html)
+
+    def test_zoom_uses_one_scrollable_aligned_stage(self) -> None:
+        self.assertIn("overflow:auto", self.html)
+        self.assertIn('id="comparison-stage"', self.html)
+        self.assertIn("$('comparison-stage').style.width", self.html)
+        self.assertIn("$('comparison').scrollLeft", self.html)
+        self.assertIn("$('comparison').scrollTop", self.html)
 
 
 if __name__ == "__main__":

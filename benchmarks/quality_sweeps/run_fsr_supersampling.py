@@ -20,12 +20,20 @@ from pathlib import Path
 
 
 SCALES = (2.00, 2.25, 2.50, 2.75, 3.00)
-SCENES = ("tos_daylight", "tos_debris", "sintel_rooftop", "sintel_cave")
+SCENES = ("tos_daylight", "sintel_rooftop", "sintel_cave")
 
 
 def even_dimension(value: int) -> int:
     """Return the nearest requested dimension accepted by the image path."""
     return value if value % 2 == 0 else value + 1
+
+
+def fitted_dimensions(view_w: int, view_h: int, source_w: int, source_h: int) -> tuple[int, int]:
+    """Match PlaybackEngine's source-aspect fit and even-pixel alignment."""
+    fit = min(view_w / source_w, view_h / source_h)
+    width = int(source_w * fit + 0.5)
+    height = int(source_h * fit + 0.5)
+    return even_dimension(width), even_dimension(height)
 
 
 def run(command: list[str], *, env: dict[str, str], cwd: Path) -> None:
@@ -71,6 +79,8 @@ def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--player", type=Path, default=Path("build/temporal_forge_player"))
     parser.add_argument("--repo", type=Path, default=Path(__file__).resolve().parents[2])
+    parser.add_argument("--manifest", type=Path,
+                        help="override the video-corpus manifest for controlled fixtures")
     parser.add_argument("--artifact-root", type=Path, required=True)
     parser.add_argument("--output-csv", type=Path, required=True)
     parser.add_argument("--final", default="2560x1440")
@@ -79,6 +89,10 @@ def main() -> int:
     parser.add_argument("--frame", type=int, default=48)
     parser.add_argument("--cas-strength", required=True,
                         help="explicit renderer-integrated CAS strength")
+    parser.add_argument("--cas-placement", choices=("pre", "post", "none"), default="pre",
+                        help="place CAS before reduction, after reduction, or disable it")
+    parser.add_argument("--preset", default="saved",
+                        help="benchmark preset forwarded to run_quality.sh")
     parser.add_argument("--scale", type=float, action="append", choices=SCALES,
                         help="limit the run to selected reconstruction scales")
     args = parser.parse_args()
@@ -90,7 +104,7 @@ def main() -> int:
     output_rows: list[dict[str, str]] = []
     requested_scales = tuple(args.scale) if args.scale else SCALES
 
-    manifest = root / "benchmarks/video_corpus/manifest.csv"
+    manifest = (args.manifest or (root / "benchmarks/video_corpus/manifest.csv")).resolve()
     with manifest.open(newline="") as handle:
         rows = list(csv.DictReader(handle))
     source_w, source_h = (int(x) for x in args.source.split("x"))
@@ -105,13 +119,16 @@ def main() -> int:
         raise RuntimeError(f"missing required scenes: {sorted(set(requested_scenes)-set(selected))}")
 
     for scale in requested_scales:
-        intermediate_w = even_dimension(int(round(final_w * scale / 2.0)))
-        intermediate_h = even_dimension(int(round(final_h * scale / 2.0)))
+        requested_w = even_dimension(int(round(final_w * scale / 2.0)))
+        requested_h = even_dimension(int(round(final_h * scale / 2.0)))
         candidate = f"scale_{scale:.2f}".replace(".", "_")
         candidate_root = artifact_root / candidate
         candidate_root.mkdir(parents=True, exist_ok=True)
         for scene in requested_scenes:
             row = selected[scene]
+            intermediate_w, intermediate_h = fitted_dimensions(
+                requested_w, requested_h, int(row["width"]), int(row["height"])
+            )
             scene_root = candidate_root / scene
             scene_root.mkdir(parents=True, exist_ok=True)
             raw_csv = scene_root / "raw.csv"
@@ -129,9 +146,14 @@ def main() -> int:
                 "TFORGE_FSR4_JITTER_MODE": "off",
                 "TFORGE_REVIEW_FSR_CAS": args.cas_strength,
                 "TFORGE_FSR4_CAS_STRENGTH": args.cas_strength,
+                "TFORGE_BENCHMARK_PRESET": args.preset,
                 "TFORGE_DISABLE_HW_DECODE": "1",
                 "TFORGE_FSR4_PROFILE_TIMINGS": "1",
             })
+            if args.cas_placement in ("post", "none"):
+                env["TFORGE_FSR4_DISABLE_CAS"] = "1"
+            if args.cas_placement == "post":
+                env["TFORGE_REVIEW_FSR_CAS"] = ""
             vram_before, vram_peak = run_player(
                 [str(root / "benchmarks/video_corpus/run_quality.sh"), str(player),
                 args.source, str(raw_csv)], env=env, cwd=root)
@@ -149,13 +171,21 @@ def main() -> int:
             run(["ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-i", row["reference_path"],
                  "-vf", f"select=eq(n\\,{args.frame}),scale={final_w}:{final_h}:flags=lanczos",
                  "-frames:v", "1", str(reference_final)], env=env, cwd=root)
-            reduction = "lanczos" if scale > 2.0 else "none"
-            if scale > 2.0:
+            reduction = "lanczos" if scale > 2.0 else "fit"
+            source_dimensions = (int(row["width"]), int(row["height"]))
+            needs_final_fit = source_dimensions[0] * final_h != source_dimensions[1] * final_w
+            if scale > 2.0 or needs_final_fit:
                 run(["ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-i", str(source),
                      "-vf", f"scale={final_w}:{final_h}:flags=lanczos", "-frames:v", "1",
                      str(final_candidate)], env=env, cwd=root)
             else:
                 run(["cp", str(source), str(final_candidate)], env=env, cwd=root)
+            if args.cas_placement == "post":
+                post_cas = scene_root / "candidate_post_cas.png"
+                run(["ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-i", str(final_candidate),
+                     "-vf", f"cas=strength={args.cas_strength}", "-frames:v", "1", str(post_cas)],
+                    env=env, cwd=root)
+                run(["cp", str(post_cas), str(final_candidate)], env=env, cwd=root)
             metric_log = scene_root / "final_metrics.log"
             edge_log = scene_root / "final_edge_metrics.log"
             with metric_log.open("w") as out:

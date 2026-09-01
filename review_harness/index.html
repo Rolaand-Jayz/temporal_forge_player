@@ -25,8 +25,9 @@
     .zoom output { min-width:50px; color:var(--cyan); }
     input[type=range] { accent-color:var(--cyan); }
     .comparison-shell { background:#050608; border:1px solid var(--line); border-radius:8px; padding:14px; }
-    .comparison { position:relative; width:100%; max-width:1920px; margin:auto; aspect-ratio:16/9; overflow:hidden; background:#07090b; cursor:grab; }
+    .comparison { position:relative; width:100%; max-width:1920px; margin:auto; aspect-ratio:16/9; overflow:auto; background:#07090b; cursor:grab; }
     .comparison:active { cursor:grabbing; }
+    .comparison-stage { position:relative; width:100%; height:100%; min-width:100%; min-height:100%; }
     .layer { position:absolute; inset:0; overflow:hidden; }
     .layer img { position:absolute; inset:0; width:100%; height:100%; object-fit:fill; user-select:none; pointer-events:none; transform-origin:center; image-rendering:auto; }
     .layer.right { clip-path:inset(0 0 0 var(--split)); }
@@ -66,12 +67,14 @@
       <span id="asset-count" style="color:var(--muted)"></span>
     </section>
     <section class="comparison-shell" aria-label="Aligned comparison viewport">
-      <div id="comparison" class="comparison" style="--split:50%;--zoom:1;--pan-x:0px;--pan-y:0px">
-        <div class="layer left"><img id="left-image" alt="Left experiment result"></div>
-        <div class="layer right"><img id="right-image" alt="Right experiment result"></div>
-        <div class="viewport-label left">LEFT</div><div class="viewport-label right">RIGHT</div>
-        <div class="sweep"><div class="sweep-handle"></div></div>
-        <input id="sweep-input" class="sweep-input" type="range" min="0" max="100" value="50" aria-label="Comparison sweep divider">
+      <div id="comparison" class="comparison" style="--split:50%;--zoom:1">
+        <div id="comparison-stage" class="comparison-stage">
+          <div class="layer left"><img id="left-image" alt="Left experiment result"></div>
+          <div class="layer right"><img id="right-image" alt="Right experiment result"></div>
+          <div class="viewport-label left">LEFT</div><div class="viewport-label right">RIGHT</div>
+          <div class="sweep"><div class="sweep-handle"></div></div>
+          <input id="sweep-input" class="sweep-input" type="range" min="0" max="100" value="50" aria-label="Comparison sweep divider">
+        </div>
       </div>
       <div class="legend">FIXED INSPECTION VIEWPORT · 1920×1080 NORMALIZED COORDINATES · DRAG TO PAN · SWEEP TO COMPARE</div>
     </section>
@@ -85,8 +88,7 @@
     const INPUTS = [360, 480, 540, 720, 1080];
     const OUTPUTS = [720, 1080, 1440, 2160];
     const SCENES = [
-      ['tos_daylight','ToS daylight'], ['tos_debris','ToS debris'], ['bbb_grass','BBB grass'],
-      ['bbb_branches','BBB branches'], ['sintel_rooftop','Sintel rooftop'], ['sintel_cave','Sintel cave']
+      ['tos_daylight','ToS daylight'], ['sintel_rooftop','Sintel rooftop'], ['sintel_cave','Sintel cave']
     ];
     const METHODS = [
       ['current_cas20','Current · CAS .20'], ['base_only_bilinear_cas20','Base only bilinear · CAS .20'],
@@ -165,8 +167,9 @@
       image.src = `images/${name}`;
     }
     function applyView() {
-      $('comparison').style.setProperty('--split', `${state.split}%`); $('comparison').style.setProperty('--zoom', state.zoom / 100); $('comparison').style.setProperty('--pan-x', `${state.panX}px`); $('comparison').style.setProperty('--pan-y', `${state.panY}px`);
-      $('zoom').min = minZoom(); document.querySelectorAll('.layer img').forEach(image => image.style.transform = `translate(${state.panX}px,${state.panY}px) scale(${state.zoom / 100})`);
+      $('comparison').style.setProperty('--split', `${state.split}%`); $('comparison').style.setProperty('--zoom', state.zoom / 100);
+      const size = Math.max(100, state.zoom); $('comparison-stage').style.width = `${size}%`; $('comparison-stage').style.height = `${size}%`;
+      $('zoom').min = minZoom(); document.querySelectorAll('.layer img').forEach(image => image.style.transform = 'none');
       $('zoom').value = state.zoom; $('zoom-value').textContent = `${state.zoom}%`; document.querySelectorAll('[data-panel-zoom]').forEach(node => node.textContent = `${state.zoom}%`);
     }
     function render() { renderPanel('left'); renderPanel('right'); clampZoom(); loadImage('left'); loadImage('right'); applyView(); }
@@ -174,10 +177,10 @@
     $('zoom').addEventListener('input', event => { state.zoom = Math.max(minZoom(), Number(event.target.value)); applyView(); });
     function minZoom() { return Math.min(...[state.left.output,state.right.output].map(output => output >= 1440 ? 50 : 100)); }
     function clampZoom() { state.zoom = Math.max(minZoom(), Math.min(300, state.zoom)); }
-    $('reset').addEventListener('click', () => { state.split=50; state.panX=0; state.panY=0; clampZoom(); $('sweep-input').value=50; applyView(); });
+    $('reset').addEventListener('click', () => { state.split=50; state.panX=0; state.panY=0; clampZoom(); $('sweep-input').value=50; applyView(); $('comparison').scrollTo(0, 0); });
     let dragging = false, lastX = 0, lastY = 0;
     $('comparison').addEventListener('pointerdown', event => { if (event.target === $('sweep-input')) return; dragging=true; lastX=event.clientX; lastY=event.clientY; $('comparison').setPointerCapture(event.pointerId); });
-    $('comparison').addEventListener('pointermove', event => { if (!dragging) return; state.panX += event.clientX-lastX; state.panY += event.clientY-lastY; lastX=event.clientX; lastY=event.clientY; applyView(); });
+    $('comparison').addEventListener('pointermove', event => { if (!dragging) return; $('comparison').scrollLeft -= event.clientX-lastX; $('comparison').scrollTop -= event.clientY-lastY; lastX=event.clientX; lastY=event.clientY; });
     $('comparison').addEventListener('pointerup', () => { dragging=false; }); $('comparison').addEventListener('pointercancel', () => { dragging=false; });
     const params = new URLSearchParams(location.search); if (params.has('left')) state.left.method=params.get('left'); if (params.has('right')) state.right.method=params.get('right');
     $('asset-count').textContent = 'FILE-BASED · missing results remain selectable';

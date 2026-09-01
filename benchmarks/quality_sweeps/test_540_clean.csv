@@ -1,0 +1,2 @@
+scene,scale,cas_strength,source_resolution,intermediate_resolution,final_resolution,downsample,psnr_db,ssim,edge_ssim,gpu_ms_mean,source_sha256,binary,frame,vram_before_bytes,vram_peak_bytes
+tos_daylight,2.00,0.20,960x540,1280x720,1280x720,fit,33.848295,0.941607,0.826623,,901905bf393ed080866976f63ab7bb361e546c8a0ff9faa4cec421fbde5fb549,/home/rolaandjayz/ZCodeProject/temporal_forge_player/build/temporal_forge_player,48,9699176448,10230493184

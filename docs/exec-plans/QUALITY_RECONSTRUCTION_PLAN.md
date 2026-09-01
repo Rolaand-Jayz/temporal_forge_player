@@ -4028,3 +4028,20 @@ captured intermediate dimensions. It passed all 20 new 480p rows, recorded in
 `benchmarks/quality_sweeps/resolution_480_to_720_20260901.audit.json`. Existing
 campaign CSVs retain frame numbers and source hashes; they do not have
 wall-clock timestamps, so their label audit is limited to those fields.
+
+## 2026-09-01 — three-scene harness completion automation
+
+The portable harness corpus is now intentionally limited to Tears of Steel
+daylight, Sintel rooftop, and Sintel cave. `benchmarks/quality_sweeps/run_harness_campaign.py`
+is the single resumable serial driver for the 17 meaningful resolution pairs.
+For each pair it captures independent pre-CAS, post-CAS, no-CAS, and NativeAA
+arms, creates source-derived conventional and bilinear controls, exports
+canonical filenames, and writes a completion marker only after all 23 method
+IDs exist for all three scenes. Trackmania remains a hard pause condition for
+capture and no capture work is parallelized.
+
+The full capture pass completed after Trackmania was stopped: all 17 pairs
+have verified completion markers and all 1,173 current campaign assets exist
+(23 methods x 3 scenes x 17 pairs). A later invocation with `--resume`
+continues from the last verified pair without treating partial artifacts as
+complete.
