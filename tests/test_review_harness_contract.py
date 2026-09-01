@@ -31,14 +31,14 @@ class ReviewHarnessContractTests(unittest.TestCase):
             self.assertIn(str(value), self.html)
         for method in (
             "current_cas20", "base_only_bilinear_cas20", "fsr_direct_cas20",
-            "fsr_225x_downsample_cas20_pre", "fsr_225x_downsample_cas20_post",
-            "fsr_225x_downsample_no_cas", "fsr_250x_downsample_cas20_pre",
-            "fsr_250x_downsample_cas20_post", "fsr_250x_downsample_no_cas",
-            "fsr_275x_downsample_cas20_pre", "fsr_275x_downsample_cas20_post",
-            "fsr_200x_downsample_cas20_pre", "fsr_200x_downsample_cas20_post", "fsr_200x_downsample_no_cas",
-            "fsr_275x_downsample_no_cas", "fsr_300x_downsample_cas20_pre",
-            "fsr_300x_downsample_cas20_post", "fsr_300x_downsample_no_cas",
-            "fsr_nativeaa_downsample_cas20_pre", "fsr_nativeaa_downsample_cas20_post",
+            "fsr_225x_downsample_resolve", "fsr_225x_downsample_post", "fsr_225x_downsample_both",
+            "fsr_225x_downsample_no_cas", "fsr_250x_downsample_resolve",
+            "fsr_250x_downsample_post", "fsr_250x_downsample_both", "fsr_250x_downsample_no_cas",
+            "fsr_275x_downsample_resolve", "fsr_275x_downsample_post", "fsr_275x_downsample_both",
+            "fsr_200x_downsample_resolve", "fsr_200x_downsample_post", "fsr_200x_downsample_both", "fsr_200x_downsample_no_cas",
+            "fsr_275x_downsample_no_cas", "fsr_300x_downsample_resolve",
+            "fsr_300x_downsample_post", "fsr_300x_downsample_both", "fsr_300x_downsample_no_cas",
+            "fsr_nativeaa_downsample_resolve", "fsr_nativeaa_downsample_post", "fsr_nativeaa_downsample_both",
             "fsr_nativeaa_downsample_no_cas", "conventional_lanczos", "conventional_bicubic",
         ):
             self.assertIn(method, self.html)

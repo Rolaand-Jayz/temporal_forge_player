@@ -89,8 +89,8 @@ def main() -> int:
     parser.add_argument("--frame", type=int, default=48)
     parser.add_argument("--cas-strength", required=True,
                         help="explicit renderer-integrated CAS strength")
-    parser.add_argument("--cas-placement", choices=("pre", "post", "none"), default="pre",
-                        help="place CAS before reduction, after reduction, or disable it")
+    parser.add_argument("--cas-placement", choices=("resolve", "post", "both", "none"), default="resolve",
+                        help="place CAS on the FSR resolve, after reduction, both, or disable it")
     parser.add_argument("--preset", default="saved",
                         help="benchmark preset forwarded to run_quality.sh")
     parser.add_argument("--scale", type=float, action="append", choices=SCALES,
@@ -150,9 +150,10 @@ def main() -> int:
                 "TFORGE_DISABLE_HW_DECODE": "1",
                 "TFORGE_FSR4_PROFILE_TIMINGS": "1",
             })
-            if args.cas_placement in ("post", "none"):
+            if args.cas_placement == "none":
                 env["TFORGE_FSR4_DISABLE_CAS"] = "1"
-            if args.cas_placement == "post":
+            elif args.cas_placement == "post":
+                env["TFORGE_FSR4_DISABLE_CAS"] = "1"
                 env["TFORGE_REVIEW_FSR_CAS"] = ""
             vram_before, vram_peak = run_player(
                 [str(root / "benchmarks/video_corpus/run_quality.sh"), str(player),
@@ -180,7 +181,7 @@ def main() -> int:
                      str(final_candidate)], env=env, cwd=root)
             else:
                 run(["cp", str(source), str(final_candidate)], env=env, cwd=root)
-            if args.cas_placement == "post":
+            if args.cas_placement in ("post", "both"):
                 post_cas = scene_root / "candidate_post_cas.png"
                 run(["ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-i", str(final_candidate),
                      "-vf", f"cas=strength={args.cas_strength}", "-frames:v", "1", str(post_cas)],

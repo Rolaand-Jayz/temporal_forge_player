@@ -92,15 +92,18 @@
     ];
     const METHODS = [
       ['current_cas20','Current · CAS .20'], ['base_only_bilinear_cas20','Base only bilinear · CAS .20'],
-      ['fsr_direct_cas20','FSR direct target · CAS .20'], ['fsr_200x_downsample_cas20_pre','2.00× source reconstruction → CAS .20 → downsample'],
-      ['fsr_200x_downsample_cas20_post','2.00× source reconstruction → downsample → CAS .20'], ['fsr_200x_downsample_no_cas','2.00× source reconstruction → downsample · no CAS'], ['fsr_225x_downsample_cas20_pre','2.25× delivery-grid multiplier → CAS .20 → downsample'],
-      ['fsr_225x_downsample_cas20_post','2.25× delivery-grid multiplier → downsample → CAS .20'], ['fsr_225x_downsample_no_cas','2.25× delivery-grid multiplier → downsample · no CAS'],
-      ['fsr_250x_downsample_cas20_pre','2.50× delivery-grid multiplier → CAS .20 → downsample'], ['fsr_250x_downsample_cas20_post','2.50× delivery-grid multiplier → downsample → CAS .20'],
-      ['fsr_250x_downsample_no_cas','2.50× delivery-grid multiplier → downsample · no CAS'], ['fsr_275x_downsample_cas20_pre','2.75× delivery-grid multiplier → CAS .20 → downsample'],
-      ['fsr_275x_downsample_cas20_post','2.75× delivery-grid multiplier → downsample → CAS .20'], ['fsr_275x_downsample_no_cas','2.75× delivery-grid multiplier → downsample · no CAS'],
-      ['fsr_300x_downsample_cas20_pre','3.00× delivery-grid multiplier → CAS .20 → downsample'], ['fsr_300x_downsample_cas20_post','3.00× delivery-grid multiplier → downsample → CAS .20'],
-      ['fsr_300x_downsample_no_cas','3.00× delivery-grid multiplier → downsample · no CAS'], ['fsr_nativeaa_downsample_cas20_pre','NativeAA → CAS .20 → downsample'],
-      ['fsr_nativeaa_downsample_cas20_post','NativeAA → downsample → CAS .20'], ['fsr_nativeaa_downsample_no_cas','NativeAA → downsample · no CAS'],
+      ['fsr_direct_cas20','FSR direct target · CAS .20'], ['fsr_200x_downsample_resolve','2.00× reconstruction → CAS .20 → downsample'],
+      ['fsr_200x_downsample_post','2.00× reconstruction → downsample → CAS .20'], ['fsr_200x_downsample_both','2.00× reconstruction → CAS .20 → downsample → CAS .20'], ['fsr_200x_downsample_no_cas','2.00× reconstruction → downsample · no CAS'],
+      ['fsr_225x_downsample_resolve','2.25× reconstruction → CAS .20 → downsample'], ['fsr_225x_downsample_post','2.25× reconstruction → downsample → CAS .20'],
+      ['fsr_225x_downsample_both','2.25× reconstruction → CAS .20 → downsample → CAS .20'], ['fsr_225x_downsample_no_cas','2.25× reconstruction → downsample · no CAS'],
+      ['fsr_250x_downsample_resolve','2.50× reconstruction → CAS .20 → downsample'], ['fsr_250x_downsample_post','2.50× reconstruction → downsample → CAS .20'],
+      ['fsr_250x_downsample_both','2.50× reconstruction → CAS .20 → downsample → CAS .20'], ['fsr_250x_downsample_no_cas','2.50× reconstruction → downsample · no CAS'],
+      ['fsr_275x_downsample_resolve','2.75× reconstruction → CAS .20 → downsample'], ['fsr_275x_downsample_post','2.75× reconstruction → downsample → CAS .20'],
+      ['fsr_275x_downsample_both','2.75× reconstruction → CAS .20 → downsample → CAS .20'], ['fsr_275x_downsample_no_cas','2.75× reconstruction → downsample · no CAS'],
+      ['fsr_300x_downsample_resolve','3.00× reconstruction → CAS .20 → downsample'], ['fsr_300x_downsample_post','3.00× reconstruction → downsample → CAS .20'],
+      ['fsr_300x_downsample_both','3.00× reconstruction → CAS .20 → downsample → CAS .20'], ['fsr_300x_downsample_no_cas','3.00× reconstruction → downsample · no CAS'],
+      ['fsr_nativeaa_downsample_resolve','NativeAA → CAS .20 → downsample'], ['fsr_nativeaa_downsample_post','NativeAA → downsample → CAS .20'],
+      ['fsr_nativeaa_downsample_both','NativeAA → CAS .20 → downsample → CAS .20'], ['fsr_nativeaa_downsample_no_cas','NativeAA → downsample · no CAS'],
       ['conventional_lanczos','Conventional · Lanczos'], ['conventional_bicubic','Conventional · bicubic']
     ];
     const state = {
