@@ -143,11 +143,27 @@ def filename(scene: str, input_height: int, method: str, output_height: int) -> 
             f"__out-{output_height}p.png")
 
 
+def native_filename(scene: str, input_height: int, method: str, output_height: int) -> str:
+    return filename(scene, input_height, method, output_height).removesuffix(".png") + "__native.png"
+
+
+def has_native_output(method: str) -> bool:
+    return method.startswith("fsr_") and method != "fsr_direct_cas20"
+
+
 def export(runner: PausingRunner, source: Path, scene: str, input_height: int, method: str, output_height: int, harness: Path) -> None:
     runner.run([sys.executable, str(ROOT / "tools/export_review_image.py"), str(source),
          "--scene", scene, "--frame", "0048", "--input", str(input_height),
          "--method", method, "--output", str(output_height), "--root", str(harness)],
          f"export {scene}/{method} {input_height}->{output_height}")
+
+
+def export_native(runner: PausingRunner, source: Path, scene: str, input_height: int,
+                  method: str, output_height: int, harness: Path) -> None:
+    output = harness / "images" / native_filename(scene, input_height, method, output_height)
+    output.parent.mkdir(parents=True, exist_ok=True)
+    runner.run(["cp", str(source), str(output)],
+               f"native {scene}/{method} {input_height}->{output_height}")
 
 
 def source_raw(scene_root: Path) -> Path:
@@ -265,30 +281,44 @@ def main() -> int:
                                       ("none", "no_cas")):
                 root = roots[placement]
                 for scale in SCALES:
-                    export(runner, root / f"scale_{scale:.2f}".replace(".", "_") / scene / "candidate_final.png",
+                    scene_root = root / f"scale_{scale:.2f}".replace(".", "_") / scene
+                    export(runner, scene_root / "candidate_final.png",
                            scene, input_height, f"fsr_{int(scale * 100):03d}x_downsample_{suffix}",
                            output_height, harness)
+                    export_native(runner, source_raw(scene_root), scene, input_height,
+                                  f"fsr_{int(scale * 100):03d}x_downsample_{suffix}",
+                                  output_height, harness)
             for placement, suffix in (("pre", "cas20_pre"), ("post", "cas20_post"),
                                       ("none", "no_cas")):
-                export(runner, native_root / "scale_2_00" / scene / "candidate_final.png",
+                native_scene_root = native_root / "scale_2_00" / scene
+                export(runner, native_scene_root / "candidate_final.png",
                        scene, input_height, f"fsr_nativeaa_downsample_{suffix}", output_height, harness)
+                export_native(runner, source_raw(native_scene_root), scene, input_height,
+                              f"fsr_nativeaa_downsample_{suffix}", output_height, harness)
         missing = []
         for scene in SCENES:
             for method in METHODS:
                 path = harness / "images" / filename(scene, input_height, method, output_height)
                 if not path.is_file():
                     missing.append(str(path))
+                if has_native_output(method) and not (harness / "images" / native_filename(
+                        scene, input_height, method, output_height)).is_file():
+                    missing.append(str(harness / "images" / native_filename(
+                        scene, input_height, method, output_height)))
         if missing:
             raise SystemExit(f"{stem} incomplete: {len(missing)} harness assets missing")
         asset_records = [image_record(harness / "images" / filename(scene, input_height, method, output_height))
                          for scene in SCENES for method in METHODS]
+        native_records = [image_record(harness / "images" / native_filename(scene, input_height, method, output_height))
+                          for scene in SCENES for method in METHODS if has_native_output(method)]
         completed = now()
         marker.parent.mkdir(parents=True, exist_ok=True)
         marker_data = {"input": input_height, "output": output_height,
                                       "scenes": list(SCENES), "methods": list(METHODS),
-                                      "assets": len(SCENES) * len(METHODS),
+                                      "assets": len(asset_records), "native_assets": len(native_records),
                                       "started_at": pair_started, "completed_at": completed,
                                       "guard_log": str(runner.log), "assets_detail": asset_records,
+                                      "native_assets_detail": native_records,
                                       "provenance": {
                                           "current_cas20": "same 2.00x resolve-CAS render as fsr_direct_cas20 at the delivery grid",
                                           "fsr_direct_cas20": "same 2.00x resolve-CAS render as current_cas20 at the delivery grid",

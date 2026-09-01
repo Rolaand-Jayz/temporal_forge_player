@@ -22,7 +22,7 @@ class ReviewHarnessContractTests(unittest.TestCase):
 
     def test_canonical_filename_constructor_is_single_and_strict(self) -> None:
         self.assertEqual(len(re.findall(r"function canonicalFilename", self.html)), 1)
-        self.assertIn("scene-${scene}__frame-${frame}__in-${selection.input}p__method-${selection.method}__out-${selection.output}p.png", self.html)
+        self.assertIn("scene-${scene}__frame-${frame}__in-${selection.input}p__method-${selection.method}__out-${selection.output}p${suffix}.png", self.html)
         self.assertIn("window.__tforgeCanonicalFilename = canonicalFilename", self.html)
         self.assertIn("cas20", self.html)
 
@@ -40,8 +40,11 @@ class ReviewHarnessContractTests(unittest.TestCase):
             self.assertIn(scene, self.html)
         self.assertIn("const MULTIPLIERS", self.html)
         self.assertIn("const CAS_PLACEMENTS", self.html)
+        self.assertIn("const VIEW_MODES", self.html)
         for label in ("2×", "2.25×", "2.5×", "2.75×", "3×", "pre CAS", "post CAS", "no CAS"):
             self.assertIn(label, self.html)
+        self.assertIn("selection.view === 'native'", self.html)
+        self.assertIn("'__native'", self.html)
 
     def test_comparison_integrity_and_missing_asset_behavior(self) -> None:
         for token in ("clip-path", "sweep-input", "panX", "panY", "NO IMAGE", "naturalWidth", "1920", "1080"):
