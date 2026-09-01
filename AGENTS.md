@@ -85,27 +85,9 @@ The execution plan is authoritative for the current quality campaign.
 
 ## Personal-device performance safeguard
 
-During the **7:45 PM–9:00 PM Central-time window** (CDT or CST), check the
-running process list for Trackmania (case-insensitively, including
-launcher/game variants). This time-window check is independent of the type of
-work being done. Quality-only work and quality captures may continue with
-Trackmania running; gaming can affect performance results, but must not be
-treated as affecting image-quality results.
-
-Performance work is a separate pause condition at any time: before starting
-or continuing performance work, check whether Trackmania is running and, if
-it is, halt the performance work until the game is no longer running. Never
-terminate the game or other user processes without explicit permission.
-For all sample-producing runs, monitor the process list for games and common
-game launchers, not only Trackmania. Do not parallelize sample collection when
-any detected game is running. The capture harness must pause its own child
-process group while a detected game is running and resume only after it clears.
-An explicit user instruction may allow a named game pattern for that run; pass
-it as `--allow-game PATTERN` and record the exception. Never terminate the game
-or other user processes. Record detections, pauses, resumes, and any explicit
-allow-list exception in the work update.
-This is a repository operating rule; it does not create an autonomous timer
-or wake the agent when no session is active.
+Capture workflows do not pause or stop for running games. The user accepts
+that gaming can affect performance measurements; it must not be treated as an
+image-quality result. Never terminate the game or other user processes.
 
 ## Evidence standard
 

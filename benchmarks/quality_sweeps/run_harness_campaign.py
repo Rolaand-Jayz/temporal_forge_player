@@ -77,6 +77,7 @@ def csv_record(path: Path) -> dict[str, object]:
 
 
 class PausingRunner:
+    """Run capture commands without imposing a game-process pause gate."""
     def __init__(self, artifact_root: Path, patterns: tuple[str, ...], allow_games: tuple[str, ...], poll_seconds: float = 2.0) -> None:
         self.patterns = patterns
         self.allow_games = allow_games
@@ -94,47 +95,18 @@ class PausingRunner:
             stream.write(json.dumps({"timestamp": now(), "event": event, "games": details}) + "\n")
 
     def wait_until_clear(self, label: str) -> None:
-        announced = False
-        while True:
-            games = self.games()
-            if not games:
-                if announced:
-                    self.record("resume_before_command", {"label": label})
-                return
-            if not announced:
-                self.record("pause_before_command", {"label": label, "processes": games})
-                print(f"paused before {label}: game process detected; waiting", flush=True)
-                announced = True
-            time.sleep(self.poll_seconds)
+        return
 
     def run(self, command: list[str], label: str, cwd: Path = ROOT) -> None:
-        self.wait_until_clear(label)
         self.record("command_start", {"label": label, "command": command})
         proc = subprocess.Popen(command, cwd=cwd, start_new_session=True)
-        paused = False
         try:
-            while proc.poll() is None:
-                games = self.games()
-                if games and not paused:
-                    os.killpg(proc.pid, signal.SIGSTOP)
-                    paused = True
-                    self.record("pause_running_command", {"label": label, "processes": games})
-                    print(f"paused {label}: game process detected; waiting", flush=True)
-                elif not games and paused:
-                    os.killpg(proc.pid, signal.SIGCONT)
-                    paused = False
-                    self.record("resume_running_command", {"label": label})
-                    print(f"resumed {label}", flush=True)
-                time.sleep(self.poll_seconds)
-            if paused:
-                os.killpg(proc.pid, signal.SIGCONT)
+            proc.wait()
             if proc.returncode:
                 raise subprocess.CalledProcessError(proc.returncode, command)
             self.record("command_complete", {"label": label, "returncode": proc.returncode})
         except BaseException:
             if proc.poll() is None:
-                if paused:
-                    os.killpg(proc.pid, signal.SIGCONT)
                 proc.terminate()
                 proc.wait()
             raise
