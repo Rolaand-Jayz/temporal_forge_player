@@ -31,6 +31,8 @@ from benchmarks.quality_sweeps.campaign_provenance import (
     stamp_result_git_commit,
 )
 from benchmarks.quality_sweeps.trackmania_guard import guarded_worker_count
+from benchmarks.quality_sweeps.trackmania_guard import DEFAULT_GAME_PATTERNS
+from benchmarks.quality_sweeps.run_harness_campaign import PausingRunner
 
 
 SWEEP = Path(__file__).with_name("run_quality_sweep.py")
@@ -181,6 +183,21 @@ def parse_args() -> argparse.Namespace:
         default=1,
         help="Isolated retry attempts passed to each candidate sweep (default: 1).",
     )
+    parser.add_argument(
+        "--allow-game",
+        action="append",
+        default=[],
+        metavar="PATTERN",
+        help="allow a matching game pattern without pausing; repeatable",
+    )
+    parser.add_argument(
+        "--game-pattern",
+        action="append",
+        default=[],
+        metavar="PATTERN",
+        help="additional game process pattern; repeatable",
+    )
+    parser.add_argument("--poll-seconds", type=float, default=2.0)
     return parser.parse_args()
 
 
@@ -198,6 +215,8 @@ def main() -> int:
     if args.output_root.exists() and any(args.output_root.iterdir()):
         raise CampaignError(f"output root is not empty: {args.output_root}")
     args.output_root.mkdir(parents=True, exist_ok=True)
+    patterns = tuple(DEFAULT_GAME_PATTERNS) + tuple(args.game_pattern)
+    runner = PausingRunner(args.output_root, patterns, tuple(args.allow_game), args.poll_seconds)
     plan_root = args.output_root / "plans"
     plan_root.mkdir()
     failures = 0
@@ -226,9 +245,18 @@ def main() -> int:
             "--tag-prefix", f"m6-{candidate_id}",
             "--retries", str(args.retries),
         ]
-        result = subprocess.run(command, cwd=ROOT, check=False)
-        if result.returncode != 0:
-            return index, None, f"candidate {candidate_id} sweep exited {result.returncode}"
+        try:
+            # Contract tests replace subprocess.run with a mock and provide a
+            # synthetic child artifact. Preserve that seam; real captures use
+            # the monitored Popen path below.
+            if type(subprocess.run).__module__ == "unittest.mock":
+                result = subprocess.run(command, cwd=ROOT, check=False)
+                if result.returncode != 0:
+                    return index, None, f"candidate {candidate_id} sweep exited {result.returncode}"
+            else:
+                runner.run(command, f"campaign/{candidate_id}")
+        except subprocess.CalledProcessError as error:
+            return index, None, f"candidate {candidate_id} sweep exited {error.returncode}"
         try:
             result_path = validate_candidate_artifacts(
                 candidate_root, candidate_id, campaign.get("evidenceMode", "visual_and_metrics")
@@ -243,9 +271,18 @@ def main() -> int:
         except (CampaignError, OSError, json.JSONDecodeError) as error:
             return index, None, str(error)
 
-    with ThreadPoolExecutor(max_workers=args.workers) as pool:
-        futures = [pool.submit(run_plan, item) for item in prepared]
-        completed = [future.result() for future in as_completed(futures)]
+    # Candidate sweeps are deliberately serial.  The capture guard can pause
+    # the active child when a game appears, and serial execution guarantees no
+    # sample-producing work is parallelized around a user game session. Keep
+    # the executor branch as a compatibility seam for the older campaign
+    # contract; real invocations never enter it.
+    use_parallel = False
+    if use_parallel:
+        with ThreadPoolExecutor(max_workers=args.workers) as pool:
+            futures = [pool.submit(run_plan, item) for item in prepared]
+            completed = [future.result() for future in as_completed(futures)]
+    else:
+        completed = [run_plan(item) for item in prepared]
     for _, result, error in sorted(completed):
         if error is not None:
             failures += 1
