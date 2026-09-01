@@ -1,0 +1,16 @@
+[
+  {
+    "candidateId": "base_only_mitchell",
+    "exitCode": 0,
+    "meanBicubicSsim": 0.589623,
+    "meanFsrEdgeSsim": 0.5802505,
+    "meanFsrPsnrDb": 27.0535655,
+    "meanFsrSsim": 0.5975045,
+    "meanGpuMs": null,
+    "meanLanczosSsim": 0.58358525,
+    "meanLowfreqLumaBias": 0.005396,
+    "meanLowfreqLumaMae": 0.02112,
+    "meanPipelineCpuMs": null,
+    "rowCount": 4
+  }
+]

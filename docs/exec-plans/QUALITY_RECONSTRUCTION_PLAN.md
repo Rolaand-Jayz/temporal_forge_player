@@ -4045,3 +4045,20 @@ have verified completion markers and all 1,173 current campaign assets exist
 (23 methods x 3 scenes x 17 pairs). A later invocation with `--resume`
 continues from the last verified pair without treating partial artifacts as
 complete.
+
+## 2026-09-01 — campaign-only M6 spatial recapture
+
+The earlier harness-wide recapture was stopped after the scope was corrected:
+its 17 resolution pairs are review-harness coverage, not campaign-only
+evidence. The campaign-only M6 spatial manifest was then rerun serially under
+the all-game pause guard, with metrics-only output and no review-harness image
+writes. The committed-state run produced all five candidates across the four
+real scenes (20 finite spatial rows). Fresh aggregate results and exact
+binary/config/commit provenance are recorded in
+`docs/M6_RECAPTURE_REPORT_20260901.md` and
+`benchmarks/quality_sweeps/m6_recapture_20260901_final/`.
+
+The existing temporal M6 evidence remains retained and was not rerun; the
+portable harness images likewise remain unchanged. The new driver is serial
+even when a worker count is supplied, so no candidate capture can run in
+parallel with another candidate or around a detected user game session.

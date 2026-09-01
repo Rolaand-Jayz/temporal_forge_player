@@ -1,0 +1,16 @@
+[
+  {
+    "candidateId": "base_only_bilinear",
+    "exitCode": 0,
+    "meanBicubicSsim": 0.589623,
+    "meanFsrEdgeSsim": 0.579592,
+    "meanFsrPsnrDb": 27.10080575,
+    "meanFsrSsim": 0.59751275,
+    "meanGpuMs": 1.878,
+    "meanLanczosSsim": 0.58358525,
+    "meanLowfreqLumaBias": 0.0052175,
+    "meanLowfreqLumaMae": 0.021011,
+    "meanPipelineCpuMs": 2.137,
+    "rowCount": 4
+  }
+]

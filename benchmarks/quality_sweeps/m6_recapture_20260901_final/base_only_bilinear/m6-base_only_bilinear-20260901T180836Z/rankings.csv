@@ -1,0 +1,2 @@
+candidateId,exitCode,rowCount,meanFsrPsnrDb,meanFsrSsim,meanFsrEdgeSsim,meanLanczosSsim,meanBicubicSsim,meanLowfreqLumaMae,meanLowfreqLumaBias,meanGpuMs,meanPipelineCpuMs
+base_only_bilinear,0,4,27.10080575,0.59751275,0.579592,0.58358525,0.589623,0.021011,0.0052175,1.878,2.137

@@ -1,0 +1,16 @@
+[
+  {
+    "candidateId": "current",
+    "exitCode": 0,
+    "meanBicubicSsim": 0.589623,
+    "meanFsrEdgeSsim": 0.571939,
+    "meanFsrPsnrDb": 26.7759425,
+    "meanFsrSsim": 0.5665895,
+    "meanGpuMs": null,
+    "meanLanczosSsim": 0.58358525,
+    "meanLowfreqLumaBias": 0.00371025,
+    "meanLowfreqLumaMae": 0.02084975,
+    "meanPipelineCpuMs": null,
+    "rowCount": 4
+  }
+]

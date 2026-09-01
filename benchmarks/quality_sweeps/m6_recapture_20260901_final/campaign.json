@@ -1,0 +1,299 @@
+{
+  "baselineCandidateId": "base_only_bilinear",
+  "campaignId": "m6-6-1-real-spatial-controls-grounded",
+  "candidates": [
+    {
+      "binarySha256": "1b8efb8068d2034df0b7547f02c91c35a89f78f829e5f65c423fccb0ec32c742",
+      "configPath": "benchmarks/quality_sweeps/stage_a/current.json",
+      "configSha256": "762d8f39d8c329d096718a878ca1756620d2eda40a8b3cb7dd13cf23b6dd81c9",
+      "dimensions": {
+        "output": "1920x1080",
+        "source": "426x240"
+      },
+      "environment": {
+        "TFORGE_FSR4_LEARNED_STRENGTH": "0.25"
+      },
+      "gitCommit": "0d36015e817e36526d42115a2e0f46a8eadede5a",
+      "id": "current",
+      "reviewAssets": [
+        {
+          "frame": 48,
+          "height": 1080,
+          "path": "/home/rolaandjayz/ZCodeProject/temporal_forge_player/benchmarks/video_corpus/results/quality_frames/tos_daylight_426x240_high_crf12_f48_m6-current-20260901T180818Z-01-current.png",
+          "scene": "tos_daylight",
+          "width": 1920
+        },
+        {
+          "frame": 48,
+          "height": 1080,
+          "path": "/home/rolaandjayz/ZCodeProject/temporal_forge_player/benchmarks/video_corpus/results/quality_frames/tos_debris_426x240_high_crf12_f48_m6-current-20260901T180818Z-01-current.png",
+          "scene": "tos_debris",
+          "width": 1920
+        },
+        {
+          "frame": 48,
+          "height": 1080,
+          "path": "/home/rolaandjayz/ZCodeProject/temporal_forge_player/benchmarks/video_corpus/results/quality_frames/sintel_rooftop_426x240_high_crf12_f48_m6-current-20260901T180818Z-01-current.png",
+          "scene": "sintel_rooftop",
+          "width": 1920
+        },
+        {
+          "frame": 48,
+          "height": 1080,
+          "path": "/home/rolaandjayz/ZCodeProject/temporal_forge_player/benchmarks/video_corpus/results/quality_frames/sintel_cave_426x240_high_crf12_f48_m6-current-20260901T180818Z-01-current.png",
+          "scene": "sintel_cave",
+          "width": 1920
+        }
+      ]
+    },
+    {
+      "binarySha256": "1b8efb8068d2034df0b7547f02c91c35a89f78f829e5f65c423fccb0ec32c742",
+      "configPath": "benchmarks/quality_sweeps/stage_a/base_only_bilinear.json",
+      "configSha256": "91800f566018a55bea418d840d4e6ddfcab7d96d7cf9862e789e1cb6e7ebed8c",
+      "dimensions": {
+        "output": "1920x1080",
+        "source": "426x240"
+      },
+      "gitCommit": "0d36015e817e36526d42115a2e0f46a8eadede5a",
+      "id": "base_only_bilinear",
+      "reviewAssets": [
+        {
+          "frame": 48,
+          "height": 1080,
+          "path": "/home/rolaandjayz/ZCodeProject/temporal_forge_player/benchmarks/video_corpus/results/quality_frames/tos_daylight_426x240_high_crf12_f48_m6-base_only_bilinear-20260901T180836Z-01-base_only_bilinear.png",
+          "scene": "tos_daylight",
+          "width": 1920
+        },
+        {
+          "frame": 48,
+          "height": 1080,
+          "path": "/home/rolaandjayz/ZCodeProject/temporal_forge_player/benchmarks/video_corpus/results/quality_frames/tos_debris_426x240_high_crf12_f48_m6-base_only_bilinear-20260901T180836Z-01-base_only_bilinear.png",
+          "scene": "tos_debris",
+          "width": 1920
+        },
+        {
+          "frame": 48,
+          "height": 1080,
+          "path": "/home/rolaandjayz/ZCodeProject/temporal_forge_player/benchmarks/video_corpus/results/quality_frames/sintel_rooftop_426x240_high_crf12_f48_m6-base_only_bilinear-20260901T180836Z-01-base_only_bilinear.png",
+          "scene": "sintel_rooftop",
+          "width": 1920
+        },
+        {
+          "frame": 48,
+          "height": 1080,
+          "path": "/home/rolaandjayz/ZCodeProject/temporal_forge_player/benchmarks/video_corpus/results/quality_frames/sintel_cave_426x240_high_crf12_f48_m6-base_only_bilinear-20260901T180836Z-01-base_only_bilinear.png",
+          "scene": "sintel_cave",
+          "width": 1920
+        }
+      ]
+    },
+    {
+      "binarySha256": "1b8efb8068d2034df0b7547f02c91c35a89f78f829e5f65c423fccb0ec32c742",
+      "configPath": "benchmarks/quality_sweeps/stage_b/base_only_mitchell.json",
+      "configSha256": "afe42b2090307bbb5c6f6a23c4a91417369f8ec3b3b4b16f875a80bfcf1bbb81",
+      "dimensions": {
+        "output": "1920x1080",
+        "source": "426x240"
+      },
+      "gitCommit": "0d36015e817e36526d42115a2e0f46a8eadede5a",
+      "id": "base_only_mitchell",
+      "reviewAssets": [
+        {
+          "frame": 48,
+          "height": 1080,
+          "path": "/home/rolaandjayz/ZCodeProject/temporal_forge_player/benchmarks/video_corpus/results/quality_frames/tos_daylight_426x240_high_crf12_f48_m6-base_only_mitchell-20260901T180854Z-01-base_only_mitchell.png",
+          "scene": "tos_daylight",
+          "width": 1920
+        },
+        {
+          "frame": 48,
+          "height": 1080,
+          "path": "/home/rolaandjayz/ZCodeProject/temporal_forge_player/benchmarks/video_corpus/results/quality_frames/tos_debris_426x240_high_crf12_f48_m6-base_only_mitchell-20260901T180854Z-01-base_only_mitchell.png",
+          "scene": "tos_debris",
+          "width": 1920
+        },
+        {
+          "frame": 48,
+          "height": 1080,
+          "path": "/home/rolaandjayz/ZCodeProject/temporal_forge_player/benchmarks/video_corpus/results/quality_frames/sintel_rooftop_426x240_high_crf12_f48_m6-base_only_mitchell-20260901T180854Z-01-base_only_mitchell.png",
+          "scene": "sintel_rooftop",
+          "width": 1920
+        },
+        {
+          "frame": 48,
+          "height": 1080,
+          "path": "/home/rolaandjayz/ZCodeProject/temporal_forge_player/benchmarks/video_corpus/results/quality_frames/sintel_cave_426x240_high_crf12_f48_m6-base_only_mitchell-20260901T180854Z-01-base_only_mitchell.png",
+          "scene": "sintel_cave",
+          "width": 1920
+        }
+      ]
+    },
+    {
+      "binarySha256": "1b8efb8068d2034df0b7547f02c91c35a89f78f829e5f65c423fccb0ec32c742",
+      "configPath": "benchmarks/quality_sweeps/stage_b/base_only_catmull_rom.json",
+      "configSha256": "445d522bdc9eaccf4d8ed463f33bc475a5986cda76e343cebd36bff36cc58035",
+      "dimensions": {
+        "output": "1920x1080",
+        "source": "426x240"
+      },
+      "gitCommit": "0d36015e817e36526d42115a2e0f46a8eadede5a",
+      "id": "base_only_catmull_rom",
+      "reviewAssets": [
+        {
+          "frame": 48,
+          "height": 1080,
+          "path": "/home/rolaandjayz/ZCodeProject/temporal_forge_player/benchmarks/video_corpus/results/quality_frames/tos_daylight_426x240_high_crf12_f48_m6-base_only_catmull_rom-20260901T180912Z-01-base_only_catmull_rom.png",
+          "scene": "tos_daylight",
+          "width": 1920
+        },
+        {
+          "frame": 48,
+          "height": 1080,
+          "path": "/home/rolaandjayz/ZCodeProject/temporal_forge_player/benchmarks/video_corpus/results/quality_frames/tos_debris_426x240_high_crf12_f48_m6-base_only_catmull_rom-20260901T180912Z-01-base_only_catmull_rom.png",
+          "scene": "tos_debris",
+          "width": 1920
+        },
+        {
+          "frame": 48,
+          "height": 1080,
+          "path": "/home/rolaandjayz/ZCodeProject/temporal_forge_player/benchmarks/video_corpus/results/quality_frames/sintel_rooftop_426x240_high_crf12_f48_m6-base_only_catmull_rom-20260901T180912Z-01-base_only_catmull_rom.png",
+          "scene": "sintel_rooftop",
+          "width": 1920
+        },
+        {
+          "frame": 48,
+          "height": 1080,
+          "path": "/home/rolaandjayz/ZCodeProject/temporal_forge_player/benchmarks/video_corpus/results/quality_frames/sintel_cave_426x240_high_crf12_f48_m6-base_only_catmull_rom-20260901T180912Z-01-base_only_catmull_rom.png",
+          "scene": "sintel_cave",
+          "width": 1920
+        }
+      ]
+    },
+    {
+      "binarySha256": "1b8efb8068d2034df0b7547f02c91c35a89f78f829e5f65c423fccb0ec32c742",
+      "configPath": "benchmarks/quality_sweeps/stage_b/base_only_lanczos2.json",
+      "configSha256": "7de7e8df1bff8a15924ce0e9efda341633af52c3954c3a460f2508f4d6354cc6",
+      "dimensions": {
+        "output": "1920x1080",
+        "source": "426x240"
+      },
+      "gitCommit": "0d36015e817e36526d42115a2e0f46a8eadede5a",
+      "id": "base_only_lanczos2",
+      "reviewAssets": [
+        {
+          "frame": 48,
+          "height": 1080,
+          "path": "/home/rolaandjayz/ZCodeProject/temporal_forge_player/benchmarks/video_corpus/results/quality_frames/tos_daylight_426x240_high_crf12_f48_m6-base_only_lanczos2-20260901T180930Z-01-base_only_lanczos2.png",
+          "scene": "tos_daylight",
+          "width": 1920
+        },
+        {
+          "frame": 48,
+          "height": 1080,
+          "path": "/home/rolaandjayz/ZCodeProject/temporal_forge_player/benchmarks/video_corpus/results/quality_frames/tos_debris_426x240_high_crf12_f48_m6-base_only_lanczos2-20260901T180930Z-01-base_only_lanczos2.png",
+          "scene": "tos_debris",
+          "width": 1920
+        },
+        {
+          "frame": 48,
+          "height": 1080,
+          "path": "/home/rolaandjayz/ZCodeProject/temporal_forge_player/benchmarks/video_corpus/results/quality_frames/sintel_rooftop_426x240_high_crf12_f48_m6-base_only_lanczos2-20260901T180930Z-01-base_only_lanczos2.png",
+          "scene": "sintel_rooftop",
+          "width": 1920
+        },
+        {
+          "frame": 48,
+          "height": 1080,
+          "path": "/home/rolaandjayz/ZCodeProject/temporal_forge_player/benchmarks/video_corpus/results/quality_frames/sintel_cave_426x240_high_crf12_f48_m6-base_only_lanczos2-20260901T180930Z-01-base_only_lanczos2.png",
+          "scene": "sintel_cave",
+          "width": 1920
+        }
+      ]
+    }
+  ],
+  "classSelections": {
+    "sintel_cave": [
+      "low-light-shadow-detail"
+    ],
+    "sintel_rooftop": [
+      "high-contrast-architecture"
+    ],
+    "tos_daylight": [
+      "faces-hair-skin",
+      "fine-fabric-texture"
+    ],
+    "tos_debris": []
+  },
+  "classes": [
+    "faces-hair-skin",
+    "fine-fabric-texture",
+    "high-contrast-architecture",
+    "low-light-shadow-detail"
+  ],
+  "corpus": {
+    "manifestPath": "benchmarks/video_corpus/manifest.csv",
+    "selection": [
+      "tos_daylight",
+      "tos_debris",
+      "sintel_rooftop",
+      "sintel_cave"
+    ],
+    "syntheticFamiliesExcluded": true
+  },
+  "dimensions": {
+    "output": "1920x1080",
+    "source": "426x240"
+  },
+  "environment": {
+    "TFORGE_ALLOW_SPATIAL_TEMPORAL_CONTROL": "1",
+    "TFORGE_DISABLE_HW_DECODE": "1",
+    "TFORGE_FSR4_CAS_STRENGTH": "0.04",
+    "TFORGE_FSR4_ENABLE_COLOR_HISTORY": "1",
+    "TFORGE_FSR4_ENABLE_RECURRENT": "1",
+    "TFORGE_REVIEW_PIPELINE_CONFIG": "/dev/null"
+  },
+  "evidenceMode": "metrics_only",
+  "executionProvenance": {
+    "captureRetries": 1,
+    "captureWorkers": 1,
+    "currentGitHead": "0d36015e817e36526d42115a2e0f46a8eadede5a",
+    "executedBinary": "/home/rolaandjayz/ZCodeProject/temporal_forge_player/build/temporal_forge_player",
+    "executedBinarySha256": "1b8efb8068d2034df0b7547f02c91c35a89f78f829e5f65c423fccb0ec32c742",
+    "gitCommit": "0d36015e817e36526d42115a2e0f46a8eadede5a",
+    "gitCommitAuthoritative": true,
+    "gitCommitStatus": "recorded",
+    "note": "Executed data-only campaign artifacts retain the exact binary/config hashes, result paths, timing, and temporal provenance; image payloads are intentionally omitted.",
+    "plannedBinary": "/home/rolaandjayz/ZCodeProject/temporal_forge_player/build-fast/temporal_forge_player",
+    "plannedBinarySha256": "1b8efb8068d2034df0b7547f02c91c35a89f78f829e5f65c423fccb0ec32c742",
+    "resultsPath": "benchmarks/quality_sweeps/m6_recapture_20260901_final/campaign-results.json"
+  },
+  "frame": 48,
+  "quality": "high",
+  "qualityClassAnnotationsPath": "benchmarks/quality_sweeps/m6_quality_class_annotations.json",
+  "requiredMetrics": [
+    "psnr_db",
+    "ssim",
+    "edge_ssim",
+    "static_flicker",
+    "edge_variance",
+    "motion_compensated_error",
+    "ghost_duration_frames",
+    "reset_recovery_frames"
+  ],
+  "schemaVersion": 2,
+  "spatialEvidence": {
+    "complete": true,
+    "note": "Frame-48 numeric spatial evidence is complete; rendered image payloads are optional under metrics_only.",
+    "resultRoot": "benchmarks/video_corpus/results/quality_frames",
+    "sourceManifest": "benchmarks/quality_sweeps/m6_6_1_real_spatial_controls.json"
+  },
+  "temporalEvidence": {
+    "captureRoot": "benchmarks/quality_sweeps/m6_temporal_data_only_20260831",
+    "complete": true,
+    "matrixPath": "benchmarks/quality_sweeps/m6_final_matrix_20260831.json",
+    "note": "All strict candidate/scene/class rows are event-backed; no rendered image payloads are required.",
+    "rowCount": 20,
+    "rows": [],
+    "status": "complete"
+  }
+}

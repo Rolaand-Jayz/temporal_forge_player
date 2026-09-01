@@ -1,0 +1,43 @@
+{
+  "classSelections": {
+    "sintel_cave": [
+      "low-light-shadow-detail"
+    ],
+    "sintel_rooftop": [
+      "high-contrast-architecture"
+    ],
+    "tos_daylight": [
+      "faces-hair-skin",
+      "fine-fabric-texture"
+    ],
+    "tos_debris": []
+  },
+  "clipRegex": "^(tos_daylight|tos_debris|sintel_rooftop|sintel_cave)$",
+  "corpusManifest": "benchmarks/video_corpus/manifest.csv",
+  "dimensions": "426x240",
+  "environment": {
+    "TFORGE_ALLOW_SPATIAL_TEMPORAL_CONTROL": "1",
+    "TFORGE_DISABLE_HW_DECODE": "1",
+    "TFORGE_FSR4_CAS_STRENGTH": "0.04",
+    "TFORGE_FSR4_ENABLE_COLOR_HISTORY": "1",
+    "TFORGE_FSR4_ENABLE_RECURRENT": "1",
+    "TFORGE_REVIEW_PIPELINE_CONFIG": "/dev/null"
+  },
+  "evidenceMode": "metrics_only",
+  "experiments": [
+    {
+      "config": "/home/rolaandjayz/ZCodeProject/temporal_forge_player/benchmarks/quality_sweeps/stage_a/current.json",
+      "environment": {
+        "TFORGE_FSR4_LEARNED_STRENGTH": "0.25"
+      },
+      "id": "current"
+    }
+  ],
+  "jitter": {
+    "controlledStrength": 1.0,
+    "mode": "current"
+  },
+  "name": "m6-6-1-real-spatial-controls-grounded-current",
+  "outputDimensions": "1920x1080",
+  "qualityClassAnnotationsPath": "benchmarks/quality_sweeps/m6_quality_class_annotations.json"
+}

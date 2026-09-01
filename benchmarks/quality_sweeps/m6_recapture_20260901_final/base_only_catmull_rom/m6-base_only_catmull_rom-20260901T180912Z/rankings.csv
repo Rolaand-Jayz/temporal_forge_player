@@ -1,0 +1,2 @@
+candidateId,exitCode,rowCount,meanFsrPsnrDb,meanFsrSsim,meanFsrEdgeSsim,meanLanczosSsim,meanBicubicSsim,meanLowfreqLumaMae,meanLowfreqLumaBias,meanGpuMs,meanPipelineCpuMs
+base_only_catmull_rom,0,4,26.79623475,0.590715,0.575955,0.58358525,0.589623,0.02150325,0.0059039999999999995,,
