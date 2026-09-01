@@ -175,7 +175,7 @@ def parse_args() -> argparse.Namespace:
         "--workers",
         type=int,
         default=max(1, int(os.environ.get("TFORGE_CAPTURE_WORKERS", "2"))),
-        help="Maximum independent candidate campaigns to run concurrently (default: 2).",
+        help="Compatibility setting; real campaign captures run serially (default: 2).",
     )
     parser.add_argument(
         "--retries",
