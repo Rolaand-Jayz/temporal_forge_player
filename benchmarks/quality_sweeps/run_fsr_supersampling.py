@@ -70,6 +70,8 @@ def main() -> int:
     parser.add_argument("--scene", action="append", choices=SCENES + ("synthetic_edges_text", "bbb_branches"))
     parser.add_argument("--source", default="1280x720")
     parser.add_argument("--frame", type=int, default=48)
+    parser.add_argument("--cas-strength", required=True,
+                        help="explicit renderer-integrated CAS strength")
     parser.add_argument("--scale", type=float, action="append", choices=SCALES,
                         help="limit the run to selected reconstruction scales")
     args = parser.parse_args()
@@ -118,6 +120,8 @@ def main() -> int:
                 "TFORGE_FSR4_FORCE_VIEWPORT": f"{intermediate_w}x{intermediate_h}",
                 "TFORGE_FSR4_FORCE_SCALE": f"{scale:.2f}",
                 "TFORGE_FSR4_JITTER_MODE": "off",
+                "TFORGE_REVIEW_FSR_CAS": args.cas_strength,
+                "TFORGE_FSR4_CAS_STRENGTH": args.cas_strength,
                 "TFORGE_DISABLE_HW_DECODE": "1",
                 "TFORGE_FSR4_PROFILE_TIMINGS": "1",
             })
@@ -163,6 +167,7 @@ def main() -> int:
             gpu = re.findall(r"GPU=([0-9.]+)ms", stage_text)
             output_rows.append({
                 "scene": scene, "scale": f"{scale:.2f}",
+                "cas_strength": args.cas_strength,
                 "source_resolution": f"{row['width']}x{row['height']}",
                 "intermediate_resolution": f"{intermediate_w}x{intermediate_h}",
                 "final_resolution": args.final, "downsample": reduction,

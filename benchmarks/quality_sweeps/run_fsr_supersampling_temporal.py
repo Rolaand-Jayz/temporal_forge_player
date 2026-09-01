@@ -67,6 +67,8 @@ def main() -> int:
     parser.add_argument("--frames", type=int, default=12)
     parser.add_argument("--warmup", type=int, default=12)
     parser.add_argument("--source", default="1280x720")
+    parser.add_argument("--cas-strength", required=True,
+                        help="explicit renderer-integrated CAS strength")
     parser.add_argument("--scene", action="append", choices=SCENES)
     parser.add_argument("--scale", type=float, action="append", choices=SCALES,
                         help="limit the run to selected reconstruction scales")
@@ -100,6 +102,7 @@ def main() -> int:
                 "TFORGE_FSR4_FORCE_VIEWPORT": f"{iw}x{ih}",
                 "TFORGE_FSR4_FORCE_SCALE": f"{scale:.2f}",
                 "TFORGE_FSR4_JITTER_MODE": "off",
+                "TFORGE_FSR4_CAS_STRENGTH": args.cas_strength,
                 "TFORGE_DISABLE_HW_DECODE": "1",
                 "TFORGE_FSR4_PROFILE_TIMINGS": "1",
                 "TFORGE_TEMPORAL_CAPTURE_TIMEOUT": "60",
@@ -138,6 +141,7 @@ def main() -> int:
             gpu = values(r"GPU=([0-9.]+)ms", stage)
             result_rows.append({
                 "scene": scene, "scale": f"{scale:.2f}", "source_resolution": args.source,
+                "cas_strength": args.cas_strength,
                 "intermediate_resolution": f"{iw}x{ih}", "final_resolution": args.final,
                 "downsample": "lanczos", "frames": str(args.frames), "warmup": str(args.warmup),
                 "ssim_mean": f"{statistics.mean(scores):.6f}", "ssim_min": f"{min(scores):.6f}",

@@ -196,6 +196,28 @@ It uses 12 warm-up and 12 scored frames per scene. Mean temporal SSIM was
 for this 1280x720→1920x1080 condition, while the edge-SSIM loss and
 performance cost remain part of the tradeoff.
 
+A matched 1440p delivery slice is retained in
+`benchmarks/quality_sweeps/resolution_720_to_1440_20260831.csv` and
+`benchmarks/quality_sweeps/resolution_720_to_1440_temporal_20260831.csv`.
+It covers all four real 1280x720 scenes at 2560x1440 delivery, with direct
+2.00x and 3.00x reconstruction, CAS 0.20 explicitly supplied to both runners,
+and the same 12-warm-up/12-scored temporal protocol. Spatial means were:
+
+| scale | PSNR dB | SSIM | edge-SSIM |
+|---:|---:|---:|---:|
+| 2.00x | 31.035636 | 0.875081 | 0.841841 |
+| 3.00x | 31.334488 | 0.877216 | 0.837970 |
+
+Temporal means were 0.799095 / 7.199238 for 2.00x and 0.878683 / 6.128250
+for 3.00x (SSIM / temporal-delta signal). Peak VRAM averaged approximately
+10.98 GB and 11.10 GB in the spatial captures, and 11.48 GB and 11.69 GB in
+the temporal captures. The 3.00x direction therefore repeats at 1440p for
+aggregate SSIM and temporal stability, while its edge-SSIM remains lower and
+its memory cost higher. The evidence supports resolution-dependent diagnostic
+controls, not automatic 3.00x promotion. Rendered media was removed after
+metric extraction under the campaign's data-only evidence policy; raw CSVs,
+logs, hashes, and provenance remain.
+
 ## Required-question closure matrix
 
 The following answers are limited to the retained evidence. “Open” means the
@@ -219,7 +241,7 @@ current data provides.
 | 13 | The filter contribution is small and condition-dependent in the retained sweeps. | Supported; no universal reducer winner. |
 | 14 | Neither filter wins universally: bicubic has tiny SSIM advantages in some rows, Lanczos tiny PSNR/temporal advantages elsewhere. | Supported by filter follow-up. |
 | 15 | Yes, the preferred ratio can change with source resolution: 3× helps at 640×360, while 1280×720→1920×1080 is mixed on edge quality. | Supported for two tested source conditions. |
-| 16 | Not yet established across all requested output resolutions. | Open: broader 1440p/2160p paired coverage. |
+| 16 | The 3.00x aggregate direction repeats for 1440p delivery, but the optimal strategy is not established across all requested outputs. | 1440p paired coverage supported; 2160p paired coverage remains open. |
 | 17 | NativeAA-assisted 1920×1080→1280×720 did not beat conventional controls. | Supported for the tested true-downscale condition. |
 | 18 | Above-source reconstruction followed by below-source reduction has not shown a broad advantage over ordinary downsampling. | Open beyond the tested condition and controls. |
 | 19 | No single highest-quality configuration is justified across all gates. | Supported by conflicting spatial, temporal, edge, and performance results. |

@@ -3963,3 +3963,26 @@ at 0.20 it was 0.877150 and 0.880125. The 0.20-minus-0.04 deltas were
 −0.002314 and −0.001629 SSIM, with temporal-delta increases of +0.120523 and
 +0.112248. The paired CAS-strength comparison is now closed for this
 condition: increasing CAS to 0.20 is not retained.
+
+## 2026-08-31 — 720p input to 1440p delivery generalization
+
+The existing supersampling runners were hardened to require an explicit
+`--cas-strength` argument and to write that value into every output row. The
+first attempt at this slice was rejected because it had no explicit CAS
+override; its artifacts were removed. The valid rerun used CAS `0.20`, zero
+jitter, software decode, frame 48 for spatial scoring, and 12 warm-up plus 12
+scored source-cadence frames for temporal scoring.
+
+The retained spatial and temporal CSVs are
+`benchmarks/quality_sweeps/resolution_720_to_1440_20260831.csv` and
+`benchmarks/quality_sweeps/resolution_720_to_1440_temporal_20260831.csv`.
+They cover all four real scenes, direct 2.00x versus 3.00x reconstruction, and
+2560x1440 final delivery. Spatial means were 31.035636 / 0.875081 / 0.841841
+(PSNR / SSIM / edge-SSIM) for 2.00x and 31.334488 / 0.877216 / 0.837970 for
+3.00x. Temporal means were 0.799095 / 7.199238 (SSIM / temporal-delta signal)
+for 2.00x and 0.878683 / 6.128250 for 3.00x. Peak VRAM averaged 10.98 GB and
+11.10 GB spatially, and 11.48 GB and 11.69 GB temporally. The result repeats
+the aggregate 3.00x temporal/spatial direction at 1440p but retains the edge
+and memory regressions; it does not justify a universal 3.00x promotion.
+Rendered media was removed after metric extraction under the accepted data-only
+policy; CSVs, raw logs, hashes, and configuration provenance remain.
