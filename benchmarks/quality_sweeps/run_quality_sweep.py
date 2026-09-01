@@ -55,6 +55,12 @@ except ImportError:
     from paired_spatial_metrics import write_paired_reports
 
 
+try:
+    from .trackmania_guard import guarded_worker_count
+except ImportError:
+    from trackmania_guard import guarded_worker_count
+
+
 ROOT = Path(__file__).resolve().parents[2]
 QUALITY_RUNNER = ROOT / "benchmarks" / "video_corpus" / "run_quality.sh"
 TIMING_RE = re.compile(
@@ -495,6 +501,9 @@ def main() -> int:
     args = parse_args()
     if args.workers < 1 or args.retries < 0:
         raise ValueError("workers must be >= 1 and retries must be >= 0")
+    args.workers, trackmania_active = guarded_worker_count(args.workers)
+    if trackmania_active:
+        print("Trackmania detected; running sample-producing sweep sequentially.", file=sys.stderr)
     manifest_path = args.manifest.resolve()
     binary = resolve_from_root(str(args.binary), ROOT)
     if not manifest_path.is_file():

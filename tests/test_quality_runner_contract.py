@@ -532,19 +532,24 @@ class QualityRunnerContractTests(unittest.TestCase):
 
                 with mock.patch.object(run_quality_campaign.subprocess, "run", side_effect=child_run):
                     with mock.patch.object(
-                        sys,
-                        "argv",
-                        [
-                            "run_quality_campaign.py",
-                            "--campaign",
-                            str(campaign),
-                            "--binary",
-                            str(binary),
-                            "--output-root",
-                            str(output),
-                        ],
+                        run_quality_campaign,
+                        "guarded_worker_count",
+                        return_value=(2, False),
                     ):
-                        self.assertEqual(run_quality_campaign.main(), 0)
+                        with mock.patch.object(
+                            sys,
+                            "argv",
+                            [
+                                "run_quality_campaign.py",
+                                "--campaign",
+                                str(campaign),
+                                "--binary",
+                                str(binary),
+                                "--output-root",
+                                str(output),
+                            ],
+                        ):
+                            self.assertEqual(run_quality_campaign.main(), 0)
 
             aggregate = json.loads((output / "campaign-results.json").read_text(encoding="utf-8"))
             self.assertEqual(len(aggregate), 1)

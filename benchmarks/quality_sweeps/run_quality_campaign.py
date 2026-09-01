@@ -30,6 +30,7 @@ from benchmarks.quality_sweeps.campaign_provenance import (
     capture_git_commit,
     stamp_result_git_commit,
 )
+from benchmarks.quality_sweeps.trackmania_guard import guarded_worker_count
 
 
 SWEEP = Path(__file__).with_name("run_quality_sweep.py")
@@ -187,6 +188,9 @@ def main() -> int:
     args = parse_args()
     if args.workers < 1 or args.retries < 0:
         raise CampaignError("workers must be >= 1 and retries must be >= 0")
+    args.workers, trackmania_active = guarded_worker_count(args.workers)
+    if trackmania_active:
+        print("Trackmania detected; running sample-producing campaign sequentially.", file=sys.stderr)
     with args.campaign.open("r", encoding="utf-8") as stream:
         campaign = json.load(stream)
     plans = runner_plans(campaign)

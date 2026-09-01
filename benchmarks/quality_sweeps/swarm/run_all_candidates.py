@@ -26,6 +26,8 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from typing import Any
 
+from benchmarks.quality_sweeps.trackmania_guard import guarded_worker_count
+
 
 ROOT = Path(__file__).resolve().parents[3]
 RUNNER = ROOT / "benchmarks/video_corpus/run_temporal_quality.sh"
@@ -248,6 +250,9 @@ def main() -> int:
     args = parse_args()
     if args.frames < 1 or args.workers < 1:
         raise SystemExit("frames and workers must be positive")
+    args.workers, trackmania_active = guarded_worker_count(args.workers)
+    if trackmania_active:
+        print("Trackmania detected; running sample-producing swarm sequentially.", file=sys.stderr)
     records = build_candidates(args.mode)
     args.manifest_out.parent.mkdir(parents=True, exist_ok=True)
     args.manifest_out.write_text(json.dumps({"mode": args.mode, "candidates": records}, indent=2, sort_keys=True) + "\n", encoding="utf-8")
