@@ -3999,11 +3999,32 @@ The data-only 2160p slice is retained in
 `benchmarks/quality_sweeps/resolution_720_to_2160_20260831.csv`,
 `benchmarks/quality_sweeps/resolution_720_to_2160_temporal_20260831.csv`, and
 `benchmarks/quality_sweeps/review_images_720_to_2160_20260831.csv`. Spatial
-rows cover all four real scenes across 2.00x, 2.25x, 2.50x, 2.75x, and 3.00x;
-temporal rows cover 2.00x and 3.00x with the matched warm-up/scored-frame
-protocol. The temporal means are 0.880952 / 6.133414 for 2.00x and
-0.827792 / 6.725866 for 3.00x (SSIM / temporal-delta signal). Spatial mean
-SSIM across the five scales is 0.891968, 0.892311, 0.892365, 0.892589, and
-0.892540. This adds 2160p coverage but does not justify a universal 3.00x
-promotion; the five-ratio temporal matrix and clean performance isolation
-remain open.
+rows and temporal rows cover all four real scenes across 2.00x, 2.25x, 2.50x,
+2.75x, and 3.00x with the matched warm-up/scored-frame protocol. Temporal
+mean SSIM / temporal-delta signal are 0.880951 / 6.133414, 0.824979 / 6.985770,
+0.835283 / 6.920159, 0.834618 / 6.840943, and 0.827792 / 6.725866 respectively.
+Spatial mean SSIM is 0.891968, 0.892311, 0.892365, 0.892589, and 0.892540.
+The complete 2160p matrix favors the direct 2.00x delivery-grid arm temporally
+and does not justify a universal 3.00x promotion. Clean performance isolation
+remains open.
+
+## 2026-09-01 — Required harness resolution coverage and label audit
+
+The harness controls were checked against the brief: input heights are 360,
+480, 540, 720, and 1080; output heights are 720, 1080, 1440, and 2160. A
+serial 854x480 high-quality corpus run filled the missing 480p evidence tier
+with 20 rows across the four real scenes and 2.00x, 2.25x, 2.50x, 2.75x, and
+3.00x delivery-grid multipliers at 1280x720 output. The output tiers are
+represented by the existing 720p, 1080p, 1440p, and 2160p matrices.
+
+There is no native 540p high-quality clip in the corpus. Per the brief's
+missing-combination rule, 540p remains selectable and displays `NO IMAGE`; no
+other resolution is relabeled as 540p. A derived 540p fixture would be a
+separate experiment and is not included in this campaign slice.
+
+`tools/audit_quality_evidence.py` verifies the captured asset against its CSV
+row, parses the source video timestamp for the recorded frame, and checks the
+captured intermediate dimensions. It passed all 20 new 480p rows, recorded in
+`benchmarks/quality_sweeps/resolution_480_to_720_20260901.audit.json`. Existing
+campaign CSVs retain frame numbers and source hashes; they do not have
+wall-clock timestamps, so their label audit is limited to those fields.
