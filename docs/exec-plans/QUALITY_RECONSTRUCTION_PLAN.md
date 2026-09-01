@@ -3992,3 +3992,18 @@ the aggregate 3.00x temporal/spatial direction at 1440p but retains the edge
 and memory regressions; it does not justify a universal 3.00x promotion.
 Rendered media was removed after metric extraction under the accepted data-only
 policy; CSVs, raw logs, hashes, and configuration provenance remain.
+
+## 2026-08-31 — 2160p delivery generalization slice
+
+The data-only 2160p slice is retained in
+`benchmarks/quality_sweeps/resolution_720_to_2160_20260831.csv`,
+`benchmarks/quality_sweeps/resolution_720_to_2160_temporal_20260831.csv`, and
+`benchmarks/quality_sweeps/review_images_720_to_2160_20260831.csv`. Spatial
+rows cover all four real scenes across 2.00x, 2.25x, 2.50x, 2.75x, and 3.00x;
+temporal rows cover 2.00x and 3.00x with the matched warm-up/scored-frame
+protocol. The temporal means are 0.880952 / 6.133414 for 2.00x and
+0.827792 / 6.725866 for 3.00x (SSIM / temporal-delta signal). Spatial mean
+SSIM across the five scales is 0.891968, 0.892311, 0.892365, 0.892589, and
+0.892540. This adds 2160p coverage but does not justify a universal 3.00x
+promotion; the five-ratio temporal matrix and clean performance isolation
+remain open.

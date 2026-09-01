@@ -220,6 +220,18 @@ controls, not automatic 3.00x promotion. Rendered media was removed after
 metric extraction under the campaign's data-only evidence policy; raw CSVs,
 logs, hashes, and provenance remain.
 
+A 2160p delivery slice is also retained in
+`benchmarks/quality_sweeps/resolution_720_to_2160_20260831.csv`,
+`benchmarks/quality_sweeps/resolution_720_to_2160_temporal_20260831.csv`, and
+`benchmarks/quality_sweeps/review_images_720_to_2160_20260831.csv`. The spatial
+data covers all four real scenes at 2.00x, 2.25x, 2.50x, 2.75x, and 3.00x;
+the paired temporal data currently covers 2.00x and 3.00x. For those temporal
+rows, mean SSIM / temporal-delta signal were 0.880952 / 6.133414 at 2.00x and
+0.827792 / 6.725866 at 3.00x. Spatial mean SSIM across the five scales was
+0.891968, 0.892311, 0.892365, 0.892589, and 0.892540 respectively. This is
+mixed 2160p evidence and does not support a universal 3.00x claim. The
+five-ratio 2160p temporal matrix and clean performance isolation remain open.
+
 ## Required-question closure matrix
 
 The following answers are limited to the retained evidence. “Open” means the
@@ -243,7 +255,7 @@ current data provides.
 | 13 | The filter contribution is small and condition-dependent in the retained sweeps. | Supported; no universal reducer winner. |
 | 14 | Neither filter wins universally: bicubic has tiny SSIM advantages in some rows, Lanczos tiny PSNR/temporal advantages elsewhere. | Supported by filter follow-up. |
 | 15 | Yes, the preferred ratio can change with source resolution: 3× helps at 640×360, while 1280×720→1920×1080 is mixed on edge quality. | Supported for two tested source conditions. |
-| 16 | The 3.00x aggregate direction repeats for 1440p delivery, but the optimal strategy is not established across all requested outputs. | 1440p paired coverage supported; 2160p paired coverage remains open. |
+| 16 | The 3.00x aggregate direction repeats at 1440p, while the 2160p paired 2.00x/3.00x slice is mixed and does not establish a universal ratio. | 1440p paired coverage and partial 2160p coverage supported; a complete five-ratio 2160p temporal matrix remains open. |
 | 17 | NativeAA-assisted 1920×1080→1280×720 did not beat conventional controls. | Supported for the tested true-downscale condition. |
 | 18 | Above-source reconstruction followed by below-source reduction has not shown a broad advantage over ordinary downsampling. | Open beyond the tested condition and controls. |
 | 19 | No single highest-quality configuration is justified across all gates. | Supported by conflicting spatial, temporal, edge, and performance results. |
