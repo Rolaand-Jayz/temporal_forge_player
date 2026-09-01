@@ -247,6 +247,7 @@ def main() -> int:
             for method, flags in (("conventional_lanczos", "lanczos"), ("conventional_bicubic", "bicubic"),
                                   ("base_only_bilinear_cas20", "bilinear")):
                 output = harness / "images" / filename(scene, input_height, method, output_height)
+                output.parent.mkdir(parents=True, exist_ok=True)
                 vf = f"scale={round(output_height * 16 / 9)}:{output_height}:flags={flags}"
                 if method == "base_only_bilinear_cas20":
                     vf += ",cas=strength=0.20"

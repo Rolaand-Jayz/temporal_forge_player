@@ -67,12 +67,12 @@ class M6Schema2CampaignTests(unittest.TestCase):
         with self.assertRaises(CampaignError):
             validate_campaign(invalid)
 
-    def test_metrics_only_campaign_does_not_require_review_asset_files(self) -> None:
+    def test_visual_campaign_retains_review_asset_files(self) -> None:
         candidates = self.campaign["candidates"]
         self.assertEqual(len(candidates), 5)
         for candidate in candidates:
             self.assertEqual(candidate["dimensions"], {"source": "426x240", "output": "1920x1080"})
-            self.assertEqual(self.campaign.get("evidenceMode"), "metrics_only")
+            self.assertEqual(self.campaign.get("evidenceMode"), "visual_and_metrics")
 
 
 if __name__ == "__main__":

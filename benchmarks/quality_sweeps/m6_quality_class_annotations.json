@@ -24,7 +24,7 @@
       "inputResolution": "426x240",
       "outputResolution": "1920x1080",
       "qualityClass": "faces-hair-skin",
-      "assetPath": "benchmarks/video_corpus/results/quality_frames/tos_daylight_426x240_high_crf12_f48_m6-6-1-current-20260822.png",
+      "assetPath": "review_harness/images/scene-tos_daylight__frame-0048__in-360p__method-current_cas20__out-1080p.png",
       "staticRegion": {
         "x": 250,
         "y": 100,
@@ -42,7 +42,7 @@
       "inputResolution": "426x240",
       "outputResolution": "1920x1080",
       "qualityClass": "fine-fabric-texture",
-      "assetPath": "benchmarks/video_corpus/results/quality_frames/tos_daylight_426x240_high_crf12_f48_m6-6-1-current-20260822.png",
+      "assetPath": "review_harness/images/scene-tos_daylight__frame-0048__in-360p__method-current_cas20__out-1080p.png",
       "staticRegion": {
         "x": 850,
         "y": 400,
@@ -60,7 +60,7 @@
       "inputResolution": "426x240",
       "outputResolution": "1920x1080",
       "qualityClass": "high-contrast-architecture",
-      "assetPath": "benchmarks/video_corpus/results/quality_frames/sintel_rooftop_426x240_high_crf12_f48_m6-6-1-spatial-20260823T035431Z-01-current.png",
+      "assetPath": "review_harness/images/scene-sintel_rooftop__frame-0048__in-360p__method-current_cas20__out-1080p.png",
       "staticRegion": {
         "x": 900,
         "y": 100,
@@ -78,7 +78,7 @@
       "inputResolution": "426x240",
       "outputResolution": "1920x1080",
       "qualityClass": "low-light-shadow-detail",
-      "assetPath": "benchmarks/video_corpus/results/quality_frames/sintel_cave_426x240_high_crf12_f48_m6-6-1-spatial-20260823T035431Z-01-current.png",
+      "assetPath": "review_harness/images/scene-sintel_cave__frame-0048__in-360p__method-current_cas20__out-1080p.png",
       "staticRegion": {
         "x": 0,
         "y": 100,
