@@ -204,7 +204,7 @@ current data provides.
 
 | # | answer | evidence status |
 |---:|---|---|
-| 1 | In the paired 1280×720→1920×1080 frame-48 capture, CAS 0.04→0.20 changed base-only bilinear by 0.000000 SSIM and current by +0.000003 SSIM. | Spatial delta supported; paired temporal delta remains open. |
+| 1 | In the paired 1280×720→1920×1080 capture, CAS 0.04→0.20 changed spatial SSIM by 0.000000 for base-only bilinear and +0.000003 for current; over 12 scored temporal frames it changed mean SSIM by −0.001629 and −0.002314 respectively. | Supported by paired spatial and temporal captures; the change is not an improvement. |
 | 2 | Yes, current remains the temporal default in the cadence-clean M6 evidence. | Supported by the M6 cadence/performance record. |
 | 3 | Yes, base-only bilinear remains the strongest spatial control in M6. | Supported by the M6 spatial matrix. |
 | 4 | No corrected-CAS evidence justifies changing the M6 no-promotion conclusion. | Supported for the tested controls; broader CAS delta remains open. |
@@ -238,8 +238,18 @@ the current path changed from PSNR 31.053447 / SSIM 0.879059 / edge-SSIM
 0.829815 at 0.04 to 31.053407 / 0.879062 / 0.829798 at 0.20. Base-only
 bilinear was identical at the reported precision: 31.279136 / 0.881645 /
 0.826906 at both strengths. The corrected CAS policy therefore does not alter
-the spatial finalist tradeoff in this paired condition; a paired temporal
-strength comparison is still required before claiming temporal equivalence.
+the spatial finalist tradeoff in this paired condition.
+
+The companion temporal capture
+`benchmarks/quality_sweeps/cas_strength_pair_temporal_20260831.csv` contains
+32 rows: the same two candidates and strengths across four scenes, 12 scored
+frames after 12 warmup frames, and both Lanczos and bicubic reducers. At 0.04,
+mean temporal SSIM was 0.879464 for current and 0.881754 for base-only
+bilinear; at 0.20 it was 0.877150 and 0.880125. Thus 0.20 reduced mean
+temporal SSIM by 0.002314 for current and 0.001629 for base-only bilinear,
+while increasing the corresponding mean temporal-delta signals by 0.120523
+and 0.112248. This closes the paired CAS-strength comparison for this
+condition and provides no basis for increasing CAS to 0.20.
 
 ## Winner and runner-up
 

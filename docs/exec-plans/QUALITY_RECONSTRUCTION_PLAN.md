@@ -3952,5 +3952,14 @@ Across the four-scene means, current changed from PSNR 31.053447 / SSIM
 0.879059 / edge-SSIM 0.829815 at 0.04 to 31.053407 / 0.879062 / 0.829798 at
 0.20. Base-only bilinear was identical at the reported precision: 31.279136 /
 0.881645 / 0.826906 at both strengths. This closes the spatial CAS-strength
-delta for this paired condition; a paired temporal strength comparison remains
-open.
+delta for this paired condition.
+
+The companion temporal capture is retained in
+`benchmarks/quality_sweeps/cas_strength_pair_temporal_20260831.csv`. It has 32
+rows covering both candidates, both strengths, four scenes, 12 scored frames
+after 12 warmup frames, and Lanczos plus bicubic reducers. At 0.04, mean
+temporal SSIM was 0.879464 for current and 0.881754 for base-only bilinear;
+at 0.20 it was 0.877150 and 0.880125. The 0.20-minus-0.04 deltas were
+−0.002314 and −0.001629 SSIM, with temporal-delta increases of +0.120523 and
++0.112248. The paired CAS-strength comparison is now closed for this
+condition: increasing CAS to 0.20 is not retained.
