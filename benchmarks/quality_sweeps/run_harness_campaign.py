@@ -4,7 +4,7 @@
 Each pair is a transaction: renderer arms are captured serially, source-based
 controls are created from the matched decoded input frame, then every method
 for the pair is exported and dimension-checked.  A pair is never marked done
-until all 27 method IDs have files for all three scenes.
+until all 23 method IDs have files for all four scenes.
 """
 from __future__ import annotations
 
@@ -25,9 +25,9 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 from benchmarks.quality_sweeps.trackmania_guard import DEFAULT_GAME_PATTERNS, running_games
-SCENES = ("tos_daylight", "sintel_rooftop", "sintel_cave")
+SCENES = ("tos_daylight", "tos_debris", "sintel_rooftop", "sintel_cave")
 SCALES = (2.00, 2.25, 2.50, 2.75, 3.00)
-CAS_PLACEMENTS = ("resolve", "post", "both", "none")
+CAS_PLACEMENTS = ("pre", "post", "none")
 PAIRS = (
     (360, "640x360", 720), (360, "640x360", 1080), (360, "640x360", 1440), (360, "640x360", 2160),
     (480, "854x480", 720), (480, "854x480", 1080), (480, "854x480", 1440), (480, "854x480", 2160),
@@ -39,8 +39,7 @@ METHODS = (
     "current_cas20", "base_only_bilinear_cas20", "fsr_direct_cas20",
     *(f"fsr_{int(scale * 100):03d}x_downsample_{placement}"
       for scale in SCALES for placement in CAS_PLACEMENTS),
-    "fsr_nativeaa_downsample_resolve", "fsr_nativeaa_downsample_post",
-    "fsr_nativeaa_downsample_both",
+    "fsr_nativeaa_downsample_cas20_pre", "fsr_nativeaa_downsample_cas20_post",
     "fsr_nativeaa_downsample_no_cas", "conventional_lanczos", "conventional_bicubic",
 )
 
@@ -160,7 +159,7 @@ def source_raw(scene_root: Path) -> Path:
 
 def main() -> int:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--player", type=Path, default=Path("build/temporal_forge_player"))
+    parser.add_argument("--player", type=Path, default=Path("build-fast/temporal_forge_player"))
     parser.add_argument("--artifact-root", type=Path, default=Path("benchmarks/quality_sweeps/harness_campaign_recapture_20260901"))
     parser.add_argument("--harness-root", type=Path, default=Path("review_harness"))
     parser.add_argument("--fixture-manifest", type=Path,
@@ -242,7 +241,7 @@ def main() -> int:
             print(f"completed {stem}: {sum(record['rows'] for record in records)} data rows")
             continue
         for scene in SCENES:
-            resolve_scene = roots["resolve"] / "scale_2_00" / scene
+            resolve_scene = roots["pre"] / "scale_2_00" / scene
             raw = source_raw(resolve_scene)
             # Conventional controls and bilinear+CAS are actual transforms of
             # the matched decoded input frame, never copies of FSR output.
@@ -259,18 +258,18 @@ def main() -> int:
             # At 2.00x the delivery grid equals the final image. These are the
             # direct/current controls, recorded as an explicit same-pipeline
             # provenance rather than silently pretending they were separate.
-            direct = roots["resolve"] / "scale_2_00" / scene / "candidate_final.png"
+            direct = roots["pre"] / "scale_2_00" / scene / "candidate_final.png"
             export(runner, direct, scene, input_height, "fsr_direct_cas20", output_height, harness)
             export(runner, direct, scene, input_height, "current_cas20", output_height, harness)
-            for placement, suffix in (("resolve", "resolve"), ("post", "post"),
-                                      ("both", "both"), ("none", "no_cas")):
+            for placement, suffix in (("pre", "cas20_pre"), ("post", "cas20_post"),
+                                      ("none", "no_cas")):
                 root = roots[placement]
                 for scale in SCALES:
                     export(runner, root / f"scale_{scale:.2f}".replace(".", "_") / scene / "candidate_final.png",
                            scene, input_height, f"fsr_{int(scale * 100):03d}x_downsample_{suffix}",
                            output_height, harness)
-            for placement, suffix in (("resolve", "resolve"), ("post", "post"),
-                                      ("both", "both"), ("none", "no_cas")):
+            for placement, suffix in (("pre", "cas20_pre"), ("post", "cas20_post"),
+                                      ("none", "no_cas")):
                 export(runner, native_root / "scale_2_00" / scene / "candidate_final.png",
                        scene, input_height, f"fsr_nativeaa_downsample_{suffix}", output_height, harness)
         missing = []

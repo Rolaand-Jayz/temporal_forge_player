@@ -20,7 +20,7 @@ from pathlib import Path
 
 
 SCALES = (2.00, 2.25, 2.50, 2.75, 3.00)
-SCENES = ("tos_daylight", "sintel_rooftop", "sintel_cave")
+SCENES = ("tos_daylight", "tos_debris", "sintel_rooftop", "sintel_cave")
 
 
 def even_dimension(value: int) -> int:
@@ -77,7 +77,7 @@ def metric(label: str, path: Path) -> str:
 
 def main() -> int:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--player", type=Path, default=Path("build/temporal_forge_player"))
+    parser.add_argument("--player", type=Path, default=Path("build-fast/temporal_forge_player"))
     parser.add_argument("--repo", type=Path, default=Path(__file__).resolve().parents[2])
     parser.add_argument("--manifest", type=Path,
                         help="override the video-corpus manifest for controlled fixtures")
@@ -89,8 +89,8 @@ def main() -> int:
     parser.add_argument("--frame", type=int, default=48)
     parser.add_argument("--cas-strength", required=True,
                         help="explicit renderer-integrated CAS strength")
-    parser.add_argument("--cas-placement", choices=("resolve", "post", "both", "none"), default="resolve",
-                        help="place CAS on the FSR resolve, after reduction, both, or disable it")
+    parser.add_argument("--cas-placement", choices=("pre", "post", "none"), default="pre",
+                        help="place CAS before reduction, after reduction, or disable it")
     parser.add_argument("--preset", default="saved",
                         help="benchmark preset forwarded to run_quality.sh")
     parser.add_argument("--scale", type=float, action="append", choices=SCALES,
@@ -181,7 +181,7 @@ def main() -> int:
                      str(final_candidate)], env=env, cwd=root)
             else:
                 run(["cp", str(source), str(final_candidate)], env=env, cwd=root)
-            if args.cas_placement in ("post", "both"):
+            if args.cas_placement == "post":
                 post_cas = scene_root / "candidate_post_cas.png"
                 run(["ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-i", str(final_candidate),
                      "-vf", f"cas=strength={args.cas_strength}", "-frames:v", "1", str(post_cas)],

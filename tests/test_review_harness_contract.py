@@ -29,25 +29,19 @@ class ReviewHarnessContractTests(unittest.TestCase):
     def test_required_controls_and_methods_are_always_present(self) -> None:
         for value in (360, 480, 540, 720, 1080, 1440, 2160):
             self.assertIn(str(value), self.html)
-        for method in (
-            "current_cas20", "base_only_bilinear_cas20", "fsr_direct_cas20",
-            "fsr_225x_downsample_resolve", "fsr_225x_downsample_post", "fsr_225x_downsample_both",
-            "fsr_225x_downsample_no_cas", "fsr_250x_downsample_resolve",
-            "fsr_250x_downsample_post", "fsr_250x_downsample_both", "fsr_250x_downsample_no_cas",
-            "fsr_275x_downsample_resolve", "fsr_275x_downsample_post", "fsr_275x_downsample_both",
-            "fsr_200x_downsample_resolve", "fsr_200x_downsample_post", "fsr_200x_downsample_both", "fsr_200x_downsample_no_cas",
-            "fsr_275x_downsample_no_cas", "fsr_300x_downsample_resolve",
-            "fsr_300x_downsample_post", "fsr_300x_downsample_both", "fsr_300x_downsample_no_cas",
-            "fsr_nativeaa_downsample_resolve", "fsr_nativeaa_downsample_post", "fsr_nativeaa_downsample_both",
-            "fsr_nativeaa_downsample_no_cas", "conventional_lanczos", "conventional_bicubic",
-        ):
+        for method in ("current_cas20", "base_only_bilinear_cas20", "fsr_direct_cas20",
+                       "conventional_lanczos", "conventional_bicubic"):
             self.assertIn(method, self.html)
+        self.assertIn("fsr_${value}x_downsample_${placement}", self.html)
+        self.assertIn("fsr_nativeaa_downsample_${placement}", self.html)
 
-    def test_harness_uses_three_campaign_scenes(self) -> None:
-        for scene in ("tos_daylight", "sintel_rooftop", "sintel_cave"):
+    def test_harness_uses_four_campaign_scenes(self) -> None:
+        for scene in ("tos_daylight", "tos_debris", "sintel_rooftop", "sintel_cave"):
             self.assertIn(scene, self.html)
-        for scene in ("bbb_grass", "bbb_branches", "tos_debris"):
-            self.assertNotIn(f"'{scene}'", self.html)
+        self.assertIn("const MULTIPLIERS", self.html)
+        self.assertIn("const CAS_PLACEMENTS", self.html)
+        for label in ("2×", "2.25×", "2.5×", "2.75×", "3×", "pre CAS", "post CAS", "no CAS"):
+            self.assertIn(label, self.html)
 
     def test_comparison_integrity_and_missing_asset_behavior(self) -> None:
         for token in ("clip-path", "sweep-input", "panX", "panY", "NO IMAGE", "naturalWidth", "1920", "1080"):
