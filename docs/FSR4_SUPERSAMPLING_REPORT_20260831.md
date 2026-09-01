@@ -204,7 +204,7 @@ current data provides.
 
 | # | answer | evidence status |
 |---:|---|---|
-| 1 | The CAS 0.04-to-0.20 quality delta is not isolated in this report. | Open: matched historical/fresh CAS delta needs one paired table. |
+| 1 | In the paired 1280×720→1920×1080 frame-48 capture, CAS 0.04→0.20 changed base-only bilinear by 0.000000 SSIM and current by +0.000003 SSIM. | Spatial delta supported; paired temporal delta remains open. |
 | 2 | Yes, current remains the temporal default in the cadence-clean M6 evidence. | Supported by the M6 cadence/performance record. |
 | 3 | Yes, base-only bilinear remains the strongest spatial control in M6. | Supported by the M6 spatial matrix. |
 | 4 | No corrected-CAS evidence justifies changing the M6 no-promotion conclusion. | Supported for the tested controls; broader CAS delta remains open. |
@@ -227,6 +227,19 @@ current data provides.
 | 21 | Yes, source, reconstruction, and delivery dimensions should remain independent diagnostic controls. | Supported by the matrix behavior; product-mode promotion remains deferred. |
 
 This matrix is a status report, not a claim that the open gates are complete.
+
+## CAS-strength isolation
+
+`benchmarks/quality_sweeps/cas_strength_pair_20260831.csv` contains a matched
+16-row capture of `current` and `base_only_bilinear` at CAS 0.04 and 0.20.
+All rows use the same four 1280x720 high-quality sources, frame 48, 1920x1080
+output, Quality Lab configs, and binary identity. Across the four-scene means,
+the current path changed from PSNR 31.053447 / SSIM 0.879059 / edge-SSIM
+0.829815 at 0.04 to 31.053407 / 0.879062 / 0.829798 at 0.20. Base-only
+bilinear was identical at the reported precision: 31.279136 / 0.881645 /
+0.826906 at both strengths. The corrected CAS policy therefore does not alter
+the spatial finalist tradeoff in this paired condition; a paired temporal
+strength comparison is still required before claiming temporal equivalence.
 
 ## Winner and runner-up
 

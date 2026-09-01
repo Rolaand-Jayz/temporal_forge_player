@@ -3943,3 +3943,14 @@ external post-reduction CAS arm was lower for both reducers and had a much
 larger temporal-delta signal. This rejects the external post-reduction arm for
 the tested condition; it does not claim renderer-integrated post-downsample
 CAS coverage.
+
+The paired CAS-strength spatial capture is retained in
+`benchmarks/quality_sweeps/cas_strength_pair_20260831.csv`. It contains 16
+rows for `current` and `base_only_bilinear` at CAS 0.04 and 0.20, using the
+same four 1280x720 sources, frame 48, 1920x1080 output, configs, and binary.
+Across the four-scene means, current changed from PSNR 31.053447 / SSIM
+0.879059 / edge-SSIM 0.829815 at 0.04 to 31.053407 / 0.879062 / 0.829798 at
+0.20. Base-only bilinear was identical at the reported precision: 31.279136 /
+0.881645 / 0.826906 at both strengths. This closes the spatial CAS-strength
+delta for this paired condition; a paired temporal strength comparison remains
+open.
