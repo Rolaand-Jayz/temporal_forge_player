@@ -1,5 +1,9 @@
 #!/usr/bin/env python3
-"""Capture temporal FSR scale arms and score them at one final resolution."""
+"""Capture temporal FSR scale arms and score them at one final resolution.
+
+The scale argument multiplies the nominal 2x delivery grid; it is not a
+source-relative scale. The recorded intermediate resolution is authoritative.
+"""
 from __future__ import annotations
 
 import argparse

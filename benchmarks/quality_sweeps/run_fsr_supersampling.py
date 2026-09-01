@@ -4,7 +4,9 @@
 The player is asked for the candidate's intermediate viewport.  Every
 supersampled output is then reduced with the fixed first-pass filter before
 metrics are computed, so intermediate pixels are never compared directly to
-the final-resolution reference.
+the final-resolution reference. ``--scale`` is a multiplier of the nominal 2x
+delivery grid, not a source-relative scale; recorded intermediate dimensions
+are authoritative.
 """
 from __future__ import annotations
 

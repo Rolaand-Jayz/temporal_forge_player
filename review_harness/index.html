@@ -60,7 +60,7 @@
   </header>
   <main>
     <section class="toolbar" aria-label="Shared inspection controls">
-      <span>SHARED VIEW</span>
+      <span>SHARED VIEW</span><span class="basis-note">SCALE = MULTIPLIER OF 2× DELIVERY GRID</span>
       <label class="zoom">ZOOM <input id="zoom" type="range" min="50" max="300" step="1" value="100"><output id="zoom-value">100%</output></label>
       <button id="reset" type="button">RESET VIEW</button>
       <span id="asset-count" style="color:var(--muted)"></span>
@@ -90,13 +90,13 @@
     ];
     const METHODS = [
       ['current_cas20','Current · CAS .20'], ['base_only_bilinear_cas20','Base only bilinear · CAS .20'],
-      ['fsr_direct_cas20','FSR direct · CAS .20'], ['fsr_225x_downsample_cas20_pre','2.25× → CAS .20 → downsample'],
-      ['fsr_225x_downsample_cas20_post','2.25× → downsample → CAS .20'], ['fsr_225x_downsample_no_cas','2.25× → downsample · no CAS'],
-      ['fsr_250x_downsample_cas20_pre','2.50× → CAS .20 → downsample'], ['fsr_250x_downsample_cas20_post','2.50× → downsample → CAS .20'],
-      ['fsr_250x_downsample_no_cas','2.50× → downsample · no CAS'], ['fsr_275x_downsample_cas20_pre','2.75× → CAS .20 → downsample'],
-      ['fsr_275x_downsample_cas20_post','2.75× → downsample → CAS .20'], ['fsr_275x_downsample_no_cas','2.75× → downsample · no CAS'],
-      ['fsr_300x_downsample_cas20_pre','3.00× → CAS .20 → downsample'], ['fsr_300x_downsample_cas20_post','3.00× → downsample → CAS .20'],
-      ['fsr_300x_downsample_no_cas','3.00× → downsample · no CAS'], ['fsr_nativeaa_downsample_cas20_pre','NativeAA → CAS .20 → downsample'],
+      ['fsr_direct_cas20','FSR direct target · CAS .20'], ['fsr_225x_downsample_cas20_pre','2.25× delivery-grid multiplier → CAS .20 → downsample'],
+      ['fsr_225x_downsample_cas20_post','2.25× delivery-grid multiplier → downsample → CAS .20'], ['fsr_225x_downsample_no_cas','2.25× delivery-grid multiplier → downsample · no CAS'],
+      ['fsr_250x_downsample_cas20_pre','2.50× delivery-grid multiplier → CAS .20 → downsample'], ['fsr_250x_downsample_cas20_post','2.50× delivery-grid multiplier → downsample → CAS .20'],
+      ['fsr_250x_downsample_no_cas','2.50× delivery-grid multiplier → downsample · no CAS'], ['fsr_275x_downsample_cas20_pre','2.75× delivery-grid multiplier → CAS .20 → downsample'],
+      ['fsr_275x_downsample_cas20_post','2.75× delivery-grid multiplier → downsample → CAS .20'], ['fsr_275x_downsample_no_cas','2.75× delivery-grid multiplier → downsample · no CAS'],
+      ['fsr_300x_downsample_cas20_pre','3.00× delivery-grid multiplier → CAS .20 → downsample'], ['fsr_300x_downsample_cas20_post','3.00× delivery-grid multiplier → downsample → CAS .20'],
+      ['fsr_300x_downsample_no_cas','3.00× delivery-grid multiplier → downsample · no CAS'], ['fsr_nativeaa_downsample_cas20_pre','NativeAA → CAS .20 → downsample'],
       ['fsr_nativeaa_downsample_cas20_post','NativeAA → downsample → CAS .20'], ['fsr_nativeaa_downsample_no_cas','NativeAA → downsample · no CAS'],
       ['conventional_lanczos','Conventional · Lanczos'], ['conventional_bicubic','Conventional · bicubic']
     ];
@@ -107,6 +107,19 @@
     };
     const $ = id => document.getElementById(id);
     const esc = value => String(value).replace(/[&<>"']/g, char => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[char]));
+    function workingGrid(selection) {
+      const match = /^fsr_(225|250|275|300)x_/.exec(selection.method);
+      if (!match) {
+        if (selection.method === 'fsr_direct_cas20' || selection.method === 'current_cas20' || selection.method === 'base_only_bilinear_cas20') {
+          return `${Math.round(Number(selection.output) * 16 / 9)}×${selection.output}`;
+        }
+        return selection.method.startsWith('fsr_') ? `${Math.round(Number(selection.input) * 16 / 9)}×${selection.input}` : 'n/a';
+      }
+      const multiplier = Number(match[1]) / 100;
+      const width = Math.round(Number(selection.output) * 16 / 9 * multiplier / 2);
+      const height = Math.round(Number(selection.output) * multiplier / 2);
+      return `${width}×${height}`;
+    }
     function canonicalFilename(selection) {
       const scene = selection.scene.toLowerCase().replace(/[^a-z0-9]+/g, '_');
       const frame = String(selection.frame).padStart(4, '0');
@@ -136,7 +149,7 @@
         ${selectField('Output resolution','output',item.output,OUTPUTS)}
       </div><div class="meta"><div>SCENE <b>${esc(SCENES.find(([id])=>id===item.scene)?.[1] ?? item.scene)}</b></div>
         <div>FRAME <b>${item.frame}</b></div><div>INPUT <b>${item.input}p</b></div><div>METHOD <b>${esc(item.method)}</b></div><div>OUTPUT <b>${item.output}p</b></div>
-        <div>ACTUAL DIMENSIONS <b data-dimensions>awaiting image</b></div><div>ZOOM <b data-panel-zoom>${state.zoom}%</b></div>
+        <div>WORKING GRID <b>${workingGrid(item)}</b></div><div>ACTUAL DIMENSIONS <b data-dimensions>awaiting image</b></div><div>ZOOM <b data-panel-zoom>${state.zoom}%</b></div>
         <div>FILE <b>${esc(name)}</b></div><div class="status missing" data-status>NO IMAGE</div>
       </div>`;
       target.querySelectorAll('button').forEach(button => button.addEventListener('click', () => { state[side][button.closest('[data-key]').dataset.key] = button.dataset.value; render(); }));

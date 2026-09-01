@@ -27,6 +27,10 @@ automatic overscaled-FSR mode or a universal 3x setting from this evidence.
 - Final real-scene output: 2560x1440 from 1280x720 input.
 - Intermediate outputs: 2560x1440, 2880x1620, 3200x1800, 3520x1980, and
   3840x2160 for 2.00x through 3.00x.
+- The reported scale is a multiplier of the nominal 2x delivery grid
+  (`intermediate = final × scale ÷ 2`), not a source-relative multiplier.
+  The intermediate dimensions above are therefore the authoritative pipeline
+  identity when output and source resolutions differ.
 - First-pass reduction: Lanczos for every supersampled arm; direct 2x has no
   reduction. Every reference was generated from the lossless 2160p master at
   the same final resolution before scoring.
