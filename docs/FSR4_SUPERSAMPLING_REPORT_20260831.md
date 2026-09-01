@@ -196,6 +196,38 @@ It uses 12 warm-up and 12 scored frames per scene. Mean temporal SSIM was
 for this 1280x720→1920x1080 condition, while the edge-SSIM loss and
 performance cost remain part of the tradeoff.
 
+## Required-question closure matrix
+
+The following answers are limited to the retained evidence. “Open” means the
+brief requires a broader or differently instrumented experiment than the
+current data provides.
+
+| # | answer | evidence status |
+|---:|---|---|
+| 1 | The CAS 0.04-to-0.20 quality delta is not isolated in this report. | Open: matched historical/fresh CAS delta needs one paired table. |
+| 2 | Yes, current remains the temporal default in the cadence-clean M6 evidence. | Supported by the M6 cadence/performance record. |
+| 3 | Yes, base-only bilinear remains the strongest spatial control in M6. | Supported by the M6 spatial matrix. |
+| 4 | No corrected-CAS evidence justifies changing the M6 no-promotion conclusion. | Supported for the tested controls; broader CAS delta remains open. |
+| 5 | Above-delivery reconstruction can improve aggregate metrics, but not consistently. | Supported by the 2×–3× scale matrix. |
+| 6 | Yes, the earlier 3× temporal advantage survives at CAS 0.20 in the 1280×720→2560×1440 matrix. | Supported, with scene exceptions. |
+| 7 | No, 3× is not a universal best ratio. | Supported by cave, edge, and performance regressions. |
+| 8 | 2.75× is the practical runner-up in the original matrix; a new cross-resolution cost frontier is open. | Partially supported. |
+| 9 | CAS before reduction is not better in the tested 1920×1080→1280×720 slice. | Supported by spatial and temporal placement CSVs. |
+| 10 | External CAS after reduction is not better; renderer-integrated post-CAS is not implemented/validated. | Supported for the external diagnostic; integrated arm open. |
+| 11 | No edge recovery from post-CAS was demonstrated. | Supported by the placement edge/SSIM outcome; broader edge classes open. |
+| 12 | The no-CAS control is effectively tied with resolve-side CAS, while pre-CAS is lower in the tested reduction. | Supported for this condition. |
+| 13 | The filter contribution is small and condition-dependent in the retained sweeps. | Supported; no universal reducer winner. |
+| 14 | Neither filter wins universally: bicubic has tiny SSIM advantages in some rows, Lanczos tiny PSNR/temporal advantages elsewhere. | Supported by filter follow-up. |
+| 15 | Yes, the preferred ratio can change with source resolution: 3× helps at 640×360, while 1280×720→1920×1080 is mixed on edge quality. | Supported for two tested source conditions. |
+| 16 | Not yet established across all requested output resolutions. | Open: broader 1440p/2160p paired coverage. |
+| 17 | NativeAA-assisted 1920×1080→1280×720 did not beat conventional controls. | Supported for the tested true-downscale condition. |
+| 18 | Above-source reconstruction followed by below-source reduction has not shown a broad advantage over ordinary downsampling. | Open beyond the tested condition and controls. |
+| 19 | No single highest-quality configuration is justified across all gates. | Supported by conflicting spatial, temporal, edge, and performance results. |
+| 20 | Direct 2× remains the best-supported quality/performance balance on the RX 7900 GRE. | Supported by current performance evidence; new arms lack complete timing isolation. |
+| 21 | Yes, source, reconstruction, and delivery dimensions should remain independent diagnostic controls. | Supported by the matrix behavior; product-mode promotion remains deferred. |
+
+This matrix is a status report, not a claim that the open gates are complete.
+
 ## Winner and runner-up
 
 The aggregate numerical winner is 3.00x with Lanczos reduction. The practical
