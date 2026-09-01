@@ -66,6 +66,10 @@ def main() -> int:
     parser.add_argument("--final", default="2560x1440")
     parser.add_argument("--frames", type=int, default=12)
     parser.add_argument("--warmup", type=int, default=12)
+    parser.add_argument("--source", default="1280x720")
+    parser.add_argument("--scene", action="append", choices=SCENES)
+    parser.add_argument("--scale", type=float, action="append", choices=SCALES,
+                        help="limit the run to selected reconstruction scales")
     args = parser.parse_args()
     root = args.repo.resolve()
     player = args.player.resolve()
@@ -74,16 +78,18 @@ def main() -> int:
     artifacts.mkdir(parents=True, exist_ok=True)
     with (root / "benchmarks/video_corpus/manifest.csv").open(newline="") as handle:
         rows = list(csv.DictReader(handle))
-    selected = {r["clip_id"]: r for r in rows if r["clip_id"] in SCENES and
-                r["quality"] == "high" and r["width"] == "1280" and r["height"] == "720"}
-    if set(selected) != set(SCENES):
-        raise RuntimeError("required 1280x720 high-quality scenes are missing")
+    source_w, source_h = (int(x) for x in args.source.split("x"))
+    requested_scenes = tuple(args.scene) if args.scene else SCENES
+    selected = {r["clip_id"]: r for r in rows if r["clip_id"] in requested_scenes and
+                r["quality"] == "high" and r["width"] == str(source_w) and r["height"] == str(source_h)}
+    if set(selected) != set(requested_scenes):
+        raise RuntimeError(f"required {args.source} high-quality scenes are missing")
 
     result_rows: list[dict[str, str]] = []
-    for scale in SCALES:
+    for scale in args.scale or SCALES:
         iw, ih = int(round(final_w * scale / 2)), int(round(final_h * scale / 2))
         arm = f"scale_{scale:.2f}".replace(".", "_")
-        for scene in SCENES:
+        for scene in requested_scenes:
             scene_root = artifacts / arm / scene
             scene_root.mkdir(parents=True, exist_ok=True)
             raw_csv = scene_root / "raw.csv"
@@ -131,7 +137,7 @@ def main() -> int:
             stage = "\n".join(p.read_text(errors="replace") for p in scene_root.glob("**/*.log"))
             gpu = values(r"GPU=([0-9.]+)ms", stage)
             result_rows.append({
-                "scene": scene, "scale": f"{scale:.2f}",
+                "scene": scene, "scale": f"{scale:.2f}", "source_resolution": args.source,
                 "intermediate_resolution": f"{iw}x{ih}", "final_resolution": args.final,
                 "downsample": "lanczos", "frames": str(args.frames), "warmup": str(args.warmup),
                 "ssim_mean": f"{statistics.mean(scores):.6f}", "ssim_min": f"{min(scores):.6f}",

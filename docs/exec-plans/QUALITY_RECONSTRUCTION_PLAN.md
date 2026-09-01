@@ -3912,6 +3912,14 @@ the same four real scenes at 640x360 input and 1280x720 delivery, comparing
 3.00x. This supports the 3.00x spatial result at this lower source resolution
 only; temporal and broader output-resolution coverage remain open.
 
+The paired temporal slice is retained in
+`benchmarks/quality_sweeps/fsr_resolution_640_to_1280_temporal_20260831.csv`.
+It uses 12 warm-up and 12 scored frames per scene. Mean temporal SSIM was
+0.708025 for 2.00x and 0.756272 for 3.00x, with temporal-delta signals of
+6.828083 and 5.874093 respectively. This supports the same 3.00x direction
+for this 640x360→1280x720 condition only; broader output-resolution coverage
+and performance isolation remain open.
+
 The temporal placement follow-up is retained in
 `benchmarks/quality_sweeps/fsr_downscale_cas_placement_temporal_20260831.csv`.
 It covers 12 scored frames after a 12-frame warmup for all four scenes and

@@ -173,6 +173,14 @@ supports the 3.00x spatial advantage at this lower source resolution, but it
 is spatial-only and does not establish a universal ratio or a
 quality/performance winner.
 
+The paired temporal slice is retained in
+`benchmarks/quality_sweeps/fsr_resolution_640_to_1280_temporal_20260831.csv`.
+It uses 12 warm-up and 12 scored frames per scene. Mean temporal SSIM was
+0.708025 for 2.00x and 0.756272 for 3.00x; the temporal-delta signal was
+6.828083 and 5.874093 respectively. This supports the same 3.00x direction
+for this 640x360→1280x720 condition, while broader output-resolution coverage
+and performance isolation remain open.
+
 ## Winner and runner-up
 
 The aggregate numerical winner is 3.00x with Lanczos reduction. The practical
