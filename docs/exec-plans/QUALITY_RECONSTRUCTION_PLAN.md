@@ -3920,6 +3920,13 @@ It uses 12 warm-up and 12 scored frames per scene. Mean temporal SSIM was
 for this 640x360→1280x720 condition only; broader output-resolution coverage
 and performance isolation remain open.
 
+A second spatial slice is retained in
+`benchmarks/quality_sweeps/fsr_resolution_1280_to_1920_20260831.csv`. At
+1280x720 input and 1920x1080 delivery, mean frame-48 PSNR/SSIM/edge-SSIM were
+31.202741/0.880638/0.823576 for 2.00x and 31.479691/0.882228/0.818113 for
+3.00x. This is mixed evidence—higher SSIM but lower edge-SSIM—and does not
+support a universal 3.00x promotion.
+
 The temporal placement follow-up is retained in
 `benchmarks/quality_sweeps/fsr_downscale_cas_placement_temporal_20260831.csv`.
 It covers 12 scored frames after a 12-frame warmup for all four scenes and
