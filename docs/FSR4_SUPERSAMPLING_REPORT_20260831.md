@@ -188,6 +188,14 @@ A second spatial slice is retained in
 3.00x. The SSIM gain and edge-SSIM loss make this a mixed result; it does not
 support a universal 3.00x promotion.
 
+The paired temporal slice is retained in
+`benchmarks/quality_sweeps/fsr_resolution_1280_to_1920_temporal_20260831.csv`.
+It uses 12 warm-up and 12 scored frames per scene. Mean temporal SSIM was
+0.803889 for 2.00x and 0.851838 for 3.00x; the temporal-delta signal was
+7.128723 and 6.795694 respectively. This supports the 3.00x temporal result
+for this 1280x720→1920x1080 condition, while the edge-SSIM loss and
+performance cost remain part of the tradeoff.
+
 ## Winner and runner-up
 
 The aggregate numerical winner is 3.00x with Lanczos reduction. The practical

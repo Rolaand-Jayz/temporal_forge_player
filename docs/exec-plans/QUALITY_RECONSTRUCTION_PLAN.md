@@ -3927,6 +3927,14 @@ A second spatial slice is retained in
 3.00x. This is mixed evidence—higher SSIM but lower edge-SSIM—and does not
 support a universal 3.00x promotion.
 
+The paired temporal slice is retained in
+`benchmarks/quality_sweeps/fsr_resolution_1280_to_1920_temporal_20260831.csv`.
+It uses 12 warm-up and 12 scored frames per scene. Mean temporal SSIM was
+0.803889 for 2.00x and 0.851838 for 3.00x, with temporal-delta signals of
+7.128723 and 6.795694 respectively. This supports the 3.00x temporal result
+for this 1280x720→1920x1080 condition only; edge and performance tradeoffs
+remain.
+
 The temporal placement follow-up is retained in
 `benchmarks/quality_sweeps/fsr_downscale_cas_placement_temporal_20260831.csv`.
 It covers 12 scored frames after a 12-frame warmup for all four scenes and
