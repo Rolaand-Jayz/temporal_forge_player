@@ -3891,7 +3891,7 @@ NativeAA lost spatial SSIM to both conventional controls on all four real
 scenes. It also lost temporal SSIM and had higher temporal-delta absolute
 error than Lanczos on every scene. This rejects NativeAA-assisted downscaling
 for 1920x1080 → 1280x720; it does not close the remaining resolution-ratio
-matrix or the CAS placement experiment.
+matrix or broader output-resolution generalization.
 
 The follow-up placement runner then tested the 2.00x-above-source pipeline with
 CAS .20 before reduction, CAS .20 after the FSR resolve but before reduction,
