@@ -95,6 +95,8 @@ class PausingRunner:
             stream.write(json.dumps({"timestamp": now(), "event": event, "games": details}) + "\n")
 
     def wait_until_clear(self, label: str) -> None:
+        # Kept as a compatibility hook for callers; capture work is never
+        # paused or suspended based on game processes.
         return
 
     def run(self, command: list[str], label: str, cwd: Path = ROOT) -> None:
