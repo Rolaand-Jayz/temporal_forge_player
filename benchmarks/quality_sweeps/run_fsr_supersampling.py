@@ -70,6 +70,8 @@ def main() -> int:
     parser.add_argument("--scene", action="append", choices=SCENES + ("synthetic_edges_text", "bbb_branches"))
     parser.add_argument("--source", default="1280x720")
     parser.add_argument("--frame", type=int, default=48)
+    parser.add_argument("--scale", type=float, action="append", choices=SCALES,
+                        help="limit the run to selected reconstruction scales")
     args = parser.parse_args()
     final_w, final_h = (int(x) for x in args.final.split("x"))
     root = args.repo.resolve()
@@ -77,6 +79,7 @@ def main() -> int:
     artifact_root = args.artifact_root.resolve()
     artifact_root.mkdir(parents=True, exist_ok=True)
     output_rows: list[dict[str, str]] = []
+    requested_scales = tuple(args.scale) if args.scale else SCALES
 
     manifest = root / "benchmarks/video_corpus/manifest.csv"
     with manifest.open(newline="") as handle:
@@ -92,7 +95,7 @@ def main() -> int:
     if set(selected) != set(requested_scenes):
         raise RuntimeError(f"missing required scenes: {sorted(set(requested_scenes)-set(selected))}")
 
-    for scale in SCALES:
+    for scale in requested_scales:
         intermediate_w = int(round(final_w * scale / 2.0))
         intermediate_h = int(round(final_h * scale / 2.0))
         candidate = f"scale_{scale:.2f}".replace(".", "_")

@@ -161,6 +161,18 @@ rows also had lower SSIM and greater temporal-delta absolute error than the
 Lanczos control on every scene. This rejects NativeAA-assisted downscaling for
 this tested condition while leaving other input/output ratios open.
 
+## Resolution generalization follow-up
+
+The first lower-source-resolution slice is retained in
+`benchmarks/quality_sweeps/fsr_resolution_640_to_1280_20260831.csv`. It uses
+the same four real scenes at 640x360 input and 1280x720 delivery, comparing
+direct 2.00x reconstruction with 3.00x reconstruction reduced to the same
+delivery size. Mean frame-48 PSNR/SSIM/edge-SSIM were 27.372917/0.778014/
+0.687223 for 2.00x and 27.705603/0.782593/0.688645 for 3.00x. This slice
+supports the 3.00x spatial advantage at this lower source resolution, but it
+is spatial-only and does not establish a universal ratio or a
+quality/performance winner.
+
 ## Winner and runner-up
 
 The aggregate numerical winner is 3.00x with Lanczos reduction. The practical

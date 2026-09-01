@@ -3904,6 +3904,14 @@ This closes the still-image placement diagnostic for this condition, but the
 post-reduction arm is not renderer-integrated and temporal placement coverage
 remains open.
 
+A lower-source-resolution spatial slice is retained in
+`benchmarks/quality_sweeps/fsr_resolution_640_to_1280_20260831.csv`. It uses
+the same four real scenes at 640x360 input and 1280x720 delivery, comparing
+2.00x and 3.00x reconstruction. Mean frame-48 PSNR/SSIM/edge-SSIM were
+27.372917/0.778014/0.687223 for 2.00x and 27.705603/0.782593/0.688645 for
+3.00x. This supports the 3.00x spatial result at this lower source resolution
+only; temporal and broader output-resolution coverage remain open.
+
 The temporal placement follow-up is retained in
 `benchmarks/quality_sweeps/fsr_downscale_cas_placement_temporal_20260831.csv`.
 It covers 12 scored frames after a 12-frame warmup for all four scenes and
