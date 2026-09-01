@@ -83,6 +83,8 @@ class PausingRunner:
         self.poll_seconds = poll_seconds
         self.log = artifact_root / "game_guard_events.jsonl"
         self.log.parent.mkdir(parents=True, exist_ok=True)
+        if self.allow_games:
+            self.record("allow_game_exception", {"patterns": list(self.allow_games)})
 
     def games(self) -> list[dict[str, str]]:
         return running_games(self.patterns, self.allow_games)
