@@ -85,14 +85,20 @@ The execution plan is authoritative for the current quality campaign.
 
 ## Personal-device performance safeguard
 
-At **8:00 PM CDT**, check the running process list for the Trackmania game
-(case-insensitively, including launcher/game variants). If Trackmania is
-running, immediately halt all performance-sensitive work, including active
-benchmarks, and do not resume until the game is no longer running. Never
+During the **7:45 PM–9:00 PM Central-time window** (CDT or CST), check the
+running process list for the Trackmania game (case-insensitively, including
+launcher/game variants). This time-window check is independent of the type of
+work being done. Quality-only work and quality captures may continue with
+Trackmania running; gaming can affect performance results, but must not be
+treated as affecting image-quality results.
+
+Performance work is a separate pause condition at any time: before starting
+or continuing performance work, check whether Trackmania is running and, if
+it is, halt the performance work until the game is no longer running. Never
 terminate the game or other user processes without explicit permission.
-Record the check, halt, and eventual resume in the work update. This is a
-repository operating rule; it does not create an autonomous timer or wake the
-agent when no session is active.
+Record the time-window check, any performance halt, and eventual resume in
+the work update. This is a repository operating rule; it does not create an
+autonomous timer or wake the agent when no session is active.
 
 ## Evidence standard
 
