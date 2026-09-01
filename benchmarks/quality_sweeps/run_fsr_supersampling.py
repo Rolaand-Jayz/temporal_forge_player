@@ -21,6 +21,11 @@ SCALES = (2.00, 2.25, 2.50, 2.75, 3.00)
 SCENES = ("tos_daylight", "tos_debris", "sintel_rooftop", "sintel_cave")
 
 
+def even_dimension(value: int) -> int:
+    """Return the nearest requested dimension accepted by the image path."""
+    return value if value % 2 == 0 else value + 1
+
+
 def run(command: list[str], *, env: dict[str, str], cwd: Path) -> None:
     subprocess.run(command, env=env, cwd=cwd, check=True)
 
@@ -98,8 +103,8 @@ def main() -> int:
         raise RuntimeError(f"missing required scenes: {sorted(set(requested_scenes)-set(selected))}")
 
     for scale in requested_scales:
-        intermediate_w = int(round(final_w * scale / 2.0))
-        intermediate_h = int(round(final_h * scale / 2.0))
+        intermediate_w = even_dimension(int(round(final_w * scale / 2.0)))
+        intermediate_h = even_dimension(int(round(final_h * scale / 2.0)))
         candidate = f"scale_{scale:.2f}".replace(".", "_")
         candidate_root = artifact_root / candidate
         candidate_root.mkdir(parents=True, exist_ok=True)

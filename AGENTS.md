@@ -96,9 +96,11 @@ Performance work is a separate pause condition at any time: before starting
 or continuing performance work, check whether Trackmania is running and, if
 it is, halt the performance work until the game is no longer running. Never
 terminate the game or other user processes without explicit permission.
-Record the time-window check, any performance halt, and eventual resume in
-the work update. This is a repository operating rule; it does not create an
-autonomous timer or wake the agent when no session is active.
+If Trackmania is running at any time, do not parallelize runs that collect
+samples; execute those runs sequentially. Record the time-window check, any
+performance halt, sequentialization, and eventual resume in the work update.
+This is a repository operating rule; it does not create an autonomous timer
+or wake the agent when no session is active.
 
 ## Evidence standard
 

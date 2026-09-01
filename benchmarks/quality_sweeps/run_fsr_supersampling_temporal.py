@@ -15,6 +15,11 @@ SCALES = (2.00, 2.25, 2.50, 2.75, 3.00)
 SCENES = ("tos_daylight", "tos_debris", "sintel_rooftop", "sintel_cave")
 
 
+def even_dimension(value: int) -> int:
+    """Return the nearest requested dimension accepted by the image path."""
+    return value if value % 2 == 0 else value + 1
+
+
 def command(args: list[str], *, env: dict[str, str], cwd: Path, output: Path | None = None) -> str:
     if output is None:
         subprocess.run(args, env=env, cwd=cwd, check=True)
@@ -89,7 +94,8 @@ def main() -> int:
 
     result_rows: list[dict[str, str]] = []
     for scale in args.scale or SCALES:
-        iw, ih = int(round(final_w * scale / 2)), int(round(final_h * scale / 2))
+        iw = even_dimension(int(round(final_w * scale / 2)))
+        ih = even_dimension(int(round(final_h * scale / 2)))
         arm = f"scale_{scale:.2f}".replace(".", "_")
         for scene in requested_scenes:
             scene_root = artifacts / arm / scene

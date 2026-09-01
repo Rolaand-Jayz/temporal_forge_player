@@ -98,10 +98,11 @@ unchanged. Full rows are in
 
 The portable review surface is `review_harness/index.html`. It is a blank,
 self-contained file-based viewer with deterministic canonical filenames and a
-deliberate `NO IMAGE` state for results that have not been rendered. Six
-matched frame-48 PNGs are currently populated: the original daylight
-current/base-only 1080p controls plus direct-2x and 3x-reduced 1440p assets for
-daylight and cave. Additional campaign writers should use
+deliberate `NO IMAGE` state for results that have not been rendered. The
+harness currently contains 125 validated frame-48 PNGs: the four real scenes
+across the five reconstruction scales and 720p/1080p/1440p/2160p delivery
+sets, finalist controls, NativeAA and conventional downscale controls, and
+CAS-placement controls. Additional campaign writers should use
 `tools/export_review_image.py` rather than hand-building names.
 
 The requested evidence mode is data-only. Representative spatial comparison
