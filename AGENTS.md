@@ -83,6 +83,17 @@ The execution plan is authoritative for the current quality campaign.
 12. Prefer the smallest change that directly tests the active hypothesis.
 13. Quality is the sole development priority for this phase. Avoid feature creep.
 
+## Personal-device performance safeguard
+
+At **8:00 PM CDT**, check the running process list for the Trackmania game
+(case-insensitively, including launcher/game variants). If Trackmania is
+running, immediately halt all performance-sensitive work, including active
+benchmarks, and do not resume until the game is no longer running. Never
+terminate the game or other user processes without explicit permission.
+Record the check, halt, and eventual resume in the work update. This is a
+repository operating rule; it does not create an autonomous timer or wake the
+agent when no session is active.
+
 ## Evidence standard
 
 The goal is not to make the picture subjectively prettier by stacking arbitrary filters.
