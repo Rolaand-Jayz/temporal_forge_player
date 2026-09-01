@@ -35,6 +35,7 @@ class ReviewHarnessContractTests(unittest.TestCase):
             "fsr_225x_downsample_no_cas", "fsr_250x_downsample_cas20_pre",
             "fsr_250x_downsample_cas20_post", "fsr_250x_downsample_no_cas",
             "fsr_275x_downsample_cas20_pre", "fsr_275x_downsample_cas20_post",
+            "fsr_200x_downsample_cas20_pre", "fsr_200x_downsample_cas20_post", "fsr_200x_downsample_no_cas",
             "fsr_275x_downsample_no_cas", "fsr_300x_downsample_cas20_pre",
             "fsr_300x_downsample_cas20_post", "fsr_300x_downsample_no_cas",
             "fsr_nativeaa_downsample_cas20_pre", "fsr_nativeaa_downsample_cas20_post",

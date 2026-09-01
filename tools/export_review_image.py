@@ -17,6 +17,7 @@ INPUTS = {360, 480, 540, 720, 1080}
 OUTPUTS = {720, 1080, 1440, 2160}
 METHODS = {
     "current_cas20", "base_only_bilinear_cas20", "fsr_direct_cas20",
+    "fsr_200x_downsample_cas20_pre", "fsr_200x_downsample_cas20_post", "fsr_200x_downsample_no_cas",
     "fsr_225x_downsample_cas20_pre", "fsr_225x_downsample_cas20_post", "fsr_225x_downsample_no_cas",
     "fsr_250x_downsample_cas20_pre", "fsr_250x_downsample_cas20_post", "fsr_250x_downsample_no_cas",
     "fsr_275x_downsample_cas20_pre", "fsr_275x_downsample_cas20_post", "fsr_275x_downsample_no_cas",

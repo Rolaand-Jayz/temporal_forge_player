@@ -145,6 +145,11 @@ bicubic in this slice, so it does not support adding a final sharpening stage.
 This is still a still-image diagnostic; renderer-integrated post-reduction CAS
 and a longer temporal placement matrix remain open.
 
+The corresponding 1920x1080 → 1280x720 harness assets use explicit
+`fsr_200x_*` identities because their recorded 3840x2160 reconstruction grid
+is 2.00x the source. The earlier `fsr_300x_*` filenames were corrected without
+changing the image pixels.
+
 The temporal follow-up is retained in
 `benchmarks/quality_sweeps/fsr_downscale_cas_placement_temporal_20260831.csv`.
 It covers 12 scored frames after a 12-frame warmup for the same four scenes,
