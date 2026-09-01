@@ -3872,6 +3872,11 @@ sweep comparison, synchronized zoom/pan, fixed 1920x1080 inspection geometry,
 and explicit `NO IMAGE` fallback. `tools/export_review_image.py` is the
 canonical validating result writer and records actual PNG dimensions at export.
 
+The harness now contains six validated representative PNGs: the original
+daylight current/base-only 1080p pair plus direct-2x and 3x-reduced CAS 0.20
+1440p outputs for daylight and cave. Other combinations remain selectable and
+show `NO IMAGE` when only data-only evidence exists.
+
 Static, JavaScript syntax, Firefox headless rendering, and Marionette checks
 passed for panel/control construction, independent selection state, loaded
 asset status, missing-asset fallback, and 720p zoom clamping. The harness is
