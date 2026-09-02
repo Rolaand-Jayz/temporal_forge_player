@@ -33,6 +33,14 @@ The harness campaign description is
 The capture process is outside this documentation commit and must not be
 interrupted by documentation maintenance.
 
+## Deferred performance observation
+
+The current campaign automation is materially slow even though the FSR
+dispatch itself is expected to be fast. This is an observation for a later
+optimization phase, not a correctness defect to repair during recovery. Keep
+the current run's timing evidence separate from quality conclusions and do not
+change the capture path solely to make this recapture finish sooner.
+
 The older all-purpose reconstruction plan is preserved as
 [`../archive/plans/QUALITY_RECONSTRUCTION_PLAN_20260822-20260902.md`](../archive/plans/QUALITY_RECONSTRUCTION_PLAN_20260822-20260902.md).
 It is historical context, not an active instruction source.
