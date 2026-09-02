@@ -28,6 +28,7 @@ from benchmarks.quality_sweeps.trackmania_guard import DEFAULT_GAME_PATTERNS, ru
 SCENES = ("tos_daylight", "tos_debris", "sintel_rooftop", "sintel_cave")
 SCALES = (2.00, 2.25, 2.50, 2.75, 3.00)
 CAS_PLACEMENTS = ("pre", "post", "none")
+CAS_METHOD_SUFFIX = {"pre": "resolve_cas20", "post": "external_post_cas20", "none": "no_cas"}
 PAIRS = (
     (360, "640x360", 720), (360, "640x360", 1080), (360, "640x360", 1440), (360, "640x360", 2160),
     (480, "854x480", 720), (480, "854x480", 1080), (480, "854x480", 1440), (480, "854x480", 2160),
@@ -37,9 +38,10 @@ PAIRS = (
 )
 METHODS = (
     "current_cas20", "base_only_bilinear_cas20", "fsr_direct_cas20",
-    *(f"fsr_{int(scale * 100):03d}x_downsample_{placement}"
+    *(f"fsr_{int(scale * 100):03d}x_downsample_"
+      f"{CAS_METHOD_SUFFIX[placement]}"
       for scale in SCALES for placement in CAS_PLACEMENTS),
-    "fsr_nativeaa_downsample_cas20_pre", "fsr_nativeaa_downsample_cas20_post",
+    "fsr_nativeaa_downsample_resolve_cas20", "fsr_nativeaa_downsample_external_post_cas20",
     "fsr_nativeaa_downsample_no_cas", "conventional_lanczos", "conventional_bicubic",
 )
 
@@ -65,6 +67,78 @@ def image_record(path: Path) -> dict[str, object]:
     return {"path": str(path), "bytes": path.stat().st_size, "width": width,
             "height": height, "sha256": digest, "mtime": dt.datetime.fromtimestamp(
                 path.stat().st_mtime, dt.timezone.utc).isoformat()}
+
+
+def catalog_record(path: Path, *, scene: str, method: str, input_height: int,
+                   output_height: int, view: str,
+                   provenance: dict[str, object] | None = None) -> dict[str, object]:
+    record = image_record(path)
+    record.update({"scene": scene, "method": method, "input": input_height,
+                   "output": output_height, "view": view,
+                   "validation": "validated_experiment"})
+    if provenance:
+        record.update(provenance)
+    return record
+
+
+def experiment_provenance(scene_root: Path, *, category: str,
+                          alias_of: str | None = None) -> dict[str, object]:
+    """Load identity from the validated arm record, never from its filename."""
+    record_path = scene_root / "experiment.json"
+    if not record_path.is_file():
+        return {"pipeline_category": category, "validation": "external_control"}
+    data = json.loads(record_path.read_text(encoding="utf-8"))
+    if data.get("status") != "complete":
+        raise SystemExit(f"cannot publish incomplete experiment provenance: {record_path}")
+    result = {
+        "experiment_id": data.get("experiment_id"),
+        "profile": data.get("profile"),
+        "pipeline_category": category,
+        "cas_strength": data.get("cas_strength"),
+        "cas_placement": data.get("cas_placement"),
+        "cas_stage": data.get("runtime_trace", {}).get("cas_stage"),
+        "jitter_mode": data.get("runtime_trace", {}).get("jitter_mode"),
+        "binary_sha256": data.get("binary_sha256"),
+        "config_sha256": data.get("config_sha256"),
+    }
+    if alias_of:
+        result["alias_of"] = alias_of
+    return result
+
+
+def write_catalog(harness: Path, records: list[dict[str, object]]) -> None:
+    """Publish only assets from a completed, validated pair."""
+    catalog_path = harness / "catalog.json"
+    existing: dict[str, object] = {"schema": "temporal_forge.review_catalog.v1", "assets": []}
+    if catalog_path.is_file():
+        try:
+            parsed = json.loads(catalog_path.read_text(encoding="utf-8"))
+            if isinstance(parsed, dict) and isinstance(parsed.get("assets"), list):
+                existing = parsed
+        except (OSError, json.JSONDecodeError):
+            existing = {"schema": "temporal_forge.review_catalog.v1", "assets": []}
+    by_key = {
+        (item.get("scene"), item.get("method"), item.get("input"), item.get("output"), item.get("view")): item
+        for item in existing["assets"] if isinstance(item, dict)
+    }
+    for item in records:
+        key = (item["scene"], item["method"], item["input"], item["output"], item["view"])
+        catalog_item = dict(item)
+        catalog_item["path"] = "images/" + Path(str(item["path"])).name
+        by_key[key] = catalog_item
+    assets = sorted(by_key.values(), key=lambda item: (
+        str(item.get("scene")), int(item.get("input", 0)), int(item.get("output", 0)),
+        str(item.get("method")), str(item.get("view"))))
+    atomic_json(catalog_path, {
+        "schema": "temporal_forge.review_catalog.v1",
+        "validation": "entries are emitted only after pair validation",
+        "assets": assets,
+    })
+    catalog_js = harness / "catalog.js"
+    temporary = catalog_js.with_name(f".{catalog_js.name}.{os.getpid()}.tmp")
+    temporary.write_text("window.__tforgeCatalog = " + json.dumps({"assets": assets}) + ";\n",
+                         encoding="utf-8")
+    os.replace(temporary, catalog_js)
 
 
 def csv_record(path: Path) -> dict[str, object]:
@@ -138,7 +212,8 @@ def export_native(runner: PausingRunner, source: Path, scene: str, input_height:
                   method: str, output_height: int, harness: Path) -> None:
     output = harness / "images" / native_filename(scene, input_height, method, output_height)
     output.parent.mkdir(parents=True, exist_ok=True)
-    runner.run(["cp", str(source), str(output)],
+    runner.run(["ffmpeg", "-hide_banner", "-loglevel", "error", "-y",
+                "-i", str(source), "-frames:v", "1", str(output)],
                f"native {scene}/{method} {input_height}->{output_height}")
 
 
@@ -147,6 +222,86 @@ def source_raw(scene_root: Path) -> Path:
     if len(candidates) != 1:
         raise SystemExit(f"expected one matched decoded source frame in {scene_root}, got {candidates}")
     return candidates[0]
+
+
+def native_output(scene_root: Path) -> Path:
+    """Return the native FSR output recorded by run_fsr_supersampling."""
+    raw_csv = scene_root / "raw.csv"
+    with raw_csv.open(newline="", encoding="utf-8") as stream:
+        rows = list(csv.DictReader(stream))
+    if len(rows) != 1 or not rows[0].get("output_path"):
+        raise SystemExit(f"expected one native output record in {raw_csv}")
+    output = Path(rows[0]["output_path"])
+    if not output.is_file():
+        raise SystemExit(f"native FSR output is missing: {output}")
+    return output
+
+
+def validate_resume_pair(pair_root: Path, input_height: int, output_height: int,
+                         harness: Path, player: Path) -> None:
+    """Fail closed when a completion marker is stale or semantically old."""
+    marker = pair_root / "harness_pair_complete.json"
+    try:
+        data = json.loads(marker.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as error:
+        raise SystemExit(f"cannot validate resume marker {marker}: {error}") from error
+    if data.get("schemaVersion") != 2 or data.get("runnerVersion") != 2:
+        raise SystemExit(f"stale completion marker schema: {marker}")
+    if data.get("input") != input_height or data.get("output") != output_height:
+        raise SystemExit(f"completion marker pair mismatch: {marker}")
+    if data.get("scenes") != list(SCENES) or data.get("methods") != list(METHODS):
+        raise SystemExit(f"completion marker matrix mismatch: {marker}")
+    expected_assets = len(SCENES) * len(METHODS)
+    expected_native = sum(has_native_output(method) for method in METHODS) * len(SCENES)
+    if data.get("assets") != expected_assets or data.get("native_assets") != expected_native:
+        raise SystemExit(f"completion marker asset count mismatch: {marker}")
+    required_record_keys = ("path", "bytes", "width", "height", "sha256", "mtime")
+    for item in data.get("assets_detail", []) + data.get("native_assets_detail", []):
+        path = Path(item.get("path", ""))
+        current = image_record(path) if path.is_file() else {}
+        if not path.is_file() or any(current.get(key) != item.get(key) for key in required_record_keys):
+            raise SystemExit(f"completion marker artifact hash/dimensions mismatch: {path}")
+    expected_binary = hashlib.sha256(player.read_bytes()).hexdigest()
+    config_path = ROOT / "benchmarks/video_corpus/benchmark_settings.json"
+    expected_config = hashlib.sha256(config_path.read_bytes()).hexdigest()
+    seen_experiments: set[str] = set()
+    for arm in ("fsr_pre", "fsr_post", "fsr_none", "nativeaa_pre", "nativeaa_post", "nativeaa_none"):
+        csv_path = pair_root / f"{arm}.csv"
+        if not csv_path.is_file():
+            raise SystemExit(f"completion marker CSV is missing: {csv_path}")
+        with csv_path.open(newline="", encoding="utf-8") as stream:
+            rows = list(csv.DictReader(stream))
+        if len(rows) != len(SCALES) * len(SCENES):
+            raise SystemExit(f"completion marker CSV row count mismatch: {csv_path}")
+        for row in rows:
+            trace = Path(row.get("runtime_trace_path", ""))
+            record = trace.parent / "experiment.json"
+            if not trace.is_file() or not record.is_file():
+                raise SystemExit(f"missing runtime provenance for {csv_path}: {trace}")
+            try:
+                trace_data = json.loads(trace.read_text(encoding="utf-8"))
+                record_data = json.loads(record.read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError) as error:
+                raise SystemExit(f"invalid runtime provenance for {csv_path}: {error}") from error
+            experiment_id = record_data.get("experiment_id")
+            if not isinstance(experiment_id, str) or not experiment_id or experiment_id in seen_experiments:
+                raise SystemExit(f"duplicate/missing experiment identity in {record}")
+            seen_experiments.add(experiment_id)
+            if row.get("run_id") != experiment_id or trace_data.get("run_id") != experiment_id:
+                raise SystemExit(f"experiment identity mismatch in {record}")
+            if trace_data.get("binary_sha256") != expected_binary or record_data.get("binary_sha256") != expected_binary:
+                raise SystemExit(f"binary provenance mismatch in {record}")
+            if (trace_data.get("config_sha256") != expected_config or
+                    record_data.get("config_sha256") != expected_config):
+                raise SystemExit(f"configuration provenance mismatch in {record}")
+            if (trace_data.get("quality_profile") != "AMD_SEMANTIC_BASELINE" or
+                    record_data.get("profile") != "AMD_SEMANTIC_BASELINE"):
+                raise SystemExit(f"quality profile mismatch in {record}")
+            if row.get("runtime_trace_sha256") != hashlib.sha256(trace.read_bytes()).hexdigest():
+                raise SystemExit(f"runtime trace hash mismatch in {trace}")
+            output = Path(record_data.get("output_artifact", ""))
+            if not output.is_file() or record_data.get("output_sha256") != hashlib.sha256(output.read_bytes()).hexdigest():
+                raise SystemExit(f"output provenance mismatch in {record}")
 
 
 def main() -> int:
@@ -180,6 +335,7 @@ def main() -> int:
         marker = pair_root / "harness_pair_complete.json"
         pair_started = now()
         if args.resume and marker.is_file():
+            validate_resume_pair(pair_root, input_height, output_height, harness, args.player.resolve())
             print(f"Skipping complete {stem}")
             continue
         runner.wait_until_clear(stem)
@@ -198,19 +354,24 @@ def main() -> int:
                 command.extend(["--manifest", str(manifest.resolve())])
             runner.run(command, f"capture {stem}/{placement}")
             roots[placement] = root
-        native_root = pair_root / "nativeaa"
-        native_csv = pair_root / "nativeaa.csv"
-        runner.wait_until_clear(f"{stem}/nativeaa")
-        command = [sys.executable, str(run_capture), "--player", str(args.player.resolve()),
-                   "--repo", str(ROOT), "--artifact-root", str(native_root), "--output-csv", str(native_csv),
-                   "--final", final, "--source", source, "--cas-strength", "0.20",
-                   "--preset", "NativeAA"]
-        if manifest:
-            command.extend(["--manifest", str(manifest.resolve())])
-        runner.run(command, f"capture {stem}/nativeaa")
+        native_roots = {}
+        native_csvs = {}
+        for placement in CAS_PLACEMENTS:
+            native_root = pair_root / f"nativeaa_{placement}"
+            native_csv = pair_root / f"nativeaa_{placement}.csv"
+            runner.wait_until_clear(f"{stem}/nativeaa_{placement}")
+            command = [sys.executable, str(run_capture), "--player", str(args.player.resolve()),
+                       "--repo", str(ROOT), "--artifact-root", str(native_root), "--output-csv", str(native_csv),
+                       "--final", final, "--source", source, "--cas-strength", "0.20",
+                       "--cas-placement", placement, "--preset", "NativeAA"]
+            if manifest:
+                command.extend(["--manifest", str(manifest.resolve())])
+            runner.run(command, f"capture {stem}/nativeaa_{placement}")
+            native_roots[placement] = native_root
+            native_csvs[placement] = native_csv
         if args.data_only:
             csv_paths = [pair_root / f"fsr_{placement}.csv" for placement in CAS_PLACEMENTS]
-            csv_paths.append(native_csv)
+            csv_paths.extend(native_csvs.values())
             records = [csv_record(path) for path in csv_paths]
             expected_rows = len(SCALES) * len(SCENES)
             if any(record["rows"] != expected_rows for record in records):
@@ -232,6 +393,7 @@ def main() -> int:
                                             "updated_at": now(), "pairs": history})
             print(f"completed {stem}: {sum(record['rows'] for record in records)} data rows")
             continue
+        provenance: dict[tuple[str, str], dict[str, object]] = {}
         for scene in SCENES:
             resolve_scene = roots["pre"] / "scale_2_00" / scene
             raw = source_raw(resolve_scene)
@@ -253,24 +415,32 @@ def main() -> int:
             direct = roots["pre"] / "scale_2_00" / scene / "candidate_final.png"
             export(runner, direct, scene, input_height, "fsr_direct_cas20", output_height, harness)
             export(runner, direct, scene, input_height, "current_cas20", output_height, harness)
-            for placement, suffix in (("pre", "cas20_pre"), ("post", "cas20_post"),
-                                      ("none", "no_cas")):
+            direct_record = experiment_provenance(resolve_scene, category="baseline")
+            provenance[(scene, "fsr_direct_cas20")] = direct_record
+            provenance[(scene, "current_cas20")] = dict(
+                direct_record, alias_of=direct_record.get("experiment_id"))
+            for placement, suffix in CAS_METHOD_SUFFIX.items():
                 root = roots[placement]
                 for scale in SCALES:
                     scene_root = root / f"scale_{scale:.2f}".replace(".", "_") / scene
                     export(runner, scene_root / "candidate_final.png",
                            scene, input_height, f"fsr_{int(scale * 100):03d}x_downsample_{suffix}",
                            output_height, harness)
-                    export_native(runner, source_raw(scene_root), scene, input_height,
+                    export_native(runner, native_output(scene_root), scene, input_height,
                                   f"fsr_{int(scale * 100):03d}x_downsample_{suffix}",
                                   output_height, harness)
-            for placement, suffix in (("pre", "cas20_pre"), ("post", "cas20_post"),
-                                      ("none", "no_cas")):
-                native_scene_root = native_root / "scale_2_00" / scene
+                    method = f"fsr_{int(scale * 100):03d}x_downsample_{suffix}"
+                    provenance[(scene, method)] = experiment_provenance(
+                        scene_root, category="baseline" if placement == "pre" else "diagnostic")
+            for placement, suffix in CAS_METHOD_SUFFIX.items():
+                native_scene_root = native_roots[placement] / "scale_2_00" / scene
                 export(runner, native_scene_root / "candidate_final.png",
                        scene, input_height, f"fsr_nativeaa_downsample_{suffix}", output_height, harness)
-                export_native(runner, source_raw(native_scene_root), scene, input_height,
+                export_native(runner, native_output(native_scene_root), scene, input_height,
                               f"fsr_nativeaa_downsample_{suffix}", output_height, harness)
+                method = f"fsr_nativeaa_downsample_{suffix}"
+                provenance[(scene, method)] = experiment_provenance(
+                    native_scene_root, category="nativeaa")
         missing = []
         for scene in SCENES:
             for method in METHODS:
@@ -283,18 +453,32 @@ def main() -> int:
                         scene, input_height, method, output_height)))
         if missing:
             raise SystemExit(f"{stem} incomplete: {len(missing)} harness assets missing")
-        asset_records = [image_record(harness / "images" / filename(scene, input_height, method, output_height))
+        asset_records = [catalog_record(
+            harness / "images" / filename(scene, input_height, method, output_height),
+            scene=scene, method=method, input_height=input_height,
+            output_height=output_height, view="delivery",
+            provenance=provenance.get((scene, method), {
+                "pipeline_category": "external_control" if method != "current_cas20" else "baseline_alias"
+            }))
                          for scene in SCENES for method in METHODS]
-        native_records = [image_record(harness / "images" / native_filename(scene, input_height, method, output_height))
+        native_records = [catalog_record(
+            harness / "images" / native_filename(scene, input_height, method, output_height),
+            scene=scene, method=method, input_height=input_height,
+            output_height=output_height, view="native",
+            provenance=provenance.get((scene, method)))
                           for scene in SCENES for method in METHODS if has_native_output(method)]
         completed = now()
         marker.parent.mkdir(parents=True, exist_ok=True)
         marker_data = {"input": input_height, "output": output_height,
                                       "scenes": list(SCENES), "methods": list(METHODS),
+                                      "schemaVersion": 2, "runnerVersion": 2,
                                       "assets": len(asset_records), "native_assets": len(native_records),
                                       "started_at": pair_started, "completed_at": completed,
                                       "guard_log": str(runner.log), "assets_detail": asset_records,
                                       "native_assets_detail": native_records,
+                                      "aliases": {
+                                          "current_cas20": {"canonical_method": "fsr_direct_cas20", "reason": "catalog entries point to the direct arm's experiment ID per scene"},
+                                      },
                                       "provenance": {
                                           "current_cas20": "same 2.00x resolve-CAS render as fsr_direct_cas20 at the delivery grid",
                                           "fsr_direct_cas20": "same 2.00x resolve-CAS render as current_cas20 at the delivery grid",
@@ -303,6 +487,7 @@ def main() -> int:
                                           "conventional_bicubic": "matched decoded input frame scaled with bicubic",
                                       }}
         atomic_json(marker, marker_data)
+        write_catalog(harness, asset_records + native_records)
         history = []
         if campaign_manifest.is_file():
             history = json.loads(campaign_manifest.read_text(encoding="utf-8")).get("pairs", [])

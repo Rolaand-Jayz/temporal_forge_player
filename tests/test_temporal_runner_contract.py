@@ -15,6 +15,25 @@ PLAYBACK = ROOT / "src" / "core" / "PlaybackEngine.cpp"
 
 
 class TemporalRunnerContractTests(unittest.TestCase):
+    def test_baseline_qualification_has_five_serial_semantic_cases(self) -> None:
+        source = (ROOT / "tools/run_baseline_qualification.py").read_text(encoding="utf-8")
+        for case in (
+            "static_high_detail", "smooth_camera_pan", "independent_motion",
+            "occlusion_disocclusion", "hard_scene_cut",
+        ):
+            self.assertIn(case, source)
+        self.assertIn("refusing to overwrite qualification data", source)
+        self.assertIn('"TFORGE_PRESERVE_IMAGE_ARTIFACTS": "0"', source)
+        self.assertIn("for case, (filename, is_cut) in CASES.items()", source)
+
+    def test_retained_temporal_artifacts_are_data_only_by_default(self) -> None:
+        source = RUNNER.read_text(encoding="utf-8")
+        self.assertIn('preserve_image_artifacts="${TFORGE_PRESERVE_IMAGE_ARTIFACTS:-0}"', source)
+        self.assertIn("prune_image_payloads", source)
+        self.assertIn('if [[ "$preserve_image_artifacts" == "1" ]]; then', source)
+        self.assertIn("-iname '*.ppm'", source)
+        self.assertIn("-iname '*.mkv'", source)
+
     """Require explicit sidecars before the capture runner emits new metrics."""
 
     def test_temporal_jitter_policy_uses_decoded_source_dimensions(self) -> None:
@@ -279,8 +298,8 @@ class TemporalRunnerContractTests(unittest.TestCase):
                 (failure_dir / "player.log").is_file(),
                 result.stderr,
             )
-            self.assertTrue(
-                (failure_dir / "fsr" / "temporal_forge_fsr4_0000.ppm").is_file(),
+            self.assertFalse(
+                (failure_dir / "fsr" / "temporal_forge_fsr4_0000.ppm").exists(),
                 result.stderr,
             )
             self.assertIn("partial player output", (failure_dir / "player.log").read_text())

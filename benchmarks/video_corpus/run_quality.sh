@@ -16,6 +16,14 @@ quality_filter="${TFORGE_QUALITY_QUALITY:-}"
 corpus_manifest="${TFORGE_QUALITY_MANIFEST:-$root/manifest.csv}"
 review_pipeline_config="${TFORGE_REVIEW_PIPELINE_CONFIG:-$root/review_pipeline.env}"
 spatial_input="${TFORGE_QUALITY_SPATIAL_INPUT:-}"
+# Preserve caller-owned experiment controls across the optional review config.
+# That config contains defaults for interactive review, but must never replace
+# an explicit arm value (the previous behavior changed requested CAS .20 to
+# the config's .04 after the runner had recorded .20).
+caller_review_fsr_cas="${TFORGE_REVIEW_FSR_CAS:-}"
+caller_fsr4_cas_strength="${TFORGE_FSR4_CAS_STRENGTH:-}"
+caller_git_head="${TFORGE_GIT_HEAD:-}"
+caller_git_dirty="${TFORGE_GIT_DIRTY:-}"
 if [[ -f "$review_pipeline_config" ]]; then
     # shellcheck disable=SC1090
     source "$review_pipeline_config"
@@ -140,8 +148,18 @@ while IFS=, read -r \
 
     printf 'Capturing %s %sx%s %s frame %s...\n' \
         "$clip_id" "$width" "$height" "$quality" "$frame_index"
-    rm -f "$output_ppm" "$output_png" "$source_raw_ppm" "$source_raw_png" \
-        "$lanczos_png" "$bicubic_png" "$difference_png"
+    # Never destroy an existing capture before its provenance has been
+    # validated. Campaign callers must use a fresh artifact namespace; a
+    # deliberate overwrite requires removing that namespace after preserving
+    # its data snapshot.
+    for existing_path in "$output_ppm" "$output_png" "$source_raw_ppm" \
+        "$source_raw_png" "$lanczos_png" "$bicubic_png" "$difference_png"; do
+        if [[ -e "$existing_path" || -L "$existing_path" ]]; then
+            printf 'refusing to overwrite existing capture artifact: %s\n' \
+                "$existing_path" >&2
+            exit 2
+        fi
+    done
     set +e
     benchmark_env=()
     if [[ "$preset" != "saved" ]]; then
@@ -272,7 +290,13 @@ while IFS=, read -r \
         TFORGE_FSR4_CONTROLLED_JITTER \
         TFORGE_FSR4_JITTER_SEQUENCE \
         TFORGE_FSR4_JITTER_CADENCE \
-        TFORGE_QUALITY_LAB_CONFIG; do
+        TFORGE_QUALITY_LAB_CONFIG \
+        TFORGE_QUALITY_PROFILE \
+        TFORGE_EXPERIMENT_ID \
+        TFORGE_RUNTIME_TRACE_PATH \
+        TFORGE_GIT_HEAD \
+        TFORGE_GIT_DIRTY \
+        TFORGE_CONFIG_SHA256; do
         if [[ -n "${!name:-}" ]]; then
             benchmark_env+=("$name=${!name}")
         fi
@@ -284,7 +308,11 @@ while IFS=, read -r \
     if [[ "$selector" == "1280x720" && -z "${TFORGE_FSR4_FORCE_VIEWPORT:-}" ]]; then
         benchmark_env+=("TFORGE_FSR4_FORCE_VIEWPORT=1281x720")
     fi
-    if [[ -n "${TFORGE_REVIEW_FSR_CAS:-}" ]]; then
+    if [[ -n "$caller_review_fsr_cas" ]]; then
+        benchmark_env+=("TFORGE_FSR4_CAS_STRENGTH=$caller_review_fsr_cas")
+    elif [[ -n "$caller_fsr4_cas_strength" ]]; then
+        benchmark_env+=("TFORGE_FSR4_CAS_STRENGTH=$caller_fsr4_cas_strength")
+    elif [[ -n "${TFORGE_REVIEW_FSR_CAS:-}" ]]; then
         benchmark_env+=("TFORGE_FSR4_CAS_STRENGTH=${TFORGE_REVIEW_FSR_CAS}")
     fi
     env \

@@ -41,7 +41,9 @@ class ReviewHarnessContractTests(unittest.TestCase):
         self.assertIn("const MULTIPLIERS", self.html)
         self.assertIn("const CAS_PLACEMENTS", self.html)
         self.assertIn("const VIEW_MODES", self.html)
-        for label in ("2×", "2.25×", "2.5×", "2.75×", "3×", "pre CAS", "post CAS", "no CAS"):
+        self.assertIn("['native','Matched source']", self.html)
+        self.assertIn("MATCHED SOURCE IS NOT NATIVEAA", self.html)
+        for label in ("2×", "2.25×", "2.5×", "2.75×", "3×", "Resolve CAS .20", "External post-reduction CAS .20", "No CAS"):
             self.assertIn(label, self.html)
         self.assertIn("selection.view === 'native'", self.html)
         self.assertIn("'__native'", self.html)
@@ -50,7 +52,8 @@ class ReviewHarnessContractTests(unittest.TestCase):
         for token in ("clip-path", "sweep-input", "panX", "panY", "NO IMAGE", "naturalWidth", "1920", "1080"):
             self.assertIn(token, self.html)
         self.assertNotIn("filter:", self.html)
-        self.assertIn("image.src = `images/${name}`", self.html)
+        self.assertIn("image.src = entry.path", self.html)
+        self.assertIn("entry.validation !== 'validated_experiment'", self.html)
         self.assertIn("image.src = 'images/no_image.svg'", self.html)
         self.assertIn("state[side][button.closest('[data-key]').dataset.key]", self.html)
 

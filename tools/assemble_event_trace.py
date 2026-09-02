@@ -149,6 +149,7 @@ def assemble_event_trace(
     output_height: int,
     ghost_threshold: float,
     reset_threshold: float,
+    allow_no_event: bool = False,
 ) -> dict[str, Any]:
     """Return one identity-bound, event-spanning trace document."""
 
@@ -190,7 +191,7 @@ def assemble_event_trace(
         if record.get("event") is True and record.get("eventIndex", 0) != 0
     ]
     detector_events = [record for record in events if record.get("detectorSceneCut") is True]
-    if not detector_events:
+    if not detector_events and not allow_no_event:
         raise ValueError("no later detector scene-cut event was emitted")
     eligible_events = [
         record
@@ -198,7 +199,7 @@ def assemble_event_trace(
         if int(record["eventIndex"]) >= MIN_PRE_EVENT_FRAMES
         and expected_frames - int(record["eventIndex"]) - 1 >= MIN_POST_EVENT_FRAMES
     ]
-    if not eligible_events:
+    if not eligible_events and not allow_no_event:
         raise ValueError(
             "no later detector scene-cut event has enough pre-event and post-event frames"
         )
@@ -210,15 +211,20 @@ def assemble_event_trace(
         record for record in eligible_events
         if classifications[int(record["eventIndex"])]["cause"] == "pts_gap"
     ]
-    authoritative = pts_gap_events[0] if pts_gap_events else eligible_events[0]
-    authoritative_classification = classifications[int(authoritative["eventIndex"])]
-    event_index = int(authoritative["eventIndex"])
-    reset_index = authoritative.get("transitionIndex")
-    if not isinstance(reset_index, int):
-        raise ValueError("authoritative event has no measured reset transition")
-    ghost_index = reset_index + 1
-    if ghost_index >= expected_frames - 1:
-        raise ValueError("event has no measured post-event transition for ghost analysis")
+    authoritative = pts_gap_events[0] if pts_gap_events else (
+        eligible_events[0] if eligible_events else None
+    )
+    authoritative_classification = (
+        classifications[int(authoritative["eventIndex"])] if authoritative else None
+    )
+    event_index = int(authoritative["eventIndex"]) if authoritative else None
+    reset_index = authoritative.get("transitionIndex") if authoritative else None
+    ghost_index = reset_index + 1 if isinstance(reset_index, int) else None
+    if authoritative:
+        if not isinstance(reset_index, int):
+            raise ValueError("authoritative event has no measured reset transition")
+        if ghost_index >= expected_frames - 1:
+            raise ValueError("event has no measured post-event transition for ghost analysis")
 
     document = {
         "schema": SCHEMA,
@@ -234,13 +240,13 @@ def assemble_event_trace(
         "eventFrameIndex": event_index,
         "eventTransitionIndex": reset_index,
         "resetIndex": reset_index,
-        "resetCause": authoritative["resetCause"],
+        "resetCause": authoritative["resetCause"] if authoritative else None,
         "ghostEventIndex": ghost_index,
-        "ghostCause": authoritative["ghostCause"],
+        "ghostCause": authoritative["ghostCause"] if authoritative else None,
         "ghostThreshold": ghost_limit,
         "resetThreshold": reset_limit,
         "thresholdProvenance": {
-            "detector": authoritative["thresholdProvenance"],
+            "detector": authoritative["thresholdProvenance"] if authoritative else None,
             "metricContract": "m6.event_metrics.v1",
             "metricThresholdSource": "explicit_capture_arguments",
             "ghostThreshold": ghost_limit,
@@ -248,6 +254,7 @@ def assemble_event_trace(
             "ghostMetricStart": "first_measured_transition_after_event_transition",
         },
         "frames": records,
+        "eventRequired": not allow_no_event,
     }
     if analysis_frame_indices is not None:
         document["analysisFrameIndices"] = analysis_frame_indices
@@ -273,6 +280,10 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--output-height", required=True, type=int)
     parser.add_argument("--ghost-threshold", required=True, type=float)
     parser.add_argument("--reset-threshold", required=True, type=float)
+    parser.add_argument(
+        "--allow-no-event", action="store_true",
+        help="permit a valid sequence with no later scene-cut event",
+    )
     parser.add_argument("--output", required=True, type=Path)
     return parser.parse_args()
 
@@ -304,6 +315,7 @@ def main() -> int:
         output_height=args.output_height,
         ghost_threshold=args.ghost_threshold,
         reset_threshold=args.reset_threshold,
+        allow_no_event=args.allow_no_event,
     )
     if args.output.exists():
         raise ValueError(f"refusing to overwrite existing event trace: {args.output}")

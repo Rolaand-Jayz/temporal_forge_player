@@ -19,6 +19,7 @@ extern "C" {
 #include <cstdlib>
 #include <QFileInfo>
 #include <QFile>
+#include <QCryptographicHash>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
@@ -146,6 +147,138 @@ FsrJitterPair computeFsrJitterPair(uint32_t decodedW, uint32_t decodedH,
   pair.modelW = modelW;
   pair.modelH = modelH;
   return pair;
+}
+
+void writeRuntimePipelineTrace(uint32_t decodedW, uint32_t decodedH,
+                               uint32_t modelW, uint32_t modelH,
+                               uint32_t outputW, uint32_t outputH,
+                               float selectedScale, bool nativeInt8,
+                               size_t passCount) {
+  const char *tracePath = std::getenv("TFORGE_RUNTIME_TRACE_PATH");
+  if (!tracePath || !*tracePath)
+    return;
+
+  const char *jitterEnv = std::getenv("TFORGE_FSR4_JITTER_MODE");
+  const bool jitterOff = jitterEnv && std::strcmp(jitterEnv, "off") == 0;
+  const bool prepassJitter =
+      std::getenv("TFORGE_FSR4_EXPERIMENTAL_PREPASS_JITTER_ORDERING") ||
+      std::getenv("TFORGE_FSR4_EXPERIMENTAL_SOURCE_TAP_MULAW") ||
+      std::getenv("TFORGE_FSR4_INTEGRATED_BEST_FINDINGS_JITTER");
+  const bool historyEnabled =
+      std::getenv("TFORGE_FSR4_ENABLE_COLOR_HISTORY") ||
+      std::getenv("TFORGE_FSR4_INTEGRATED_HISTORY_CONFIDENCE") ||
+      std::getenv("TFORGE_FSR4_INTEGRATED_BEST_FINDINGS") ||
+      std::getenv("TFORGE_FSR4_INTEGRATED_BEST_FINDINGS_JITTER");
+  const char *casEnv = std::getenv("TFORGE_FSR4_CAS_STRENGTH");
+  const float casStrength = casEnv && *casEnv
+                                ? std::clamp(std::strtof(casEnv, nullptr), 0.0f, 1.0f)
+                                : 0.20f;
+  const bool casEnabled = std::getenv("TFORGE_FSR4_DISABLE_CAS") == nullptr;
+
+  QJsonObject trace;
+  trace["schema"] = "temporal_forge.runtime_pipeline.v1";
+  trace["quality_profile"] = QString::fromUtf8(
+      std::getenv("TFORGE_QUALITY_PROFILE") ? std::getenv("TFORGE_QUALITY_PROFILE") : "");
+  trace["config_sha256"] = QString::fromUtf8(
+      std::getenv("TFORGE_CONFIG_SHA256") ? std::getenv("TFORGE_CONFIG_SHA256") : "");
+  trace["run_id"] = QString::fromUtf8(
+      std::getenv("TFORGE_EXPERIMENT_ID") ? std::getenv("TFORGE_EXPERIMENT_ID") : "");
+  trace["binary_path"] = QString::fromUtf8("/proc/self/exe");
+  QFile executable(QStringLiteral("/proc/self/exe"));
+  if (executable.open(QIODevice::ReadOnly))
+    trace["binary_sha256"] = QString::fromLatin1(
+        QCryptographicHash::hash(executable.readAll(), QCryptographicHash::Sha256).toHex());
+  trace["git_head"] = QString::fromUtf8(
+      std::getenv("TFORGE_GIT_HEAD") ? std::getenv("TFORGE_GIT_HEAD") : "");
+  trace["git_dirty"] = std::getenv("TFORGE_GIT_DIRTY") == nullptr
+                            ? QJsonValue()
+                            : QJsonValue(std::strcmp(std::getenv("TFORGE_GIT_DIRTY"), "1") == 0);
+  trace["backend"] = nativeInt8 ? "native_int8" : "generic_fsr4";
+  trace["graph_passes"] = static_cast<int>(passCount);
+  trace["source_resolution"] =
+      QStringLiteral("%1x%2").arg(decodedW).arg(decodedH);
+  trace["reconstruction_resolution"] =
+      QStringLiteral("%1x%2").arg(modelW).arg(modelH);
+  trace["presentation_resolution"] =
+      QStringLiteral("%1x%2").arg(outputW).arg(outputH);
+  trace["requested_scale"] = selectedScale;
+  const uint32_t nominalModelW = std::max(
+      2u, alignEven(static_cast<uint32_t>(std::round(
+              outputW / std::max(1.0f, selectedScale)))));
+  const uint32_t nominalModelH = std::max(
+      2u, alignEven(static_cast<uint32_t>(std::round(
+              outputH / std::max(1.0f, selectedScale)))));
+  trace["requested_model_resolution"] =
+      QStringLiteral("%1x%2").arg(nominalModelW).arg(nominalModelH);
+  trace["scale_clamped_to_source"] =
+      modelW < nominalModelW || modelH < nominalModelH;
+  trace["effective_scale"] = modelW > 0
+                                  ? static_cast<double>(outputW) / modelW
+                                  : 0.0;
+  trace["jitter_mode"] = jitterOff ? "off" :
+                         (prepassJitter ? "prepass_input_resolve" : "synthetic_upload");
+  trace["jitter_enabled"] = !jitterOff;
+  trace["motion_lookup"] = "unjittered_source_coordinates";
+  // Motion is expanded into the model-sized RG16F/R8 pair before the FSR
+  // prepass. Keep the domain and transform explicit: a source-space vector
+  // must never be interpreted as a model-texture coordinate without this
+  // scale.
+  trace["motion_texture_resolution"] =
+      QStringLiteral("%1x%2").arg(modelW).arg(modelH);
+  trace["source_to_motion_scale_x"] = decodedW > 0
+                                           ? static_cast<double>(modelW) / decodedW
+                                           : 0.0;
+  trace["source_to_motion_scale_y"] = decodedH > 0
+                                           ? static_cast<double>(modelH) / decodedH
+                                           : 0.0;
+  trace["motion_units"] = "source_pixels";
+  trace["motion_direction"] = "current_to_previous";
+  trace["motion_coordinate_convention"] =
+      "current_destination_plus_motion_previous_reference";
+  trace["motion_sample_domain"] = "unjittered_source_coordinates";
+  trace["motion_source"] =
+      std::getenv("TFORGE_FSR4_MOTION_ESTIMATOR") ||
+              std::getenv("TFORGE_FSR4_MOTION_ABLATION")
+          ? "configured_estimator_or_ablation"
+          : "decoder_motion_or_default";
+  trace["motion_validity_enabled"] =
+      std::getenv("TFORGE_FSR4_DISABLE_MOTION_VALIDITY") == nullptr;
+  trace["motion_validity_distinct_from_zero"] = true;
+  trace["invalid_history_policy"] =
+      std::getenv("TFORGE_FSR4_EXPERIMENTAL_CURRENT_INVALID_HISTORY")
+          ? "current_color_compatibility_diagnostic"
+          : "reject_invalid_history";
+  trace["history_enabled"] = historyEnabled;
+  trace["recurrent_enabled"] =
+      std::getenv("TFORGE_FSR4_ENABLE_RECURRENT") != nullptr;
+  trace["history_reset_policy"] = "seek_resize_cut_or_invalid_correspondence";
+  trace["cas_enabled"] = casEnabled;
+  trace["cas_strength"] = casStrength;
+  trace["cas_stage"] = casEnabled ? "integrated_post_reconstruction" : "none";
+  trace["post_fsr_reducer"] = "none";
+  trace["presentation_scaler"] = "runtime_display_scaler_or_native_output";
+  trace["jitter_sequence"] = QString::fromUtf8(
+      std::getenv("TFORGE_FSR4_JITTER_SEQUENCE")
+          ? std::getenv("TFORGE_FSR4_JITTER_SEQUENCE")
+          : "halton23");
+  trace["jitter_phase_source"] = "per_frame_event_trace";
+  trace["prepass_source_tap_mulaw"] =
+      std::getenv("TFORGE_FSR4_EXPERIMENTAL_SOURCE_TAP_MULAW") != nullptr;
+  trace["requested_force_viewport"] = QString::fromUtf8(
+      std::getenv("TFORGE_FSR4_FORCE_VIEWPORT") ? std::getenv("TFORGE_FSR4_FORCE_VIEWPORT") : "");
+  trace["requested_force_scale"] = QString::fromUtf8(
+      std::getenv("TFORGE_FSR4_FORCE_SCALE") ? std::getenv("TFORGE_FSR4_FORCE_SCALE") : "");
+
+  QFile file(QString::fromLocal8Bit(tracePath));
+  if (!file.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
+    logWarn("PlaybackEngine: cannot write runtime pipeline trace '{}': {}",
+            tracePath, file.errorString().toStdString());
+    return;
+  }
+  const QByteArray payload = QJsonDocument(trace).toJson(QJsonDocument::Compact);
+  if (file.write(payload) != payload.size())
+    logWarn("PlaybackEngine: short write for runtime pipeline trace '{}'", tracePath);
+  file.close();
 }
 
 int qualityLabPresentationScaler(const QualityLabConfig &config,
@@ -1483,6 +1616,11 @@ bool PlaybackEngine::initFsr4Path(int decodedW, int decodedH, int modelW,
           decodedW, decodedH, modelW, modelH, outW, outH);
   logInfo("PlaybackEngine: FSR4 progressive chain passes={}",
           fsr4PassSizes_.size());
+  writeRuntimePipelineTrace(
+      static_cast<uint32_t>(decodedW), static_cast<uint32_t>(decodedH),
+      static_cast<uint32_t>(modelW), static_cast<uint32_t>(modelH), outW, outH,
+      scale, fsr4Harness_ && fsr4Harness_->usesNativeInt8(),
+      fsr4PassSizes_.size());
   emit fsr4StatusChanged();
   return true;
 }

@@ -12,6 +12,7 @@ import hashlib
 import os
 import subprocess
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -59,6 +60,30 @@ def _write_candidate_artifacts(
 
 
 class QualityRunnerContractTests(unittest.TestCase):
+    def test_runtime_trace_rejects_jitter_state_mismatch(self) -> None:
+        from benchmarks.quality_sweeps.run_fsr_supersampling import validate_runtime_trace
+
+        trace = {
+            "schema": "temporal_forge.runtime_pipeline.v1",
+            "run_id": "run-1", "quality_profile": "AMD_SEMANTIC_BASELINE",
+            "source_resolution": "640x360", "presentation_resolution": "1280x720",
+            "requested_force_viewport": "1280x720", "requested_force_scale": "2.00",
+            "jitter_mode": "off", "jitter_enabled": False,
+            "cas_enabled": True, "binary_sha256": "bin", "config_sha256": "config",
+            "git_head": "head", "git_dirty": False,
+            "reconstruction_resolution": "640x360", "requested_model_resolution": "640x360",
+            "scale_clamped_to_source": False, "effective_scale": 2.0,
+        }
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "trace.json"
+            path.write_text(json.dumps(trace), encoding="utf-8")
+            with self.assertRaisesRegex(RuntimeError, "jitter_mode"):
+                validate_runtime_trace(path, run_id="run-1", source="640x360",
+                                       output="1280x720", scale=2.0, cas_enabled=True,
+                                       binary_sha256="bin", git_head="head", git_dirty=False,
+                                       config_sha256="config",
+                                       profile="AMD_SEMANTIC_BASELINE")
+
     def test_candidate_environment_is_declared_and_not_inherited(self) -> None:
         """Ambient quality switches must not silently change a candidate."""
         from benchmarks.quality_sweeps.run_quality_sweep import build_candidate_environment
@@ -141,8 +166,45 @@ class QualityRunnerContractTests(unittest.TestCase):
             "TFORGE_FSR4_ENABLE_COLOR_HISTORY",
             "TFORGE_FSR4_ENABLE_RECURRENT",
             "TFORGE_FSR4_CAS_STRENGTH",
+            "TFORGE_EXPERIMENT_ID",
+            "TFORGE_RUNTIME_TRACE_PATH",
+            "TFORGE_GIT_HEAD",
+            "TFORGE_GIT_DIRTY",
+            "TFORGE_CONFIG_SHA256",
         ):
             self.assertIn(name, source)
+
+    def test_explicit_cas_survives_review_config_defaults(self) -> None:
+        """An arm's CAS value must win over review-only config defaults."""
+        source = RUNNER.read_text(encoding="utf-8")
+        caller_capture = source.index('caller_review_fsr_cas="${TFORGE_REVIEW_FSR_CAS:-}"')
+        source_config = source.index('source "$review_pipeline_config"')
+        override = source.index('benchmark_env+=("TFORGE_FSR4_CAS_STRENGTH=$caller_review_fsr_cas")')
+        config_fallback = source.index('benchmark_env+=("TFORGE_FSR4_CAS_STRENGTH=${TFORGE_REVIEW_FSR_CAS}")')
+        self.assertLess(caller_capture, source_config)
+        self.assertLess(source_config, override)
+        self.assertLess(override, config_fallback)
+        self.assertIn('elif [[ -n "$caller_fsr4_cas_strength" ]]', source)
+
+    def test_runner_separates_semantic_baseline_from_jitter_diagnostic(self) -> None:
+        source = (ROOT / "benchmarks/quality_sweeps/run_fsr_supersampling.py").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn('"AMD_SEMANTIC_BASELINE", "JITTER_OFF_DIAGNOSTIC"', source)
+        self.assertIn('default="AMD_SEMANTIC_BASELINE"', source)
+        self.assertIn('"TFORGE_FSR4_INTEGRATED_BEST_FINDINGS": "1"', source)
+        self.assertIn('"TFORGE_FSR4_ENABLE_COLOR_HISTORY": "1"', source)
+        self.assertIn('"TFORGE_FSR4_ENABLE_RECURRENT": "1"', source)
+        self.assertIn('"quality_profile"', (ROOT / "src/core/PlaybackEngine.cpp").read_text(encoding="utf-8"))
+        self.assertIn('"config_sha256"', (ROOT / "src/core/PlaybackEngine.cpp").read_text(encoding="utf-8"))
+
+    def test_runtime_rejection_persists_failed_arm_provenance(self) -> None:
+        source = (ROOT / "benchmarks/quality_sweeps/run_fsr_supersampling.py").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn('"status": "failed"', source)
+        self.assertIn('"failure_reason": str(error)', source)
+        self.assertIn('os.replace(temporary_record, scene_root / "experiment.json")', source)
 
     def test_spatial_controls_use_the_captured_gpu_decode_at_the_target_frame(self) -> None:
         """FSR and standalone controls must start from identical decoded pixels."""

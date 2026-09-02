@@ -12,10 +12,14 @@ from __future__ import annotations
 
 import argparse
 import csv
+import datetime as dt
 import os
 import re
 import subprocess
 import time
+import uuid
+import json
+import hashlib
 from pathlib import Path
 
 
@@ -75,6 +79,142 @@ def metric(label: str, path: Path) -> str:
     return values[-1]
 
 
+def sha256_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as stream:
+        for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def git_identity(root: Path) -> tuple[str, bool]:
+    head = subprocess.run(
+        ["git", "-C", str(root), "rev-parse", "HEAD"],
+        cwd=root, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+        check=True,
+    ).stdout.strip()
+    dirty = bool(subprocess.run(
+        ["git", "-C", str(root), "status", "--porcelain"],
+        cwd=root, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+        check=True,
+    ).stdout.strip())
+    return head, dirty
+
+
+def validate_runtime_trace(path: Path, *, run_id: str, source: str,
+                           output: str, scale: float,
+                           cas_enabled: bool, binary_sha256: str,
+                           git_head: str, git_dirty: bool,
+                           profile: str, config_sha256: str) -> dict[str, object]:
+    """Require the player to prove the effective state of this arm."""
+    if not path.is_file():
+        raise RuntimeError(f"Temporal Forge did not emit runtime trace: {path}")
+    try:
+        trace = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as error:
+        raise RuntimeError(f"invalid runtime trace {path}: {error}") from error
+    if not isinstance(trace, dict) or trace.get("schema") != "temporal_forge.runtime_pipeline.v1":
+        raise RuntimeError(f"runtime trace schema mismatch: {path}")
+    output_w, output_h = (int(value) for value in output.split("x"))
+    source_w, source_h = (int(value) for value in source.split("x"))
+    nominal_model_w = even_dimension(round(output_w / max(1.0, scale)))
+    nominal_model_h = even_dimension(round(output_h / max(1.0, scale)))
+    expected_model_w = min(nominal_model_w, source_w)
+    expected_model_h = min(nominal_model_h, source_h)
+    expected_jitter = profile != "JITTER_OFF_DIAGNOSTIC"
+    expected_jitter_mode = (
+        "prepass_input_resolve" if profile == "AMD_SEMANTIC_BASELINE"
+        else "off"
+    )
+    expected = {
+        "run_id": run_id,
+        "quality_profile": profile,
+        "config_sha256": config_sha256,
+        "source_resolution": source,
+        "presentation_resolution": output,
+        "requested_force_viewport": output,
+        "requested_force_scale": f"{scale:.2f}",
+        "jitter_mode": expected_jitter_mode,
+        "jitter_enabled": expected_jitter,
+        "cas_enabled": cas_enabled,
+        "binary_sha256": binary_sha256,
+        "git_head": git_head,
+        "git_dirty": git_dirty,
+    }
+    for key, value in expected.items():
+        if trace.get(key) != value:
+            raise RuntimeError(
+                f"runtime state mismatch for {key}: requested={value!r}, "
+                f"effective={trace.get(key)!r}, trace={path}"
+            )
+    if profile == "AMD_SEMANTIC_BASELINE":
+        required_baseline_state = {
+            "prepass_source_tap_mulaw": True,
+            "history_enabled": True,
+            "recurrent_enabled": True,
+            "motion_lookup": "unjittered_source_coordinates",
+            "motion_validity_enabled": True,
+        }
+        for key, value in required_baseline_state.items():
+            if trace.get(key) != value:
+                raise RuntimeError(
+                    f"AMD semantic baseline state mismatch for {key}: "
+                    f"expected={value!r}, effective={trace.get(key)!r}, trace={path}"
+                )
+    reconstruction = trace.get("reconstruction_resolution")
+    if not isinstance(reconstruction, str) or not re.fullmatch(r"[1-9][0-9]*x[1-9][0-9]*", reconstruction):
+        raise RuntimeError(f"runtime trace has invalid reconstruction resolution: {path}")
+    if trace.get("requested_model_resolution") != f"{nominal_model_w}x{nominal_model_h}":
+        raise RuntimeError(f"requested model grid mismatch: {path}")
+    if trace.get("scale_clamped_to_source") != (
+        expected_model_w < nominal_model_w or expected_model_h < nominal_model_h
+    ):
+        raise RuntimeError(f"unreported source-size scale clamp: {path}")
+    if reconstruction != f"{expected_model_w}x{expected_model_h}":
+        raise RuntimeError(
+            f"effective model resolution mismatch: expected={expected_model_w}x{expected_model_h}, "
+            f"effective={reconstruction!r}, trace={path}"
+        )
+    expected_motion_scale_x = expected_model_w / source_w
+    expected_motion_scale_y = expected_model_h / source_h
+    required_motion_state = {
+        "motion_texture_resolution": f"{expected_model_w}x{expected_model_h}",
+        "motion_units": "source_pixels",
+        "motion_direction": "current_to_previous",
+        "motion_coordinate_convention":
+            "current_destination_plus_motion_previous_reference",
+        "motion_sample_domain": "unjittered_source_coordinates",
+        "motion_validity_distinct_from_zero": True,
+        "invalid_history_policy": "reject_invalid_history",
+    }
+    for key, value in required_motion_state.items():
+        if trace.get(key) != value:
+            raise RuntimeError(
+                f"runtime motion semantics mismatch for {key}: "
+                f"expected={value!r}, effective={trace.get(key)!r}, trace={path}"
+            )
+    for key, expected_value in (("source_to_motion_scale_x", expected_motion_scale_x),
+                                ("source_to_motion_scale_y", expected_motion_scale_y)):
+        actual_value = trace.get(key)
+        if not isinstance(actual_value, (int, float)) or abs(float(actual_value) - expected_value) > 0.001:
+            raise RuntimeError(
+                f"runtime motion transform mismatch for {key}: "
+                f"expected={expected_value!r}, effective={actual_value!r}, trace={path}"
+            )
+    if trace.get("post_fsr_reducer") != "none":
+        raise RuntimeError(f"unexpected post-FSR reducer: {path}")
+    if trace.get("history_reset_policy") != "seek_resize_cut_or_invalid_correspondence":
+        raise RuntimeError(f"runtime history reset policy mismatch: {path}")
+    effective_scale = trace.get("effective_scale")
+    expected_effective_scale = output_w / expected_model_w
+    if not isinstance(effective_scale, (int, float)) or abs(float(effective_scale) - expected_effective_scale) > 0.01:
+        raise RuntimeError(
+            f"effective scale mismatch: expected={expected_effective_scale:.2f}, "
+            f"effective={effective_scale!r}, trace={path}"
+        )
+    return trace
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--player", type=Path, default=Path("build-fast/temporal_forge_player"))
@@ -93,6 +233,9 @@ def main() -> int:
                         help="place CAS before reduction, after reduction, or disable it")
     parser.add_argument("--preset", default="saved",
                         help="benchmark preset forwarded to run_quality.sh")
+    parser.add_argument("--profile", choices=("AMD_SEMANTIC_BASELINE", "JITTER_OFF_DIAGNOSTIC"),
+                        default="AMD_SEMANTIC_BASELINE",
+                        help="explicit semantic profile; diagnostics never become baseline evidence")
     parser.add_argument("--scale", type=float, action="append", choices=SCALES,
                         help="limit the run to selected reconstruction scales")
     args = parser.parse_args()
@@ -102,6 +245,9 @@ def main() -> int:
     artifact_root = args.artifact_root.resolve()
     artifact_root.mkdir(parents=True, exist_ok=True)
     output_rows: list[dict[str, str]] = []
+    git_head, git_dirty = git_identity(root)
+    binary_sha256 = sha256_file(player)
+    config_sha256 = sha256_file(root / "benchmarks/video_corpus/benchmark_settings.json")
     requested_scales = tuple(args.scale) if args.scale else SCALES
 
     manifest = (args.manifest or (root / "benchmarks/video_corpus/manifest.csv")).resolve()
@@ -132,6 +278,8 @@ def main() -> int:
             scene_root = candidate_root / scene
             scene_root.mkdir(parents=True, exist_ok=True)
             raw_csv = scene_root / "raw.csv"
+            run_id = uuid.uuid4().hex
+            runtime_trace = scene_root / "runtime_pipeline.json"
             env = os.environ.copy()
             env.update({
                 "TFORGE_QUALITY_MANIFEST": str(manifest),
@@ -143,13 +291,28 @@ def main() -> int:
                 "TFORGE_QUALITY_OUTPUT_DIMENSIONS": f"{intermediate_w}x{intermediate_h}",
                 "TFORGE_FSR4_FORCE_VIEWPORT": f"{intermediate_w}x{intermediate_h}",
                 "TFORGE_FSR4_FORCE_SCALE": f"{scale:.2f}",
-                "TFORGE_FSR4_JITTER_MODE": "off",
+                "TFORGE_FSR4_JITTER_MODE": "synthetic" if args.profile == "AMD_SEMANTIC_BASELINE" else "off",
                 "TFORGE_REVIEW_FSR_CAS": args.cas_strength,
                 "TFORGE_FSR4_CAS_STRENGTH": args.cas_strength,
                 "TFORGE_BENCHMARK_PRESET": args.preset,
                 "TFORGE_DISABLE_HW_DECODE": "1",
                 "TFORGE_FSR4_PROFILE_TIMINGS": "1",
+                "TFORGE_EXPERIMENT_ID": run_id,
+                "TFORGE_RUNTIME_TRACE_PATH": str(runtime_trace),
+                "TFORGE_GIT_HEAD": git_head,
+                "TFORGE_GIT_DIRTY": "1" if git_dirty else "0",
+                "TFORGE_CONFIG_SHA256": config_sha256,
             })
+            if args.profile == "AMD_SEMANTIC_BASELINE":
+                env.update({
+                    "TFORGE_QUALITY_PROFILE": args.profile,
+                    "TFORGE_FSR4_INTEGRATED_BEST_FINDINGS": "1",
+                    "TFORGE_FSR4_ENABLE_COLOR_HISTORY": "1",
+                    "TFORGE_FSR4_ENABLE_RECURRENT": "1",
+                    "TFORGE_FSR4_EXPERIMENTAL_SOURCE_TAP_MULAW": "1",
+                })
+            else:
+                env["TFORGE_QUALITY_PROFILE"] = args.profile
             if args.cas_placement == "none":
                 env["TFORGE_FSR4_DISABLE_CAS"] = "1"
             elif args.cas_placement == "post":
@@ -161,6 +324,52 @@ def main() -> int:
             with raw_csv.open(newline="") as handle:
                 raw = next(csv.DictReader(handle))
             source = Path(raw["output_path"])
+            try:
+                trace = validate_runtime_trace(
+                    runtime_trace,
+                    run_id=run_id,
+                    source=f"{row['width']}x{row['height']}",
+                    output=f"{intermediate_w}x{intermediate_h}",
+                    scale=scale,
+                    cas_enabled=args.cas_placement == "pre",
+                    binary_sha256=binary_sha256,
+                    git_head=git_head,
+                    git_dirty=git_dirty,
+                    profile=args.profile,
+                    config_sha256=config_sha256,
+                )
+            except Exception as error:
+                # Persist rejected-arm provenance before propagating the
+                # failure.  A failed experiment is still evidence; losing its
+                # reason would make later audits indistinguishable from a
+                # process that never ran.
+                failed_record = {
+                    "schema": "temporal_forge.quality_experiment.v2",
+                    "experiment_id": run_id,
+                    "run_id": run_id,
+                    "arm_id": f"{args.preset.lower()}_{scale:.2f}x_{args.cas_placement}",
+                    "profile": args.profile,
+                    "status": "failed",
+                    "failure_reason": str(error),
+                    "timestamp_complete_utc": dt.datetime.now(dt.timezone.utc).isoformat(),
+                    "git_head": git_head,
+                    "git_dirty_at_capture_start": git_dirty,
+                    "binary": str(player),
+                    "binary_sha256": binary_sha256,
+                    "config_sha256": config_sha256,
+                    "scene": scene,
+                    "frame": args.frame,
+                    "input_resolution": f"{row['width']}x{row['height']}",
+                    "delivery_resolution": args.final,
+                    "nominal_scale": f"{scale:.2f}",
+                    "cas_strength": args.cas_strength,
+                    "cas_placement": args.cas_placement,
+                    "runtime_trace_path": str(runtime_trace),
+                }
+                temporary_record = scene_root / f".experiment.{run_id}.tmp"
+                temporary_record.write_text(json.dumps(failed_record, indent=2) + "\n", encoding="utf-8")
+                os.replace(temporary_record, scene_root / "experiment.json")
+                raise
             final_candidate = scene_root / "candidate_final.png"
             reference_final = scene_root / "reference_final.png"
             reference = Path(raw["control_source_path"]).parent / (
@@ -215,7 +424,69 @@ def main() -> int:
                 "binary": str(player), "frame": str(args.frame),
                 "vram_before_bytes": str(vram_before or ""),
                 "vram_peak_bytes": str(vram_peak or ""),
+                "run_id": run_id,
+                "runtime_trace_path": str(runtime_trace),
+                "runtime_trace_sha256": hashlib.sha256(runtime_trace.read_bytes()).hexdigest(),
+                "output_sha256": sha256_file(final_candidate),
+                "runtime_effective_backend": str(trace.get("backend", "")),
+                "runtime_effective_model_resolution": str(trace.get("reconstruction_resolution", "")),
             })
+            experiment_record = {
+                "schema": "temporal_forge.quality_experiment.v2",
+                "experiment_id": run_id,
+                "run_id": run_id,
+                "arm_id": (
+                    f"{args.preset.lower()}_{scale:.2f}x_"
+                    f"{('cas20_' + args.cas_placement) if args.cas_placement != 'none' else 'no_cas'}"
+                ),
+                "profile": args.profile,
+                "status": "complete",
+                "timestamp_complete_utc": dt.datetime.now(dt.timezone.utc).isoformat(),
+                "git_head": git_head,
+                "git_dirty_at_capture_start": git_dirty,
+                "binary": str(player),
+                "binary_sha256": binary_sha256,
+                "config_sha256": config_sha256,
+                "scene": scene,
+                "frame": args.frame,
+                "input_resolution": f"{row['width']}x{row['height']}",
+                "reconstruction_resolution": f"{intermediate_w}x{intermediate_h}",
+                "delivery_resolution": args.final,
+                "nominal_scale": f"{scale:.2f}",
+                "cas_strength": args.cas_strength,
+                "cas_placement": args.cas_placement,
+                "source_artifact": raw.get("control_source_path", ""),
+                "source_sha256": raw.get("control_source_sha256", ""),
+                "output_artifact": str(final_candidate),
+                "output_sha256": sha256_file(final_candidate),
+                "runtime_trace": trace,
+                "runtime_trace_path": str(runtime_trace),
+                "runtime_trace_sha256": sha256_file(runtime_trace),
+                "metrics": {
+                    "psnr_db": metric("average", metric_log),
+                    "ssim": metric("All", metric_log),
+                    "edge_ssim": metric("All", edge_log),
+                },
+                "command": [str(root / "benchmarks/video_corpus/run_quality.sh"), str(player), args.source, str(raw_csv)],
+                "requested_environment": {
+                    key: env[key] for key in env
+                    if key.startswith("TFORGE_") and key in {
+                        "TFORGE_QUALITY_MANIFEST", "TFORGE_QUALITY_CLIP",
+                        "TFORGE_QUALITY_FRAME", "TFORGE_QUALITY_TAG",
+                        "TFORGE_QUALITY_OUTPUT_DIMENSIONS", "TFORGE_FSR4_FORCE_VIEWPORT",
+                        "TFORGE_QUALITY_PROFILE",
+                        "TFORGE_FSR4_FORCE_SCALE", "TFORGE_FSR4_JITTER_MODE",
+                        "TFORGE_REVIEW_FSR_CAS", "TFORGE_FSR4_CAS_STRENGTH",
+                        "TFORGE_FSR4_DISABLE_CAS", "TFORGE_EXPERIMENT_ID",
+                        "TFORGE_RUNTIME_TRACE_PATH",
+                        "TFORGE_GIT_HEAD", "TFORGE_GIT_DIRTY",
+                        "TFORGE_CONFIG_SHA256",
+                    }
+                },
+            }
+            temporary_record = scene_root / f".experiment.{run_id}.tmp"
+            temporary_record.write_text(json.dumps(experiment_record, indent=2) + "\n", encoding="utf-8")
+            os.replace(temporary_record, scene_root / "experiment.json")
 
     args.output_csv.parent.mkdir(parents=True, exist_ok=True)
     fields = list(output_rows[0])

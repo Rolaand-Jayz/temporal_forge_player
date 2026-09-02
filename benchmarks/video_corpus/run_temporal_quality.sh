@@ -45,6 +45,10 @@ capture_timeout="${TFORGE_TEMPORAL_CAPTURE_TIMEOUT:-30}"
 # it to one when it is intentionally fanning out independent captures.
 ffmpeg_threads="${TFORGE_BENCHMARK_FFMPEG_THREADS:-}"
 artifact_dir="${TFORGE_TEMPORAL_ARTIFACT_DIR:-}"
+# Retained artifacts are data-only by default. Temporary image/video payloads
+# are still used for measurement, but are retained only when explicitly
+# requested by a review-harness consumer.
+preserve_image_artifacts="${TFORGE_PRESERVE_IMAGE_ARTIFACTS:-0}"
 # Optional: set this to retain the temporary tree only when the run fails.
 failure_artifact_dir="${TFORGE_TEMPORAL_FAILURE_ARTIFACT_DIR:-}"
 runner_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
@@ -61,6 +65,12 @@ temporal_scene="${TFORGE_TEMPORAL_SCENE:-}"
 temporal_config_id="${TFORGE_TEMPORAL_CONFIG_ID:-}"
 temporal_start_frame="${TFORGE_TEMPORAL_START_FRAME:-}"
 temporal_analysis_frame_indices="${TFORGE_TEMPORAL_ANALYSIS_FRAME_INDICES:-}"
+runtime_trace_path="${TFORGE_RUNTIME_TRACE_PATH:-}"
+quality_profile="${TFORGE_QUALITY_PROFILE:-}"
+experiment_id="${TFORGE_EXPERIMENT_ID:-}"
+git_head="${TFORGE_GIT_HEAD:-}"
+git_dirty="${TFORGE_GIT_DIRTY:-}"
+config_sha256="${TFORGE_CONFIG_SHA256:-}"
 # M6 also evaluates spatial-control candidates across real multi-frame
 # sequences to detect temporal regressions. Those candidates intentionally use
 # base_only; require an explicit opt-in so ordinary temporal captures cannot
@@ -283,6 +293,16 @@ copy_failure_file() {
     fi
 }
 
+prune_image_payloads() {
+    local root="$1"
+    [[ -d "$root" ]] || return 0
+    find "$root" -type f \( \
+        -iname '*.png' -o -iname '*.ppm' -o -iname '*.pgm' -o \
+        -iname '*.jpg' -o -iname '*.jpeg' -o -iname '*.mkv' -o \
+        -iname '*.mp4' -o -iname '*.webm' \
+    \) -delete
+}
+
 cleanup_temporal_tmpdir() {
     local exit_status=$?
     if (( exit_status != 0 )) && [[ -n "$failure_artifact_dir" ]]; then
@@ -308,6 +328,9 @@ cleanup_temporal_tmpdir() {
             copy_failure_file "$temporal_metrics_output"
             copy_failure_file "$temporal_events_json"
             copy_failure_file "$temporal_static_mask_json"
+            if [[ "$preserve_image_artifacts" != "1" ]]; then
+                prune_image_payloads "$failure_artifact_dir"
+            fi
             printf 'preserved temporal failure artifacts: %s\n' "$failure_artifact_dir" >&2
         else
             printf 'could not create temporal failure artifact directory: %s\n' "$failure_artifact_dir" >&2
@@ -351,6 +374,12 @@ player_environment=(
     "TFORGE_FSR4_DUMP_SEQUENCE_DIR=$sequence_dir"
     "TFORGE_QUALITY_LAB_CONFIG=$benchmark_quality_lab_config"
 )
+for name in TFORGE_RUNTIME_TRACE_PATH TFORGE_QUALITY_PROFILE TFORGE_EXPERIMENT_ID \
+    TFORGE_GIT_HEAD TFORGE_GIT_DIRTY TFORGE_CONFIG_SHA256; do
+    if [[ -n "${!name:-}" ]]; then
+        player_environment+=("$name=${!name}")
+    fi
+done
 if (( temporal_motion_export )); then
     player_environment+=("TFORGE_FSR4_DUMP_MOTION_SIDECAR=1")
 fi
@@ -741,6 +770,7 @@ if (( temporal_event_trace_export )); then
         --output-height "$output_height" \
         --ghost-threshold "$temporal_ghost_threshold" \
         --reset-threshold "$temporal_reset_threshold" \
+        ${TFORGE_TEMPORAL_ALLOW_NO_EVENT:+--allow-no-event} \
         --output "$temporal_events_json"
 fi
 
@@ -828,7 +858,7 @@ printf 'fsr,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s\n' \
 # matched PPM reference sequence and writes a separate per-class CSV containing
 # the defined flicker/edge/motion/ghost/reset fields. No identity motion or
 # guessed event metadata is inserted by this bridge.
-if [[ -n "$temporal_motion_json$temporal_metrics_output$temporal_class" ]]; then
+if [[ -n "$temporal_motion_json$temporal_metrics_output" ]]; then
     [[ -n "$temporal_motion_json" && -f "$temporal_motion_json" ]] || {
         printf 'TFORGE_TEMPORAL_MOTION_JSON must name an existing JSON sidecar\n' >&2
         exit 1
@@ -894,22 +924,26 @@ copy_artifact_file() {
 }
 
 if [[ -n "$artifact_dir" ]]; then
-    mkdir -p "$artifact_dir/fsr_frames"
-    # Keep the player log beside retained frames so a completed capture whose
-    # metric stage fails can still be diagnosed without rerunning it.
+    # Keep logs, metadata, metrics, and sidecars. Image/video payloads remain
+    # temporary unless explicitly requested by a review-harness consumer.
     cp "$tmpdir/player.log" "$artifact_dir/"
-    cp "$sequence_dir"/temporal_forge_fsr4_*.ppm "$artifact_dir/fsr_frames/"
-    cp "$tmpdir/fsr.mkv" "$tmpdir/reference.mkv" "$tmpdir/lanczos.mkv" \
-        "$tmpdir/bilinear.mkv" "$artifact_dir/"
     cp "$tmpdir/source_stream_metadata.json" "$artifact_dir/"
     cp "$ssim_log" "$lanczos_log" "$fsr_delta_log" "$reference_delta_log" \
         "$lanczos_delta_log" "$bilinear_delta_log" "$artifact_dir/"
-    if [[ -n "$temporal_motion_json$temporal_metrics_output$temporal_class" ]]; then
-        cp -R "$temporal_reference_dir" "$artifact_dir/reference_ppm"
+    if [[ -n "$temporal_motion_json$temporal_metrics_output" ]]; then
         copy_artifact_file "$temporal_motion_json" "$artifact_dir"
         copy_artifact_file "$temporal_metrics_output" "$artifact_dir"
         [[ -z "$temporal_events_json" ]] || copy_artifact_file "$temporal_events_json" "$artifact_dir"
         [[ -z "$temporal_static_mask_json" ]] || copy_artifact_file "$temporal_static_mask_json" "$artifact_dir"
+    fi
+    if [[ "$preserve_image_artifacts" == "1" ]]; then
+        mkdir -p "$artifact_dir/fsr_frames"
+        cp "$sequence_dir"/temporal_forge_fsr4_*.ppm "$artifact_dir/fsr_frames/"
+        cp "$tmpdir/fsr.mkv" "$tmpdir/reference.mkv" "$tmpdir/lanczos.mkv" \
+            "$tmpdir/bilinear.mkv" "$artifact_dir/"
+        if [[ -n "$temporal_motion_json$temporal_metrics_output$temporal_class" ]]; then
+            cp -R "$temporal_reference_dir" "$artifact_dir/reference_ppm"
+        fi
     fi
 fi
 printf 'temporal quality results: %s\n' "$output"
