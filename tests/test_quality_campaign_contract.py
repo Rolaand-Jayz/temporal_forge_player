@@ -96,6 +96,30 @@ class QualityCampaignContractTests(unittest.TestCase):
 
             self.assertEqual(status, "INCOMPLETE PROVENANCE")
             self.assertIn("data-only output hash is missing or malformed", reasons)
+
+    def test_audit_rejects_cross_method_reuse_without_explicit_alias(self) -> None:
+        from tools.audit_quality_campaign_evidence import audit
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            for method in ("current_cas20", "fsr_direct_cas20"):
+                scene_root = root / method / "tos_daylight"
+                scene_root.mkdir(parents=True)
+                (scene_root / "experiment.json").write_text(json.dumps({
+                    "schema": "temporal_forge.quality_experiment.v2",
+                    "experiment_id": "same-experiment", "run_id": "same-run",
+                    "arm_id": method, "status": "complete",
+                    "output_artifact": str(scene_root / "candidate.png"),
+                    "output_sha256": "a" * 64, "output_retained": False,
+                    "runtime_trace": {"run_id": "same-run"}, "metrics": {"ssim": "0.9"},
+                    "binary_sha256": "b" * 64, "config_sha256": "c" * 64,
+                    "source_sha256": "d" * 64,
+                }), encoding="utf-8")
+
+            result = audit(root)
+
+            self.assertEqual(result["methods"]["current_cas20"], "DUPLICATED ARM")
+            self.assertEqual(result["methods"]["fsr_direct_cas20"], "DUPLICATED ARM")
     """Keep M6 candidate evidence complete and human-reviewable."""
 
     def test_complete_campaign_is_valid(self) -> None:

@@ -126,6 +126,12 @@ def audit(root: Path) -> dict[str, object]:
         })
 
     classifications: dict[str, str] = {}
+    identity_methods: defaultdict[str, set[str]] = defaultdict(set)
+    for entries in method_records.values():
+        for entry in entries:
+            identity = str(entry.get("experiment_id") or entry.get("run_id") or "")
+            if identity:
+                identity_methods[identity].add(str(entry.get("method", "unknown")))
     for method in METHODS:
         entries = method_records.get(method, [])
         if not entries:
@@ -133,7 +139,12 @@ def audit(root: Path) -> dict[str, object]:
             continue
         classes = {str(entry["classification"]) for entry in entries}
         runs = {str(entry.get("run_id")) for entry in entries}
-        if len(runs) < len(entries) and len(entries) > 1:
+        cross_method_duplicate = any(
+            len(identity_methods.get(str(entry.get("experiment_id") or entry.get("run_id") or ""), set())) > 1
+            and not entry.get("alias_of")
+            for entry in entries
+        )
+        if (len(runs) < len(entries) and len(entries) > 1) or cross_method_duplicate:
             classifications[method] = "DUPLICATED ARM"
         elif "INVALID" in classes:
             classifications[method] = "INVALID"
