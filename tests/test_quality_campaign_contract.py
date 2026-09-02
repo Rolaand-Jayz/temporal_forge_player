@@ -120,6 +120,26 @@ class QualityCampaignContractTests(unittest.TestCase):
 
             self.assertEqual(result["methods"]["current_cas20"], "DUPLICATED ARM")
             self.assertEqual(result["methods"]["fsr_direct_cas20"], "DUPLICATED ARM")
+
+    def test_audit_rejects_source_clamped_reconstruction_as_valid_evidence(self) -> None:
+        from tools.audit_quality_campaign_evidence import inspect_record
+
+        with tempfile.TemporaryDirectory() as directory:
+            record_path = Path(directory) / "experiment.json"
+            record_path.write_text(json.dumps({
+                "schema": "temporal_forge.quality_experiment.v2",
+                "experiment_id": "exp-1", "run_id": "run-1", "status": "complete",
+                "output_artifact": str(Path(directory) / "candidate.png"),
+                "output_sha256": "a" * 64, "output_retained": False,
+                "runtime_trace": {"run_id": "run-1", "scale_clamped_to_source": True},
+                "metrics": {"ssim": "0.9"}, "binary_sha256": "b" * 64,
+                "config_sha256": "c" * 64, "source_sha256": "d" * 64,
+            }), encoding="utf-8")
+
+            status, reasons, _ = inspect_record(record_path)
+
+            self.assertEqual(status, "INCOMPLETE PROVENANCE")
+            self.assertIn("requested reconstruction scale was clamped to source resolution", reasons)
     """Keep M6 candidate evidence complete and human-reviewable."""
 
     def test_complete_campaign_is_valid(self) -> None:

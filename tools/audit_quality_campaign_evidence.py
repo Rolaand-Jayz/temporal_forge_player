@@ -66,6 +66,8 @@ def inspect_record(path: Path) -> tuple[str, list[str], dict[str, object]]:
         reasons.append("runtime semantic trace missing")
     elif trace.get("run_id") != record.get("run_id"):
         reasons.append("runtime trace/run ID mismatch")
+    elif trace.get("scale_clamped_to_source") is True:
+        reasons.append("requested reconstruction scale was clamped to source resolution")
     output = record.get("output_artifact", record.get("output_path"))
     if output and Path(output).is_file() and record.get("output_sha256"):
         if sha256(Path(output)) != record["output_sha256"]:
