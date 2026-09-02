@@ -300,8 +300,63 @@ def validate_resume_pair(pair_root: Path, input_height: int, output_height: int,
             if row.get("runtime_trace_sha256") != hashlib.sha256(trace.read_bytes()).hexdigest():
                 raise SystemExit(f"runtime trace hash mismatch in {trace}")
             output = Path(record_data.get("output_artifact", ""))
-            if not output.is_file() or record_data.get("output_sha256") != hashlib.sha256(output.read_bytes()).hexdigest():
+            if record_data.get("output_retained") is False:
+                if not isinstance(record_data.get("output_sha256"), str) or len(record_data["output_sha256"]) != 64:
+                    raise SystemExit(f"data-only output hash missing in {record}")
+            elif (not output.is_file() or
+                  record_data.get("output_sha256") != hashlib.sha256(output.read_bytes()).hexdigest()):
                 raise SystemExit(f"output provenance mismatch in {record}")
+
+
+def validate_resume_data_only_pair(pair_root: Path, input_height: int,
+                                   output_height: int, player: Path) -> None:
+    """Validate a completed pair whose derived image payloads were pruned."""
+    marker = pair_root / "harness_pair_complete.json"
+    try:
+        data = json.loads(marker.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as error:
+        raise SystemExit(f"cannot validate data-only marker {marker}: {error}") from error
+    if data.get("data_only") is not True or data.get("input") != input_height or data.get("output") != output_height:
+        raise SystemExit(f"data-only completion marker mismatch: {marker}")
+    if data.get("scenes") != list(SCENES) or data.get("scales") != list(SCALES):
+        raise SystemExit(f"data-only completion matrix mismatch: {marker}")
+    expected_binary = hashlib.sha256(player.read_bytes()).hexdigest()
+    expected_config = hashlib.sha256((ROOT / "benchmarks/video_corpus/benchmark_settings.json").read_bytes()).hexdigest()
+    records = data.get("csv_records")
+    if not isinstance(records, list) or len(records) != 6:
+        raise SystemExit(f"data-only CSV record count mismatch: {marker}")
+    seen_experiments: set[str] = set()
+    for item in records:
+        path = Path(str(item.get("path", "")))
+        if not path.is_file() or hashlib.sha256(path.read_bytes()).hexdigest() != item.get("sha256"):
+            raise SystemExit(f"data-only CSV provenance mismatch: {path}")
+        with path.open(newline="", encoding="utf-8") as stream:
+            rows = list(csv.DictReader(stream))
+        if len(rows) != len(SCALES) * len(SCENES):
+            raise SystemExit(f"data-only CSV row count mismatch: {path}")
+        for row in rows:
+            trace = Path(row.get("runtime_trace_path", ""))
+            record = trace.parent / "experiment.json"
+            if not trace.is_file() or not record.is_file():
+                raise SystemExit(f"missing data-only runtime provenance: {trace}")
+            trace_data = json.loads(trace.read_text(encoding="utf-8"))
+            record_data = json.loads(record.read_text(encoding="utf-8"))
+            experiment_id = record_data.get("experiment_id")
+            if not isinstance(experiment_id, str) or not experiment_id or experiment_id in seen_experiments:
+                raise SystemExit(f"duplicate/missing data-only experiment identity: {record}")
+            seen_experiments.add(experiment_id)
+            if row.get("run_id") != experiment_id or trace_data.get("run_id") != experiment_id:
+                raise SystemExit(f"data-only experiment identity mismatch: {record}")
+            if (trace_data.get("binary_sha256") != expected_binary or
+                    record_data.get("binary_sha256") != expected_binary):
+                raise SystemExit(f"data-only binary provenance mismatch: {record}")
+            if (trace_data.get("config_sha256") != expected_config or
+                    record_data.get("config_sha256") != expected_config):
+                raise SystemExit(f"data-only configuration provenance mismatch: {record}")
+            if record_data.get("output_retained") is not False or not record_data.get("output_sha256"):
+                raise SystemExit(f"data-only output retention contract mismatch: {record}")
+    if len(seen_experiments) != 6 * len(SCALES) * len(SCENES):
+        raise SystemExit(f"data-only experiment count mismatch: {marker}")
 
 
 def main() -> int:
@@ -339,7 +394,10 @@ def main() -> int:
         marker = pair_root / "harness_pair_complete.json"
         pair_started = now()
         if args.resume and marker.is_file():
-            validate_resume_pair(pair_root, input_height, output_height, harness, args.player.resolve())
+            if args.data_only:
+                validate_resume_data_only_pair(pair_root, input_height, output_height, args.player.resolve())
+            else:
+                validate_resume_pair(pair_root, input_height, output_height, harness, args.player.resolve())
             print(f"Skipping complete {stem}")
             continue
         runner.wait_until_clear(stem)
