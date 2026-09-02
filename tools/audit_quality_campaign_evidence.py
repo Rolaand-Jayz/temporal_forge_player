@@ -52,8 +52,15 @@ def inspect_record(path: Path) -> tuple[str, list[str], dict[str, object]]:
     except (OSError, json.JSONDecodeError) as error:
         return "INVALID", [f"unreadable experiment record: {error}"], {"record": str(path)}
     reasons: list[str] = []
-    required = ("experiment_id", "run_id", "output_sha256", "runtime_trace", "metrics")
+    required = (
+        "schema", "experiment_id", "run_id", "output_sha256", "runtime_trace",
+        "metrics", "binary_sha256", "config_sha256", "source_sha256",
+    )
     reasons.extend(f"missing {key}" for key in required if not record.get(key))
+    if record.get("schema") != "temporal_forge.quality_experiment.v2":
+        reasons.append("experiment schema is not temporal_forge.quality_experiment.v2")
+    if record.get("status") != "complete":
+        reasons.append(f"experiment status is {record.get('status', 'missing')!r}")
     trace = record.get("runtime_trace")
     if not isinstance(trace, dict):
         reasons.append("runtime semantic trace missing")
@@ -63,8 +70,14 @@ def inspect_record(path: Path) -> tuple[str, list[str], dict[str, object]]:
     if output and Path(output).is_file() and record.get("output_sha256"):
         if sha256(Path(output)) != record["output_sha256"]:
             reasons.append("output hash mismatch")
+    elif output and record.get("output_retained") is False:
+        # Data-only campaigns are allowed to remove raster payloads only after
+        # the record has persisted the hash. The absent file is therefore not
+        # itself a provenance failure; the hash is the durable artifact claim.
+        if not isinstance(record.get("output_sha256"), str) or len(record["output_sha256"]) != 64:
+            reasons.append("data-only output hash is missing or malformed")
     elif output:
-        reasons.append("output artifact unavailable (data-only evidence)")
+        reasons.append("output artifact unavailable without an explicit data-only record")
     status = "VALID" if not reasons else "INCOMPLETE PROVENANCE"
     return status, reasons, {
         "record": str(path),

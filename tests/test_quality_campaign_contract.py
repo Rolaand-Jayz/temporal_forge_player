@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import copy
 import csv
+import json
 import tempfile
 import unittest
 from pathlib import Path
@@ -56,6 +57,45 @@ VALID = {
 
 
 class QualityCampaignContractTests(unittest.TestCase):
+    def test_data_only_experiment_record_is_not_failed_for_pruned_output(self) -> None:
+        from tools.audit_quality_campaign_evidence import inspect_record
+
+        with tempfile.TemporaryDirectory() as directory:
+            record_path = Path(directory) / "experiment.json"
+            record_path.write_text(json.dumps({
+                "schema": "temporal_forge.quality_experiment.v2",
+                "experiment_id": "exp-1", "run_id": "run-1", "status": "complete",
+                "output_artifact": str(Path(directory) / "candidate.png"),
+                "output_sha256": "a" * 64, "output_retained": False,
+                "runtime_trace": {"run_id": "run-1"}, "metrics": {"ssim": "0.9"},
+                "binary_sha256": "b" * 64, "config_sha256": "c" * 64,
+                "source_sha256": "d" * 64,
+            }), encoding="utf-8")
+
+            status, reasons, _ = inspect_record(record_path)
+
+            self.assertEqual(status, "VALID")
+            self.assertNotIn("output artifact unavailable", " ".join(reasons))
+
+    def test_data_only_record_without_output_hash_is_incomplete(self) -> None:
+        from tools.audit_quality_campaign_evidence import inspect_record
+
+        with tempfile.TemporaryDirectory() as directory:
+            record_path = Path(directory) / "experiment.json"
+            record_path.write_text(json.dumps({
+                "schema": "temporal_forge.quality_experiment.v2",
+                "experiment_id": "exp-1", "run_id": "run-1", "status": "complete",
+                "output_artifact": str(Path(directory) / "candidate.png"),
+                "output_retained": False,
+                "runtime_trace": {"run_id": "run-1"}, "metrics": {"ssim": "0.9"},
+                "binary_sha256": "b" * 64, "config_sha256": "c" * 64,
+                "source_sha256": "d" * 64,
+            }), encoding="utf-8")
+
+            status, reasons, _ = inspect_record(record_path)
+
+            self.assertEqual(status, "INCOMPLETE PROVENANCE")
+            self.assertIn("data-only output hash is missing or malformed", reasons)
     """Keep M6 candidate evidence complete and human-reviewable."""
 
     def test_complete_campaign_is_valid(self) -> None:
