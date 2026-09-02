@@ -2,7 +2,10 @@
 
 **Status:** CURRENT
 **As of:** 2026-09-02
-**Source:** repository commit `f5464cb` plus the documentation audit
+**Source:** repository commit `269631d` plus the documentation audit
+
+The worktree may also contain untracked capture-generated evidence while the
+quality campaign runs. That evidence is outside this documentation snapshot.
 
 ## Project
 

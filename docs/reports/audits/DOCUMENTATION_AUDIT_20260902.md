@@ -61,6 +61,10 @@ specification was independently redesigned.
 5. Old moved-path references were repaired where they represented current
    navigation. References inside preserved historical documents remain
    historical context unless they blocked navigation from a current document.
+6. After the initial audit, `docs/current/STATE.md` was found to name the
+   pre-reorganization commit `f5464cb` as its source. It now names the actual
+   documentation snapshot commit `269631d` and distinguishes later untracked
+   capture output from that snapshot.
 
 ## Causal history reconstructed
 
