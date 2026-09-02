@@ -3,7 +3,7 @@
 ## Metadata
 
 - **Project / feature:** Temporal Forge reconstruction-quality perfection plan
-- **Source:** `docs/exec-plans/Temporal_Forge_FSR4_Quality_Perfection_Master_Plan.docx`
+- **Source:** the archived quality-perfection plan and milestone evidence in `docs/archive/plans/`
 - **Scope:** M0 baseline trust through M7 default promotion, including the
   distributable review harness
 - **Execution rule:** tests for a milestone are authored and reviewed before

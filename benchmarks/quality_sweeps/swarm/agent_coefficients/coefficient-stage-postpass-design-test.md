@@ -10,10 +10,10 @@ Scope: read-only reverse engineering of the current host and shader contracts. N
 - `src/render/Fsr4DispatchHarness.cpp`
 - `src/render/Fsr4DispatchHarness.hpp`
 - `tests/fsr4_postpass_contract_tests.cpp`
-- `docs/FSR4_RE_STATUS.md`
-- `docs/exec-plans/QUALITY_PERFECTION_M1_GATE.md`
-- `docs/exec-plans/QUALITY_PERFECTION_EXECUTION_SLICES.md`
-- `docs/slice-plan.md`
+- `docs/reports/FSR4_RECONSTRUCTION_STATUS_20260709.md`
+- `docs/archive/plans/QUALITY_PERFECTION_M1_GATE.md`
+- `docs/archive/plans/QUALITY_PERFECTION_EXECUTION_SLICES.md`
+- `docs/archive/plans/slice-plan.md`
 - `resources/fsr4/native_i8/README.md`
 - `resources/fsr4/native_i8/ultraperf_2160/README.md`
 - local generated native shader: `resources/fsr4/native_i8/performance_4320/.build/passes_filter4.hlsl`

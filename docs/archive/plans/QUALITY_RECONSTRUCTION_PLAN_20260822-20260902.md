@@ -1,6 +1,10 @@
-# Temporal Forge Reconstruction Quality Plan
+# Temporal Forge Reconstruction Quality Plan, historical snapshot
 
-**Status:** ACTIVE
+**Status:** ARCHIVED / HISTORICAL SNAPSHOT
+**Original status:** ACTIVE during 2026-08-22 through 2026-09-02
+**Current successor:** `docs/active/QUALITY_CAMPAIGN.md`
+This file preserves the former plan, experiment notebook, and result narrative.
+It is not a current execution authority.
 **Priority:** P0 — sole development priority
 **Theme:** Reconstruction quality / image formation
 **Non-goal:** Feature development

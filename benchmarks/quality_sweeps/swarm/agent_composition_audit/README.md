@@ -146,7 +146,7 @@ warmup, scored-frame count, neutral postpass settings, and baseline gate.
   full-composition matrix and output-dimension policy.
 - `benchmarks/quality_sweeps/swarm/agent_next_audit/README.md` — rejected CAS
   sweep and isolation rules.
-- `docs/exec-plans/QUALITY_RECONSTRUCTION_PLAN.md` — definitions and prior
+- `docs/archive/plans/QUALITY_RECONSTRUCTION_PLAN_20260822-20260902.md` — definitions and prior
   single-frame evidence for the composition modes.
 - `src/config/QualityLabConfig.cpp` — accepted Quality Lab schema.
 - `benchmarks/video_corpus/run_temporal_quality.sh` — temporal capture runner.

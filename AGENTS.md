@@ -43,6 +43,17 @@ GLM 5.3 is the orchestrator. GLM 5.3 Flash workers execute.
 
 Improve reconstruction and presentation quality while preserving the existing fast native Vulkan/RDNA3 path.
 
+## Documentation maintenance
+
+Use [`docs/README.md`](docs/README.md) as the documentation entry point and
+[`docs/DOCUMENTATION_SYSTEM.md`](docs/DOCUMENTATION_SYSTEM.md) as the governing
+model. Distinguish current state, active work, current reference, historical
+reports, research, and archive. Completed or superseded plans must leave the
+active namespace; an active plan must not become an indefinite history journal.
+Accepted implementation changes must update current-state/reference docs when
+needed, preserve meaningful causal decisions, and resolve authority conflicts
+instead of adding another competing source.
+
 ## Scope discipline
 
 Do not perform any of the following unless explicitly required by evidence from the active quality plan:
@@ -63,7 +74,7 @@ The player already functions well enough for this phase. UI and product polish a
 
 Read and follow:
 
-`docs/exec-plans/QUALITY_RECONSTRUCTION_PLAN.md`
+`docs/active/QUALITY_CAMPAIGN.md`
 
 The execution plan is authoritative for the current quality campaign.
 

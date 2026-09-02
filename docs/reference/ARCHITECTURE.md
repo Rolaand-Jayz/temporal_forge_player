@@ -48,7 +48,7 @@ selected by `BackendSelector`. On failure the selector cascades down so
 playback never silently breaks:
 
 ```text
-1. FSR4-RE INT8 experimental   (research path, opt-in only, never default)
+1. FSR4-RE INT8 experimental   (proof-gated default selection on supported RDNA3)
         ↓ fails
 2. FSR 3.1.5 fallback           (real temporal upscaler from open SDK)
         ↓ SDK not linked / fails
@@ -163,4 +163,4 @@ Set `TFORGE_VK_VALIDATE=1` to enable the Vulkan validation layer.
 - QML wiring: `src/main.cpp`, `resources/qml/`
 
 For the reverse-engineering background on the FSR4 neural network, see
-`docs/FSR4_RE_STATUS.md`.
+`docs/reports/FSR4_RECONSTRUCTION_STATUS_20260709.md`.

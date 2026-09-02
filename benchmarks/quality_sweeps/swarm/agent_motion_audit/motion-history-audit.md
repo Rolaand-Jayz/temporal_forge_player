@@ -100,10 +100,10 @@ confidence propagation into reactive or disocclusion behavior.
   confidence-to-reactive/disocclusion propagation, and synthetic occlusion:
   `docs/slice-plan.md:273-280` and `:294-327`.
 - The test strategy marks “confidence reaches reactive/disocclusion logic” as a
-  must-have integration behavior: `docs/testing/test-strategy.md:92-102`.
+  must-have integration behavior: `docs/reference/testing/test-strategy.md:92-102`.
 - The M3 gate records the current boundary honestly: it says the tests do not
   replace translated-block, occlusion, or adjacent-frame validation:
-  `docs/exec-plans/QUALITY_PERFECTION_M3_GATE.md:29-33`.
+  `docs/archive/plans/QUALITY_PERFECTION_M3_GATE.md:29-33`.
 
 ## Hypotheses to validate next
 

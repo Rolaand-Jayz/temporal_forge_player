@@ -2,7 +2,7 @@
 
 ## Orchestration metadata
 
-- **Task:** work through every quality-plan slice in dependency order and test at each milestone
+- **Task:** track the current quality campaign and its completed historical gates
 - **Pattern:** long-horizon multi-phase quality/correctness campaign
 - **Start date:** 2026-08-22
 - **Current phase:** M6.5 matrix verification and distributable-artifact gate
@@ -12,14 +12,14 @@
 
 | Phase | Skill/work | Status | Output location | Completed | Issues |
 |---|---|---|---|---|---|
-| Plan | project-slicer + test-strategy | complete | `docs/slice-plan.md`, `docs/testing/test-strategy.md` | 2026-08-22 | Execution is serial; milestone gates remain separate from slice work. |
-| M0 | baseline/provenance/observability | complete as recorded | `docs/exec-plans/QUALITY_PERFECTION_M0_GATE.md` | 2026-08-22 | Preserve prior artifacts; do not overwrite. |
-| M1 | postpass parameter contract | complete as recorded | `docs/exec-plans/QUALITY_PERFECTION_M1_GATE.md` | 2026-08-22 | Recovery evidence remains version-specific and trace-driven. |
-| M2 | shared reprojection/FP16 temporal state | complete as recorded | `docs/exec-plans/QUALITY_PERFECTION_M2_GATE.md` | 2026-08-22 | Live GPU evidence must remain distinct from CPU contracts. |
-| M3 | causal codec motion | complete as recorded | `docs/exec-plans/QUALITY_PERFECTION_M3_GATE.md` | 2026-08-22 | Real temporal quality matrix still pending. |
-| M4 | color/transfer/chroma/bit depth | complete as recorded | `docs/exec-plans/QUALITY_PERFECTION_M4_GATE.md` | 2026-08-22 | Supported hardware/software paths remain separately ranked. |
-| M5 | decoded-video jitter policy | complete as recorded | `docs/exec-plans/QUALITY_PERFECTION_M5_GATE.md` | 2026-08-22 | Jitter promotion remains evidence-bound. |
-| M6 tooling | campaign, temporal metrics, sidecars, review harness | complete as tooling | `docs/exec-plans/QUALITY_PERFECTION_M6_TOOLING_GATE.md` | 2026-08-23 | Real quality matrix remains open; review-harness browser gate passed outside the sandbox. |
+| Plan | project-slicer + test-strategy | complete | `docs/archive/plans/slice-plan.md`, `docs/reference/testing/test-strategy.md` | 2026-08-22 | Execution is serial; milestone gates remain separate from slice work. |
+| M0 | baseline/provenance/observability | complete as recorded | `docs/archive/plans/QUALITY_PERFECTION_M0_GATE.md` | 2026-08-22 | Preserve prior artifacts; do not overwrite. |
+| M1 | postpass parameter contract | complete as recorded | `docs/archive/plans/QUALITY_PERFECTION_M1_GATE.md` | 2026-08-22 | Recovery evidence remains version-specific and trace-driven. |
+| M2 | shared reprojection/FP16 temporal state | complete as recorded | `docs/archive/plans/QUALITY_PERFECTION_M2_GATE.md` | 2026-08-22 | Live GPU evidence must remain distinct from CPU contracts. |
+| M3 | causal codec motion | complete as recorded | `docs/archive/plans/QUALITY_PERFECTION_M3_GATE.md` | 2026-08-22 | Real temporal quality matrix still pending. |
+| M4 | color/transfer/chroma/bit depth | complete as recorded | `docs/archive/plans/QUALITY_PERFECTION_M4_GATE.md` | 2026-08-22 | Supported hardware/software paths remain separately ranked. |
+| M5 | decoded-video jitter policy | complete as recorded | `docs/archive/plans/QUALITY_PERFECTION_M5_GATE.md` | 2026-08-22 | Jitter promotion remains evidence-bound. |
+| M6 tooling | campaign, temporal metrics, sidecars, review harness | complete as tooling | `docs/archive/plans/QUALITY_PERFECTION_M6_TOOLING_GATE.md` | 2026-08-23 | Real quality matrix remains open; review-harness browser gate passed outside the sandbox. |
 | M6.1 | neutral runner + real spatial controls | complete as capture/evidence | `/tmp/tforge-m6-6-1-cas-fixed-escalated-20260823/m6-6-1-cas-fixed-escalated-20260823T042444Z` | 2026-08-23 | Current learned path still trails spatial controls; this is evidence, not a promotion. |
 | M6.2 | strict paired spatial metrics and baseline-aware rankings | complete | `/tmp/tforge-m6-2-paired-existing-20260823` | 2026-08-23 | Four real candidates paired against `base_only_bilinear`; no mismatched rows accepted. |
 | M6.3 | causal temporal sidecar validation and temporal metric ingestion | bounded capture-validation complete; matrix pending | `benchmarks/quality_sweeps/motion_sidecar.py`, `benchmarks/quality_sweeps/temporal_sequence.py`, `/tmp/tforge-m6-3-bilinear-fabric-rerun-20260823-escalated`, `/tmp/tforge-m6-3-bilinear-rooftop-retry-p-only-20260823` | 2026-08-23 | Tears of Steel fabric and the corrected P-only Sintel rooftop baseline are identity-validated with wrapper exit 0; full candidate/class temporal matrix is still missing. |
@@ -107,7 +107,7 @@
 | Global fallback provenance | `src/motion/MotionEstimator.cpp`, `tests/motion_estimator_tests.cpp` | motion provenance correctness | current; empty-codec luma fallback is explicitly marked `source=-1` with confidence capped at 0.5; displacement math is unchanged; aligned-block quality validation remains open |
 | Jitter event-trace provenance | `src/core/PlaybackEngine.cpp`, `tests/test_event_trace_runtime_contract.py` | jitter evidence/capture correctness | current; each event trace records source-space jitter X/Y and whether a nonzero offset was applied; contract test and player rebuild pass; jitter generation is not the measured bottleneck |
 | Reduced-model jitter coordinates | `shaders/fsr4/prepass_pq_eotf.comp`, `tests/fsr4_motion_contract_tests.cpp`, `tests/jitter_tests.cpp` | jitter coordinate correctness | current; model-space history jitter now uses model-to-output scale; the checked-in FidelityFX floor phase rule remains unchanged; shader compile and focused tests pass; external sign validation remains open |
-| Live rebuilt FSR proof | `build-fast/tests/fsr4_harness_tests`, `docs/exec-plans/QUALITY_RECONSTRUCTION_PLAN.md` | GPU dispatch sanity | current; RX 7900 GRE structural proof passed at 1280x720→3840x2160 with 0 NaN/Inf and 100% nonzero samples; this does not validate jitter sampling |
+| Live rebuilt FSR proof | `build-fast/tests/fsr4_harness_tests`, `docs/active/QUALITY_CAMPAIGN.md` | GPU dispatch sanity | current; RX 7900 GRE structural proof passed at 1280x720→3840x2160 with 0 NaN/Inf and 100% nonzero samples; this does not validate jitter sampling |
 | Hardware jitter sampling probe | `tests/jitter_gpu_contract_tests.cpp`, `build-fast/tests/jitter_gpu_contract_tests` | jitter direction correctness | current; real YUV420→RGB10/A2 readback on RX 7900 GRE moved a fixed +0.5px phase by −0.5px as expected; probe is disabled from normal CTest and does not cover temporal history |
 | Failed-dispatch analysis-history rollback | `src/render/SideBufferSynth.cpp`, `src/render/SideBufferSynth.hpp`, `tests/sidebuffer_tests.cpp` | temporal lifecycle correctness | current; analysis luma/histogram/cadence state now rolls back with the existing failed-FSR jitter boundary; failing-first test and full runnable CTest pass |
 | Pending-frame seek quarantine | `src/core/PlaybackEngine.cpp`, `tests/test_temporal_runner_contract.py` | temporal seek/reset correctness | current; a buffered pre-seek decoded frame is discarded before consumption when `seekPending_` is raised; focused contract, rebuild, and full runnable CTest pass; live seek capture remains open |
@@ -167,7 +167,7 @@
   the complete real-world candidate/class matrix, but sparse invalid pixels no
   longer contaminate newly computed temporal metrics.
 | 2026-08-29 | temporal postpass audit | Found and removed the default best-findings `single history` bypass (postpass bit 1024); it is now explicit diagnostic-only. Also fixed runner forwarding of `TFORGE_FSR4_DISABLE_NATIVE_INT8`. Contract tests pass. Short post-fix A/B still matches at encoded output; temporal promotion remains open pending output-path investigation. |
-| 2026-08-29 | deep-research and lifecycle follow-up | Reviewed `docs/deep-research-report(14).md`; fixed stale native passthrough after neural publication, delayed all history commits until successful presentation, and made graph trace labels truthful. Full runnable CTest is green; dense-field/warped-history quality proof remains open. |
+| 2026-08-29 | deep-research and lifecycle follow-up | Reviewed `docs/research/fsr4-video-input-and-motion-research.md`; fixed stale native passthrough after neural publication, delayed all history commits until successful presentation, and made graph trace labels truthful. Full runnable CTest is green; dense-field/warped-history quality proof remains open. |
 | 2026-08-29 | corrected motion A/B semantics | Repeated the rooftop control with explicit `TFORGE_FSR4_MOTION_ABLATION=zero`; estimator `off` was correctly identified as baseline codec motion, not zero motion. Refined output differs slightly: spatial +0.000002 SSIM, temporal error +0.000457. No promotion. |
 | 2026-08-29 | dense-field residual proof | Applied the dumped GPU RG16F field to the known-pan previous luma; valid-region MAE improved `0.002483 -> 0.001618` on frame 1 and motion-bearing MAE `0.044922 -> 0.000000`. Dense expansion/sign/correspondence are proven on the fixture; real-scene FSR promotion remains open. |
 | 2026-08-29 | dense-replay fail-closed boundary | Added a failing-first runner test and preflight validation for explicit dense replay sidecars. Missing or duplicate required capture-relative frames now abort before the player starts; normal motion/FSR behavior is unchanged. The complete eight-frame replay remains diagnostic-only (`FSR SSIM 0.843911`, temporal absolute error `0.469600`). |

@@ -135,7 +135,7 @@ artifacts.
   and isolates benchmark settings/environment.
 - `benchmarks/quality_sweeps/swarm/agent_filter_full_audit/README.md`: the
   preceding full-composition base-filter sweep and its fixed matrix policy.
-- `docs/exec-plans/QUALITY_RECONSTRUCTION_PLAN.md`: prior adaptive-sharpen
+- `docs/archive/plans/QUALITY_RECONSTRUCTION_PLAN_20260822-20260902.md`: prior adaptive-sharpen
   `base_only` decision; it is not treated as evidence for or against this
   full-composition CAS matrix.
 

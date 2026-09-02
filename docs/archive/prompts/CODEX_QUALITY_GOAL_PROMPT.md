@@ -1,6 +1,8 @@
 # Temporal Forge — Codex Quality Campaign Launch Prompt
 
-Read `AGENTS.md` and `docs/exec-plans/QUALITY_RECONSTRUCTION_PLAN.md` in full before modifying code.
+Read `AGENTS.md` and `docs/README.md` in full before modifying code. The
+historical plan is preserved at
+`docs/archive/plans/QUALITY_RECONSTRUCTION_PLAN_20260822-20260902.md`.
 
 Execute the reconstruction-quality plan autonomously.
 
@@ -14,7 +16,8 @@ Do not perform UI work, player feature development, unrelated refactoring, packa
 
 ## Execution rules
 
-Treat `docs/exec-plans/QUALITY_RECONSTRUCTION_PLAN.md` as a living experiment plan and laboratory log, not a static checklist.
+Use `docs/active/QUALITY_CAMPAIGN.md` as the focused active plan. Treat the
+archived reconstruction plan as historical evidence, not current authority.
 
 As you work:
 
