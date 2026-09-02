@@ -322,6 +322,10 @@ def main() -> int:
                         help="additional game process pattern; repeatable")
     parser.add_argument("--poll-seconds", type=float, default=2.0)
     args = parser.parse_args()
+    # A data-only campaign retains the measurements and provenance but does
+    # not retain the rendered payloads. Image-producing harness runs must opt
+    # into retention explicitly through this branch.
+    os.environ["TFORGE_PRESERVE_SPATIAL_IMAGES"] = "0" if args.data_only else "1"
     artifacts = args.artifact_root.resolve(); harness = args.harness_root.resolve()
     patterns = tuple(DEFAULT_GAME_PATTERNS) + tuple(args.game_pattern)
     runner = PausingRunner(artifacts, patterns, tuple(args.allow_game), args.poll_seconds)

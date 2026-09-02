@@ -87,6 +87,14 @@ def sha256_file(path: Path) -> str:
     return digest.hexdigest()
 
 
+def prune_image_payloads(root: Path) -> None:
+    """Remove derived raster/video payloads while retaining campaign data."""
+    suffixes = {".png", ".ppm", ".pgm", ".jpg", ".jpeg", ".mkv", ".mp4", ".webm"}
+    for path in root.rglob("*"):
+        if path.is_file() and path.suffix.lower() in suffixes:
+            path.unlink()
+
+
 def git_identity(root: Path) -> tuple[str, bool]:
     head = subprocess.run(
         ["git", "-C", str(root), "rev-parse", "HEAD"],
@@ -249,6 +257,7 @@ def main() -> int:
     binary_sha256 = sha256_file(player)
     config_sha256 = sha256_file(root / "benchmarks/video_corpus/benchmark_settings.json")
     requested_scales = tuple(args.scale) if args.scale else SCALES
+    preserve_images = os.environ.get("TFORGE_PRESERVE_SPATIAL_IMAGES", "1") == "1"
 
     manifest = (args.manifest or (root / "benchmarks/video_corpus/manifest.csv")).resolve()
     with manifest.open(newline="") as handle:
@@ -459,6 +468,7 @@ def main() -> int:
                 "source_sha256": raw.get("control_source_sha256", ""),
                 "output_artifact": str(final_candidate),
                 "output_sha256": sha256_file(final_candidate),
+                "output_retained": preserve_images,
                 "runtime_trace": trace,
                 "runtime_trace_path": str(runtime_trace),
                 "runtime_trace_sha256": sha256_file(runtime_trace),
@@ -487,6 +497,11 @@ def main() -> int:
             temporary_record = scene_root / f".experiment.{run_id}.tmp"
             temporary_record.write_text(json.dumps(experiment_record, indent=2) + "\n", encoding="utf-8")
             os.replace(temporary_record, scene_root / "experiment.json")
+            if not preserve_images:
+                # Metrics, hashes, runtime traces, logs, and experiment.json
+                # are the durable campaign evidence. The rendered payloads
+                # are disposable measurement intermediates in data-only mode.
+                prune_image_payloads(scene_root)
 
     args.output_csv.parent.mkdir(parents=True, exist_ok=True)
     fields = list(output_rows[0])
