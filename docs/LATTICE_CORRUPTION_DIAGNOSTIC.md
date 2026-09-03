@@ -318,3 +318,20 @@ lattice. Setting learned strength to zero does remove it, but that is a
 symptom-suppressing ablation and is not an acceptable fix. No production change
 is retained from these rejected probes; the geometry full-reset remains an
 oracle/containment control only.
+
+### Stage-C probe
+
+The same bad case was captured with the decoder accumulation readback enabled,
+alongside temporal-off and full-reset controls. The stage-C payloads are
+output-sized 4-channel float tensors (8,294,400 values each):
+
+```text
+probe  2769ff96684505d0df9b0cb9d11e34cab9d988dee32c9c8875b7f4a5121197c5
+off    35604701e84ee8ae80b1065e9d7609eb04f8d5191a1db934a85bdfb2d081a98a
+oracle 4f3e7e833df10135e5371752eebaccb6d7dc97a615aadb2bb869a199c2a48e56
+```
+
+The tensors differ numerically, but normalized visualizations of all three
+contain strong architecture-periodic structure and are not a trustworthy
+lattice detector. This probe therefore does not move the causal boundary to
+stage C; final-output inspection remains authoritative.
