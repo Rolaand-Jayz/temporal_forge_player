@@ -351,3 +351,17 @@ the postpass history publication value (current or upscaled) does not. These
 results implicate the history value consumed by prepass reprojection; they do
 not yet establish whether the stored payload or its coordinate transform is
 the exact root cause. The temporary probes are not production behavior.
+
+### History publication ablation (2026-09-03)
+
+With the correct 1920x1080 viewport, two independent postpass publication
+arms were visually reviewed on the same bad geometry: writing the current
+resolve and writing `upscaledColor` both removed the lattice, while the normal
+`modelColor` publication reproduced it. Since prepass still reads and blends
+the published history on subsequent frames, this identifies the feedback
+write of the already history-mixed `modelColor` as the smallest causal
+boundary. The retained fix publishes the current neural resolve
+(`upscaledColor`) instead, preserving history reads and recurrent admission
+without feeding the accumulated temporal blend back into itself. Fresh
+qualification on 360→1080, 720→1080, and source==model controls remains
+required before campaign approval.

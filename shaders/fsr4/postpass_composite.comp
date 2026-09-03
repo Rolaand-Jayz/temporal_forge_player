@@ -924,7 +924,12 @@ void main() {
         ? postpassParameterTrace()
         : 0.0;
     imageStore(u_output, coord, vec4(encodedOutput, parameterTrace));
-    imageStore(u_historyOut, coord, vec4(modelColor, 1.0));
+    // Store the current neural resolve, not the history-mixed modelColor.
+    // Feeding the already-accumulated temporal blend back into the next
+    // frame creates a positive feedback loop at source/model mismatch
+    // phases; the prepass still samples this output and performs the sole
+    // temporal blend for the next reconstruction.
+    imageStore(u_historyOut, coord, vec4(upscaledColor, 1.0));
     const bool recurrentResetOnly =
         (slot0.z & TFORGE_POSTPASS_RECURRENT_RESET_ONLY) != 0u;
     if ((slot0.z & 2u) == 0u && !recurrentResetOnly) {

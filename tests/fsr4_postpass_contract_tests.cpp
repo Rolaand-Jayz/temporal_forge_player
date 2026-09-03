@@ -199,7 +199,7 @@ int main() {
           std::string::npos);
     CHECK(shader.find("(slot0.z & 256u) != 0u") != std::string::npos);
     CHECK(shader.find("srgbToLinear(finalColor)") != std::string::npos);
-    CHECK(shader.find("imageStore(u_historyOut, coord, vec4(modelColor, 1.0))") !=
+    CHECK(shader.find("imageStore(u_historyOut, coord, vec4(upscaledColor, 1.0))") !=
           std::string::npos);
 
     // The motion-aware display-base candidate is opt-in only. It must sample
