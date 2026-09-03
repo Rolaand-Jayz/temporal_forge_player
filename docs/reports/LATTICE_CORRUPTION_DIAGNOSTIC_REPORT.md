@@ -6,7 +6,9 @@ The bounded diagnostic was run against `sintel_cave`, frame 48, with CAS disable
 
 The source-model capture is identical for the bad GPU-prefilter and reference-resize arms (`1280x720`, frame 48, fingerprint `0x302b82493cc7edbe`). Therefore the corruption is not introduced by decoded input/YUV→RGB10 conversion (stage A). The model-color capture changes only after the source→model resize (`960x540`): GPU `0xc52258e1b800b429`; reference `0x3d53dbdac80eb1a2`. The healthy 360→720 control has no source/model resize and remains free of the campaign-observed lattice.
 
-The first implicated stage is **B: the source→model prefilter output**. The reference-resize ablation improves whole-scene SSIM from `0.692721` to `0.716862` and PSNR from `30.573677` to `30.828827`, while preserving the same downstream configuration. This is evidence that the custom GPU prefilter contributes materially to the defect, but it does not establish that it is the sole source of every downstream artifact.
+The first implicated stage is **B: the source→model prefilter output**. The reference-resize ablation improves whole-scene SSIM from `0.692721` to `0.716862` and PSNR from `30.573677` to `30.828827`, while preserving the same downstream configuration. This is evidence that the custom GPU prefilter contributes materially to the defect.
+
+The smallest evidence-supported production change is now in the Vulkan prefilter itself: its sampling footprint is scale-aware. Upsampling retains the native Catmull–Rom footprint; downsampling scales the separable kernel support and weights by the destination/source ratio, avoiding the old fixed 4×4 footprint at rational shrink phases. The GPU path remains the default; the libswscale branch is still opt-in diagnostic-only. A rerun of the bad geometry changed the Stage-B fingerprint and reduced the normalized 2×2 periodic-energy tripwire from approximately `0.0967` to `0.0802` (reference resize: `0.0815`). This is a bounded regression guard, not a claim of visual approval; human review remains required.
 
 ## Captured stages
 
@@ -18,4 +20,4 @@ The runner records exact geometry, environment, player revision, logs, metrics, 
 
 ## Resolution
 
-No production quality parameter or CAS/motion behavior was changed. The ablation improves the bad case but does not provide a clean separation of all corruption from downstream stages; replacing the Vulkan prefilter with a synchronous CPU readback/resize would also violate the project's fast native path. A production root-cause patch is therefore intentionally not guessed. The bounded diagnostic and regression contract are complete; a follow-up prefilter implementation must first preserve GPU synchronization/performance while matching the trusted resize result.
+No CAS or motion behavior was changed. The ablation remains an oracle only; replacing the Vulkan prefilter with a synchronous CPU readback/resize would violate the project's fast native path. The bounded diagnostic, scale-aware GPU correction, stage-capture contract, and automated periodic-energy tripwire are complete. Human visual review is still required before treating the corrected baseline as campaign-approved.

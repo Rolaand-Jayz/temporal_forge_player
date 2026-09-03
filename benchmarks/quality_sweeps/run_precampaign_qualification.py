@@ -19,6 +19,16 @@ def digest(path: Path) -> str:
 def ppm_png(root: Path, scene: str, inp: int, out: int, cas: str) -> Path:
     return root / f"{scene}_{inp}to{out}_{cas}.png"
 
+def checker_score(path: Path) -> float:
+    """Periodic 2x2 energy ratio used as a conservative lattice tripwire."""
+    from PIL import Image
+    import numpy as np
+    image = np.asarray(Image.open(path).convert("L"), dtype=np.float32)
+    if image.shape[0] < 2 or image.shape[1] < 2 or image.std() < 1e-6:
+        return 0.0
+    residual = image[:-1, :-1] - image[:-1, 1:] - image[1:, :-1] + image[1:, 1:]
+    return float(np.mean(np.abs(residual)) / image.std())
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--player", type=Path, default=ROOT / "build-fast/temporal_forge_player")
@@ -53,6 +63,8 @@ def main() -> int:
                     "TFORGE_QUALITY_FRAME": "48", "TFORGE_QUALITY_CAPTURE_ATTEMPTS": "180",
                     "TFORGE_QUALITY_ARTIFACT_ROOT": str(case), "TFORGE_QUALITY_FRAMES_DIR": str(case / "frames"),
                     "TFORGE_QUALITY_LOGS_DIR": str(case / "logs"), "TFORGE_QUALITY_TAG": f"precamp_{inp}_{delivery}_{cas_name}",
+                    "TFORGE_FSR4_DUMP_STAGE_DIR": str(case / "stages"), "TFORGE_FSR4_DUMP_MODEL_INPUT": "1",
+                    "TFORGE_FSR4_DUMP_MODEL_INPUT_FRAME": "48",
                     "TFORGE_FSR4_FORCE_VIEWPORT": viewport, "TFORGE_FSR4_FORCE_SCALE": "2.00",
                     "TFORGE_FSR4_CAS_STRENGTH": cas_strength, "TFORGE_FSR4_DISABLE_CAS": "1" if cas_name == "no_cas" else "0",
                     "TFORGE_QUALITY_PROFILE": "AMD_SEMANTIC_BASELINE", "TFORGE_FSR4_INTEGRATED_BEST_FINDINGS": "1",
@@ -74,12 +86,19 @@ def main() -> int:
                 controls = list(case.glob("frames/*_bicubic.png")) + list(case.glob("frames/*_lanczos.png"))
                 if len(controls) != 2 or any(p.stat().st_size == 0 for p in controls):
                     raise SystemExit(f"missing conventional controls for {csv_path}")
+                stage_b = case / "stages" / "stage-B-color.ppm"
+                if not stage_b.is_file():
+                    raise SystemExit(f"missing Stage-B capture for {csv_path}")
+                score = checker_score(stage_b)
+                if score >= 0.20:
+                    raise SystemExit(f"periodic lattice tripwire exceeded for {csv_path}: {score:.4f}")
                 harness_image = ppm_png(out / "harness", scene, inp, delivery, cas_name)
                 harness_image.parent.mkdir(parents=True, exist_ok=True)
                 shutil.copyfile(image, harness_image)
                 records.append({"scene": scene, "input": inp, "output": delivery, "cas": cas_name,
                                 "csv": str(csv_path), "image": str(harness_image), "width": int(row["output_width"]),
                                 "height": int(row["output_height"]), "sha256": digest(harness_image),
+                                "stage_b_checker_score": score,
                                 "binary_sha256": binary_sha, "config_sha256": config_sha})
     harness = out / "harness"
     hashes = [item["sha256"] for item in records]
