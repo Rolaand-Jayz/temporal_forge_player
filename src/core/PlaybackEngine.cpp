@@ -51,6 +51,27 @@ uint64_t diagnosticFingerprint(const std::vector<uint8_t> &bytes) {
   return hash;
 }
 
+bool dumpPackedRgb10Ppm(const std::filesystem::path &path,
+                        const std::vector<uint8_t> &bytes, uint32_t width,
+                        uint32_t height) {
+  if (bytes.size() != static_cast<size_t>(width) * height * sizeof(uint32_t))
+    return false;
+  std::ofstream out(path, std::ios::binary | std::ios::trunc);
+  if (!out)
+    return false;
+  out << "P6\n" << width << ' ' << height << "\n255\n";
+  for (size_t i = 0; i < static_cast<size_t>(width) * height; ++i) {
+    uint32_t packed = 0;
+    std::memcpy(&packed, bytes.data() + i * sizeof(uint32_t), sizeof(packed));
+    const std::array<uint8_t, 3> rgb = {
+        static_cast<uint8_t>(((packed >> 0u) & 1023u) * 255u / 1023u),
+        static_cast<uint8_t>(((packed >> 10u) & 1023u) * 255u / 1023u),
+        static_cast<uint8_t>(((packed >> 20u) & 1023u) * 255u / 1023u)};
+    out.write(reinterpret_cast<const char *>(rgb.data()), rgb.size());
+  }
+  return static_cast<bool>(out);
+}
+
 std::pair<uint32_t, uint32_t> fsrViewportForBenchmark(uint32_t fallbackW,
                                                        uint32_t fallbackH) {
   const char *value = std::getenv("TFORGE_FSR4_FORCE_VIEWPORT");
@@ -2520,6 +2541,14 @@ void PlaybackEngine::videoDecodeLoop() {
   static const bool dumpRawEnv = std::getenv("TFORGE_FSR4_DUMP_RAW") != nullptr;
   static const bool dumpModelInputEnv =
       std::getenv("TFORGE_FSR4_DUMP_MODEL_INPUT") != nullptr;
+  static const uint32_t dumpModelInputFrame = [] {
+    const char *value = std::getenv("TFORGE_FSR4_DUMP_MODEL_INPUT_FRAME");
+    return value ? static_cast<uint32_t>(std::strtoul(value, nullptr, 10)) : 0u;
+  }();
+  static const char *dumpStageDirectory = [] {
+    const char *value = std::getenv("TFORGE_FSR4_DUMP_STAGE_DIR");
+    return value && *value ? value : "";
+  }();
   static const uint32_t dumpOutputFrame = [] {
     const char *value = std::getenv("TFORGE_FSR4_DUMP_OUTPUT_FRAME");
     return value ? static_cast<uint32_t>(std::strtoul(value, nullptr, 10)) : 0u;
@@ -3975,7 +4004,7 @@ void PlaybackEngine::videoDecodeLoop() {
             const bool runAsync = asyncSlots && !dumpOutputEnv &&
                                   !dumpPresentationEnv &&
                                   !dumpSequenceLimit && !dumpDecoderEnv &&
-                                  !dumpRawEnv;
+                                  !dumpRawEnv && !dumpModelInputEnv;
             // Stateful single-pass playback can record the presentation scaler
             // into the FSR command buffer. Stateless in-flight frames and
             // chained passes keep their existing publication path because
@@ -4016,7 +4045,23 @@ void PlaybackEngine::videoDecodeLoop() {
             // provenance, which can now prove whether an opt-in prefilter
             // changed the actual model input instead of only producing a log.
             if (dumpModelInputEnv && !preEasu && !fsr4DumpedModelInput_ &&
-                !runAsync) {
+                !runAsync && fsrFrame->frameIndex >= dumpModelInputFrame) {
+              if (*dumpStageDirectory)
+                std::filesystem::create_directories(dumpStageDirectory);
+              std::vector<uint8_t> sourceModelReadback;
+              uint32_t sourceModelW = 0, sourceModelH = 0;
+              if (firstUploader->readbackSourceModel(
+                      sourceModelReadback, sourceModelW, sourceModelH)) {
+                logInfo("PlaybackEngine: sourceModel stage frame={} {}x{} "
+                        "fingerprint=0x{:016x}", fsrFrame->frameIndex,
+                        sourceModelW, sourceModelH,
+                        diagnosticFingerprint(sourceModelReadback));
+                if (*dumpStageDirectory)
+                  dumpPackedRgb10Ppm(
+                      std::filesystem::path(dumpStageDirectory) /
+                          "stage-A-sourceModel.ppm",
+                      sourceModelReadback, sourceModelW, sourceModelH);
+              }
               std::vector<uint8_t> modelReadback;
               uint32_t modelDumpW = 0, modelDumpH = 0;
               if (firstUploader->readbackModelColor(
@@ -4026,6 +4071,11 @@ void PlaybackEngine::videoDecodeLoop() {
                         "fingerprint=0x{:016x}",
                         fsrFrame->frameIndex, modelDumpW, modelDumpH,
                         diagnosticFingerprint(modelReadback));
+                if (*dumpStageDirectory)
+                  dumpPackedRgb10Ppm(
+                      std::filesystem::path(dumpStageDirectory) /
+                          "stage-B-color.ppm",
+                      modelReadback, modelDumpW, modelDumpH);
               } else {
                 logWarn("PlaybackEngine: ordinary model input readback "
                         "failed");
@@ -4251,6 +4301,26 @@ void PlaybackEngine::videoDecodeLoop() {
                         fsrDf.colorPrimaries, fsrDf.ptsUs, in.transfer, in.hdr);
                 std::vector<float> decoder;
                 if (fsr4Harness_->readbackFinalAccum(decoder)) {
+                  if (*dumpStageDirectory) {
+                    std::filesystem::create_directories(dumpStageDirectory);
+                    std::ofstream stageC(
+                        std::filesystem::path(dumpStageDirectory) /
+                            "stage-C-prepass.f32",
+                        std::ios::binary | std::ios::trunc);
+                    if (stageC)
+                      stageC.write(
+                          reinterpret_cast<const char *>(decoder.data()),
+                          static_cast<std::streamsize>(decoder.size() *
+                                                       sizeof(float)));
+                    std::ofstream stageCMeta(
+                        std::filesystem::path(dumpStageDirectory) /
+                            "stage-C-prepass.json",
+                        std::ios::trunc);
+                    if (stageCMeta)
+                      stageCMeta << "{\"frame\":" << sourceFrameIndex
+                                 << ",\"floats\":" << decoder.size()
+                                 << ",\"probe\":\"readbackFinalAccum\"}\n";
+                  }
                   constexpr size_t kMaxDiagnosticPixels = 65536;
                   size_t decoderChannels =
                       std::getenv("TFORGE_FSR4_DUMP_PREFINAL") ? 16u : 8u;

@@ -781,7 +781,8 @@ bool GpuImageUploader::allocate(uint32_t sourceW, uint32_t sourceH,
                        VK_IMAGE_ASPECT_COLOR_BIT, vPlane_, "fsr4_v_plane");
   ok &= createGpuImage(device_, physical_, sourceW, sourceH,
                        VK_FORMAT_A2B10G10R10_UNORM_PACK32,
-                       VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
+                       VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT |
+                           VK_IMAGE_USAGE_TRANSFER_SRC_BIT,
                        VK_IMAGE_ASPECT_COLOR_BIT, sourceModel_,
                        "fsr4_source_model");
   ok &= createGpuImage(device_, physical_, modelW, modelH,
@@ -955,9 +956,14 @@ bool GpuImageUploader::endUploadCmd() {
 bool GpuImageUploader::beginFrameUploads(bool allowBatch) {
   static const bool forceCpuMotion =
       std::getenv("TFORGE_FSR4_CPU_MOTION") != nullptr;
+  // The reference-resize ablation performs a synchronous source readback
+  // between conversion and resize; batching would keep the command buffer
+  // open and make that boundary invalid. Keep this diagnostic path explicit.
+  const bool referenceResize =
+      std::getenv("TFORGE_FSR4_REFERENCE_RESIZE") != nullptr;
   if (frameUploadBatch_ || deferredFrameUploads_)
     return false;
-  if (!allowBatch || forceCpuMotion)
+  if (!allowBatch || forceCpuMotion || referenceResize)
     return true;
   if (!beginUploadCmd())
     return false;
@@ -1783,9 +1789,63 @@ bool GpuImageUploader::uploadColorTo(const DecodedVideoFrame &frame,
     if (!dispatchYuvConvert(
             frame, compareEnabled_.load(std::memory_order_acquire), sharpness))
       return false;
-    if ((modelW_ != srcW_ || modelH_ != srcH_) &&
-        !dispatchBicubicPrefilter(frame))
-      return false;
+    if (modelW_ != srcW_ || modelH_ != srcH_) {
+      // Controlled ablation: keep the GPU YUV conversion and every downstream
+      // FSR stage identical, but replace only the source→model GPU prefilter
+      // with libswscale bicubic. This is opt-in diagnostic work and is never
+      // enabled by normal playback or campaign captures.
+      if (std::getenv("TFORGE_FSR4_REFERENCE_RESIZE")) {
+        if (!endUploadCmd())
+          return false;
+        std::vector<uint8_t> sourcePacked;
+        uint32_t sourceDumpW = 0, sourceDumpH = 0;
+        if (!readbackSourceModel(sourcePacked, sourceDumpW, sourceDumpH) ||
+            sourceDumpW != srcW_ || sourceDumpH != srcH_)
+          return false;
+        std::vector<uint8_t> sourceRgb(static_cast<size_t>(srcW_) * srcH_ * 3u);
+        for (size_t i = 0; i < static_cast<size_t>(srcW_) * srcH_; ++i) {
+          uint32_t packed = 0;
+          std::memcpy(&packed, sourcePacked.data() + i * sizeof(uint32_t),
+                      sizeof(packed));
+          sourceRgb[i * 3u + 0u] = static_cast<uint8_t>(((packed >> 0u) & 1023u) * 255u / 1023u);
+          sourceRgb[i * 3u + 1u] = static_cast<uint8_t>(((packed >> 10u) & 1023u) * 255u / 1023u);
+          sourceRgb[i * 3u + 2u] = static_cast<uint8_t>(((packed >> 20u) & 1023u) * 255u / 1023u);
+        }
+        std::vector<uint8_t> modelRgb(static_cast<size_t>(modelW_) * modelH_ * 3u);
+        SwsContext *referenceSws = sws_getContext(
+            srcW_, srcH_, AV_PIX_FMT_RGB24, modelW_, modelH_, AV_PIX_FMT_RGB24,
+            SWS_BICUBIC, nullptr, nullptr, nullptr);
+        if (!referenceSws)
+          return false;
+        const uint8_t *srcPlanes[4] = {sourceRgb.data(), nullptr, nullptr, nullptr};
+        int srcStrides[4] = {static_cast<int>(srcW_ * 3u), 0, 0, 0};
+        uint8_t *dstPlanes[4] = {modelRgb.data(), nullptr, nullptr, nullptr};
+        int dstStrides[4] = {static_cast<int>(modelW_ * 3u), 0, 0, 0};
+        const int scaled = sws_scale(referenceSws, srcPlanes, srcStrides, 0,
+                                     static_cast<int>(srcH_), dstPlanes,
+                                     dstStrides);
+        sws_freeContext(referenceSws);
+        if (scaled != static_cast<int>(modelH_))
+          return false;
+        std::vector<uint32_t> modelPacked(static_cast<size_t>(modelW_) * modelH_);
+        for (size_t i = 0; i < modelPacked.size(); ++i) {
+          const uint32_t r = static_cast<uint32_t>(modelRgb[i * 3u + 0u]) * 1023u / 255u;
+          const uint32_t g = static_cast<uint32_t>(modelRgb[i * 3u + 1u]) * 1023u / 255u;
+          const uint32_t b = static_cast<uint32_t>(modelRgb[i * 3u + 2u]) * 1023u / 255u;
+          modelPacked[i] = r | (g << 10u) | (b << 20u) | 0xC0000000u;
+        }
+        if (!ensureStaging(modelPacked.size() * sizeof(uint32_t)) ||
+            !beginUploadCmd())
+          return false;
+        std::memcpy(stagingMapped_, modelPacked.data(),
+                    modelPacked.size() * sizeof(uint32_t));
+        if (!copyBufferToImage(color_, staging_.buffer, 0, modelW_, modelH_,
+                               VK_IMAGE_ASPECT_COLOR_BIT))
+          return false;
+      } else if (!dispatchBicubicPrefilter(frame)) {
+        return false;
+      }
+    }
     if (!endUploadCmd())
       return false;
     if (frameUploadBatch_) {
@@ -2921,6 +2981,55 @@ bool GpuImageUploader::readbackModelColor(std::vector<uint8_t> &dst,
   std::memcpy(dst.data(), stagingMapped_, rgba32Size);
   outW = color_.width;
   outH = color_.height;
+  return true;
+}
+
+bool GpuImageUploader::readbackSourceModel(std::vector<uint8_t> &dst,
+                                           uint32_t &outW, uint32_t &outH) {
+  if (sourceModel_.image == VK_NULL_HANDLE || sourceModel_.width == 0 ||
+      sourceModel_.height == 0)
+    return false;
+  const size_t rgba32Size = static_cast<size_t>(sourceModel_.width) *
+                            sourceModel_.height * sizeof(uint32_t);
+  if (!ensureStaging(std::max(rgba32Size, static_cast<size_t>(4096))))
+    return false;
+  if (!beginUploadCmd())
+    return false;
+  VkImageMemoryBarrier toTransfer{};
+  toTransfer.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+  toTransfer.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
+  toTransfer.dstAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
+  toTransfer.oldLayout = sourceModel_.layout;
+  toTransfer.newLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+  toTransfer.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+  toTransfer.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+  toTransfer.image = sourceModel_.image;
+  toTransfer.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+  vkCmdPipelineBarrier(cmd_, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+                       VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, nullptr, 0,
+                       nullptr, 1, &toTransfer);
+  VkBufferImageCopy region{};
+  region.imageSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
+  region.imageExtent = {sourceModel_.width, sourceModel_.height, 1};
+  vkCmdCopyImageToBuffer(cmd_, sourceModel_.image,
+                         VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, staging_.buffer,
+                         1, &region);
+  VkImageMemoryBarrier backToGeneral = toTransfer;
+  backToGeneral.srcAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
+  backToGeneral.dstAccessMask = VK_ACCESS_SHADER_READ_BIT |
+                                VK_ACCESS_SHADER_WRITE_BIT;
+  backToGeneral.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+  backToGeneral.newLayout = VK_IMAGE_LAYOUT_GENERAL;
+  vkCmdPipelineBarrier(cmd_, VK_PIPELINE_STAGE_TRANSFER_BIT,
+                       VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 0, nullptr, 0,
+                       nullptr, 1, &backToGeneral);
+  sourceModel_.layout = VK_IMAGE_LAYOUT_GENERAL;
+  if (!endUploadCmd())
+    return false;
+  dst.resize(rgba32Size);
+  std::memcpy(dst.data(), stagingMapped_, rgba32Size);
+  outW = sourceModel_.width;
+  outH = sourceModel_.height;
   return true;
 }
 

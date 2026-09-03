@@ -207,6 +207,10 @@ struct GpuImageUploader {
   // prepass into the neural input without changing the production path.
   bool readbackModelColor(std::vector<uint8_t> &dst, uint32_t &outW,
                           uint32_t &outH);
+  // Read the decoded RGB10 source image before the optional source→model
+  // prefilter. Diagnostic-only; production uploads never read this image back.
+  bool readbackSourceModel(std::vector<uint8_t> &dst, uint32_t &outW,
+                           uint32_t &outH);
   bool readbackRaw(std::vector<uint8_t> &dst, uint32_t &outW, uint32_t &outH);
   // Read the dense GPU motion field and its per-pixel validity map. These are
   // opt-in diagnostics: motion is RG16F (four bytes per pixel) and validity
