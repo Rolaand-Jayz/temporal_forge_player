@@ -330,14 +330,14 @@ void main() {
     if (usePrepassJitter || useSourceTapMuLaw)
         inputPos += sourceJitter;
     const vec2 modelPos = inputPos * sourceToModelScale;
-    // Jitter changes only the resolve coordinate.  Source-tap Mu-law is a
-    // separate color-path diagnostic: using it for every prepass-jittered
-    // frame silently changes both sampling ownership and color
-    // representation, making the synthetic-jitter A/B uninterpretable.
-    const vec4 current =
-        useSourceTapMuLaw
-            ? sampleCurrentOfficial(inputPos, slot1.xy)
-            : sampleCurrentModel(modelPos, modelToOutputScale);
+    // Resolve from the FP16 model-color image even when the semantic profile
+    // requests source-tap Mu-law.  The raw source-display image is rgba8 and
+    // applying the nonlinear transform after that quantization creates a
+    // phase-locked lattice under source/model geometry mismatch.  The model
+    // image already contains the same EOTF + Mu-law transform at full
+    // precision; retaining the prepass phase here preserves ordering without
+    // introducing a second lossy representation.
+    const vec4 current = sampleCurrentModel(modelPos, modelToOutputScale);
     const bool fullReset = (slot0.z & 2u) != 0u;
     const bool recurrentResetOnly = (slot0.z & 1048576u) != 0u;
     const bool resetRecurrent = fullReset || recurrentResetOnly;

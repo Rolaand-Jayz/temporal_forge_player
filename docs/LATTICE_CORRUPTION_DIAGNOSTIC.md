@@ -401,3 +401,24 @@ when source-tap Mu-law was disabled; changing only jitter mode left it at
 0.055246. The remaining P0 boundary is therefore the source-tap Mu-law path
 under geometry mismatch. The P0 remains open; no production workaround or
 history-publication change is being claimed from this failed qualification.
+
+### Semantic closeout candidate: FP16 resolve source (2026-09-03)
+
+The source-tap ablation isolated the defect to applying EOTF + Mu-law after
+sampling the lossy rgba8 `u_sourceDisplay`. The retained fix keeps the semantic
+prepass phase but resolves from the already-transformed FP16 `u_color` image.
+This removes the second quantization boundary without changing CAS, motion,
+recurrent admission, or reset policy.
+
+Exact AMD semantic captures were independently reviewed and found clean:
+
+| case | final PNG SHA-256 |
+| --- | --- |
+| sintel_cave 720→1080 | `14515f480d7f69110723adf836611b3ca9b512edeb50952d40da5b57ce1c0fba` |
+| sintel_cave 360→1080 | `9278b8716afacab69dd480bcbbae80e9b3d8e3a223bb99733aff63cc17830773` |
+| sintel_cave 360→720 | `f2838747da3232a9cd8280dd41efe9620c128cf0d6a25f3e9bb28198d61823e5` |
+
+No repeating lattice, trails, halos, or color shifts were observed. The
+corresponding SSIM values were 0.983629, 0.794357, and 0.683053. PNGs are
+retained beside the prior failing evidence as `candidate_cave720_fix.png`,
+`candidate_cave360_fix.png`, and `candidate_cave360eq_fix.png`.

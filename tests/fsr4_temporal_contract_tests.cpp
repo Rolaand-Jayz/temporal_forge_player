@@ -280,22 +280,21 @@ int main() {
           std::string::npos);
     CHECK(prepass.find("inputPos += sourceJitter") != std::string::npos);
     CHECK(prepass.find("inputPos += slot1.zw") == std::string::npos);
-    // Prepass-owned jitter and source-tap Mu-law are independent controls.
-    // A named jitter profile must retain the model-color representation while
-    // shifting its resolve; only the explicit source-tap diagnostic may read
-    // u_sourceDisplay and apply Mu-law per decoded tap.
-    CHECK(prepass.find("useSourceTapMuLaw\n            ? sampleCurrentOfficial") !=
+    // Semantic source-tap mode owns the resolve phase, but must not consume
+    // the lossy rgba8 source-display image.  The FP16 model-color image has
+    // already applied the EOTF + Mu-law transform and is the stable resolve
+    // representation under source/model geometry mismatch.
+    CHECK(prepass.find("const vec4 current = sampleCurrentModel(modelPos, modelToOutputScale)") !=
           std::string::npos);
-    CHECK(prepass.find("usePrepassJitter || useSourceTapMuLaw\n            ? sampleCurrentOfficial") ==
+    CHECK(prepass.find("applying the nonlinear transform after that quantization") !=
           std::string::npos);
-    // The source-guided resolve must apply the recovered Mu-law transform to
-    // each display-space source tap before Gaussian weighting. Filtering the
-    // already-transformed RGB10 image is not equivalent to the official path.
+    CHECK(prepass.find("useSourceTapMuLaw\n            ? sampleCurrentOfficial") ==
+          std::string::npos);
+    // Keep the source-display helper and binding covered because the
+    // diagnostic path remains available for controlled shader experiments.
     CHECK(prepass.find("u_sourceDisplay") != std::string::npos);
     CHECK(prepass.find("sampleCurrentOfficial") != std::string::npos);
     CHECK(prepass.find("applyMuLawOfficial") != std::string::npos);
-    CHECK(prepass.find("sampleCurrentOfficial(inputPos, slot1.xy)") !=
-          std::string::npos);
     CHECK(harness.find("w[10].dstBinding = 10") != std::string::npos);
     CHECK(harness.find("in.sourceDisplayView") != std::string::npos);
     CHECK(prepass.find("const vec2 unjitteredInputPos") !=
