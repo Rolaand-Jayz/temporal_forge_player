@@ -362,9 +362,8 @@ the published history on subsequent frames, this identifies the feedback
 write of the already history-mixed `modelColor` as the smallest causal
 boundary. The retained fix publishes the current neural resolve
 (`upscaledColor`) instead, preserving history reads and recurrent admission
-without feeding the accumulated temporal blend back into itself. Fresh
-qualification on 360→1080, 720→1080, and source==model controls remains
-required before campaign approval.
+without feeding the accumulated temporal blend back into itself. This was
+subsequently qualified with recurrent state enabled; see the closeout below.
 
 ### Post-fix focused qualification (2026-09-03)
 
@@ -385,3 +384,18 @@ postpass history publication remains `upscaledColor`. The precampaign gate
 scores final/native output while retaining Stage-B provenance. Conventional
 bicubic/Lanczos controls and the existing prefilter/provenance paths were not
 changed.
+
+### Full temporal-state P0 closeout (2026-09-03)
+
+The retained fix was then qualified with both color history and recurrent state
+enabled on the actual production path. The three final/native outputs,
+runtime traces, CSV provenance, and visual review are retained in
+`benchmarks/quality_sweeps/lattice_p0_recurrent_qualification_20260903/`.
+Each trace reports `history_enabled: true`, `recurrent_enabled: true`, CAS
+disabled, synthetic Halton jitter, normal decoder motion, and the conditional
+reset policy; no forced-reset override was supplied. Final scores were 0.023211
+(1280x720→1920x1080), 0.016872 (640x360→1920x1080), and 0.030349
+(640x360→1280x720 source==model), all comfortably below 0.20. The independent
+visual review found no lattice, recurrent trails, stale contamination, halos,
+color shifts, or instability in any case. The full-temporal-state path is
+therefore qualified without changing the `upscaledColor` publication fix.
