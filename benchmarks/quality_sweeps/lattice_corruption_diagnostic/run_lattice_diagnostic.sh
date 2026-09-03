@@ -14,7 +14,7 @@ run_case() {
   mkdir -p "$root/stages"
   local -a extra=()
   (( reference )) && extra+=(TFORGE_FSR4_REFERENCE_RESIZE=1)
-  env "${common[@]}" "${extra[@]}" TFORGE_QUALITY_ARTIFACT_ROOT="$root" TFORGE_QUALITY_FRAMES_DIR="$root/frames" TFORGE_QUALITY_LOGS_DIR="$root/logs" TFORGE_FSR4_DUMP_STAGE_DIR="$root/stages" TFORGE_FSR4_FORCE_VIEWPORT="$viewport" TFORGE_QUALITY_TAG="$name" bash "$repo/benchmarks/video_corpus/run_quality.sh" "$repo/build-fast/temporal_forge_player" "$selector" "$root/results.csv"
+  env "${common[@]}" "${extra[@]}" TFORGE_QUALITY_ARTIFACT_ROOT="$root" TFORGE_QUALITY_FRAMES_DIR="$root/frames" TFORGE_QUALITY_LOGS_DIR="$root/logs" TFORGE_FSR4_DUMP_STAGE_DIR="$root/stages" TFORGE_FSR4_FORCE_VIEWPORT="$viewport" TFORGE_QUALITY_TAG="$name" python3 -m benchmarks.quality_sweeps.capture_engine -- bash "$repo/benchmarks/video_corpus/run_quality.sh" "$repo/build-fast/temporal_forge_player" "$selector" "$root/results.csv"
 }
 run_case bad_gpu 1280x720 1920x1080
 run_case healthy_gpu 640x360 1280x720

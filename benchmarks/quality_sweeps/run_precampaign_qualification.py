@@ -5,6 +5,9 @@ import argparse, csv, hashlib, json, os, shutil, subprocess, time
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
+import sys
+sys.path.insert(0, str(ROOT))
+from benchmarks.quality_sweeps.capture_engine import run_renderer
 RUNNER = ROOT / "benchmarks/video_corpus/run_quality.sh"
 SCENES = ("sintel_cave", "tos_daylight")
 CASES = ((360, 720), (360, 1080), (720, 1080))
@@ -74,7 +77,7 @@ def main() -> int:
                 })
                 case.mkdir(parents=True)
                 csv_path = case / "results.csv"
-                subprocess.run(["bash", str(RUNNER), str(player), selector, str(csv_path)], cwd=ROOT, env=env, check=True)
+                run_renderer(["bash", str(RUNNER), str(player), selector, str(csv_path)], cwd=ROOT, env=env)
                 rows = list(csv.DictReader(csv_path.open(newline="", encoding="utf-8")))
                 if len(rows) != 1: raise SystemExit(f"expected one result row: {csv_path}")
                 row = rows[0]

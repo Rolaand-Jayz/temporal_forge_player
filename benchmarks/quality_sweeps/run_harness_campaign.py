@@ -26,6 +26,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 from benchmarks.quality_sweeps.trackmania_guard import DEFAULT_GAME_PATTERNS, running_games
+from benchmarks.quality_sweeps.capture_engine import run_renderer
 from tools.export_review_image import export_review_image
 
 CAPTURE_PLAN_PATH = ROOT / "benchmarks/quality_sweeps/quality_campaign_capture_plan.json"
@@ -260,17 +261,11 @@ class PausingRunner:
         started = time.monotonic()
         print(f"[{now()}] START {label}", flush=True)
         self.record("command_start", {"label": label, "command": command})
-        proc = subprocess.Popen(command, cwd=cwd, start_new_session=True)
         try:
-            proc.wait()
-            if proc.returncode:
-                raise subprocess.CalledProcessError(proc.returncode, command)
-            self.record("command_complete", {"label": label, "returncode": proc.returncode})
+            run_renderer(command, cwd=cwd)
+            self.record("command_complete", {"label": label, "returncode": 0})
             print(f"[{now()}] DONE  {label} ({time.monotonic() - started:.1f}s)", flush=True)
         except BaseException:
-            if proc.poll() is None:
-                proc.terminate()
-                proc.wait()
             raise
 
 
