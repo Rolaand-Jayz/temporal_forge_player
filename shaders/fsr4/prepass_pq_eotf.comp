@@ -302,6 +302,15 @@ void main() {
                                     max(modelSize, vec2(1.0));
     const vec2 sourceToModelScale = slot1.xy /
                                     max(modelToOutputScale, vec2(1e-6));
+    // The recovered temporal feedback resources are output-sized, while the
+    // uploaded model color/motion grids may be reduced or enlarged relative
+    // to decoded source.  Reprojecting output history across that geometry
+    // boundary creates a stable checker lattice (the source==model path does
+    // not).  Keep the native temporal path unchanged, but require a fresh
+    // current-frame seed whenever source and model grids differ; this is a
+    // geometry safety rule, not motion or CAS tuning.
+    const bool sourceModelGeometryMismatch =
+        any(greaterThan(abs(sourceToModelScale - vec2(1.0)), vec2(1.0e-3)));
 
     const uint px = gl_GlobalInvocationID.x;
     const uint py = gl_GlobalInvocationID.y;
@@ -334,7 +343,7 @@ void main() {
         useSourceTapMuLaw
             ? sampleCurrentOfficial(inputPos, slot1.xy)
             : sampleCurrentModel(modelPos, modelToOutputScale);
-    const bool fullReset = (slot0.z & 2u) != 0u;
+    const bool fullReset = (slot0.z & 2u) != 0u || sourceModelGeometryMismatch;
     const bool recurrentResetOnly = (slot0.z & 1048576u) != 0u;
     const bool resetRecurrent = fullReset || recurrentResetOnly;
 

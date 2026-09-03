@@ -12,6 +12,8 @@ The smallest evidence-supported production change is now in the Vulkan prefilter
 
 The required visual audit then falsified the stronger hypothesis that Stage-B correction alone removes the visible defect: both the corrected GPU output and the reference-resize output still show the repeating lattice in the dragon flank and foreground rock, while the 360→720 control does not. A controlled bad-case capture with best-findings temporal feedback, color history, and recurrent feedback disabled removes the lattice. This places the remaining P0 trigger downstream of Stage B, in the temporal feedback/graph handoff for source/model-mismatched geometry. The scale-aware prefilter remains a valid Stage-B correction, but is not yet sufficient for Definition-of-Done visual cleanliness.
 
+The smallest follow-up fix is a geometry safety rule in the GPU prepass: when the model grid differs from the decoded source grid, the pass seeds history/recurrent features from the current resolved frame instead of reprojecting output-sized feedback across the mismatched grid. The source==model path is unchanged. A fresh known-bad capture with temporal campaign settings reduced the direct-output 2×2 periodic-energy score from `0.0560` to `0.0233`, consistent with the clean control (`0.0285`); visual confirmation is still required.
+
 ## Captured stages
 
 - `stage-A-sourceModel.ppm`: post YUV→RGB10 source image.
@@ -22,4 +24,4 @@ The runner records exact geometry, environment, player revision, logs, metrics, 
 
 ## Resolution
 
-No CAS or motion behavior was changed. The ablation remains an oracle only; replacing the Vulkan prefilter with a synchronous CPU readback/resize would violate the project's fast native path. The bounded diagnostic, shared capture primitives, scale-aware GPU correction, stage-capture contract, and automated periodic-energy tripwire are complete. The downstream temporal trigger still requires a focused root-cause fix and a fresh visual qualification before treating the corrected baseline as campaign-approved.
+No CAS or motion behavior was changed. The ablation remains an oracle only; replacing the Vulkan prefilter with a synchronous CPU readback/resize would violate the project's fast native path. The bounded diagnostic, shared capture primitives, scale-aware GPU correction, geometry-safe temporal handoff, stage-capture contract, and automated periodic-energy tripwire are complete. A fresh precampaign qualification is required before treating the corrected baseline as campaign-approved.

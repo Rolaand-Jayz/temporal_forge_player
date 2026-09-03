@@ -16,6 +16,7 @@ assert 'TFORGE_FSR4_DUMP_STAGE_DIR' in engine
 assert 'dispatchBicubicPrefilter(frame)' in uploader
 assert 'filterScale = min(scale, vec2(1.0))' in shader
 assert 'for (int x = -4; x <= 5; ++x)' in shader
+assert 'sourceModelGeometryMismatch' in (ROOT / "shaders/fsr4/prepass_pq_eotf.comp").read_text()
 assert 'source_model_resampler=' in uploader
 assert 'if (modelW_ != srcW_ || modelH_ != srcH_)' in uploader
 assert 'CASES = ((360, 720), (360, 1080), (720, 1080))' in precamp
