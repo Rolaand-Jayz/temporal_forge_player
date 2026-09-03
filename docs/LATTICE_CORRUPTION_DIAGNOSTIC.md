@@ -335,3 +335,19 @@ The tensors differ numerically, but normalized visualizations of all three
 contain strong architecture-periodic structure and are not a trustworthy
 lattice detector. This probe therefore does not move the causal boundary to
 stage C; final-output inspection remains authoritative.
+
+### Prepass reprojection boundary (2026-09-03)
+
+An output-sized FP16 readback of `u_reprojectedColor` was captured on the
+known-bad 1280x720 → 1920x1080 history-only arm after frame-48 warmup. The
+normalized payload itself contains the same large repeating lattice across the
+cave, dragon, and foreground, before postpass composition. This proves the
+first visible corruption is in the prepass color-history reprojection output,
+not in CAS or the final presentation handoff.
+
+Two value-isolation probes were also run. Replacing the sampled history value
+with the current resolve in prepass removes the final lattice. Changing only
+the postpass history publication value (current or upscaled) does not. These
+results implicate the history value consumed by prepass reprojection; they do
+not yet establish whether the stored payload or its coordinate transform is
+the exact root cause. The temporary probes are not production behavior.
