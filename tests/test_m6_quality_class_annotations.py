@@ -24,13 +24,18 @@ class M6QualityClassAnnotationTests(unittest.TestCase):
             any("adjacent" in item for item in document["temporalEvidence"]["missingEvidence"])
         )
 
-    def test_annotations_use_only_existing_real_world_assets(self) -> None:
+    def test_purged_annotations_retain_real_world_identity_without_stale_payloads(self) -> None:
         document = json.loads(MANIFEST.read_text(encoding="utf-8"))
         synthetic_markers = ("synthetic", "generated", "diagnostic")
+        self.assertEqual(document["retention"]["status"], "image-payloads-purged")
+        self.assertEqual(
+            document["retention"]["supersededBy"],
+            "benchmarks/quality_sweeps/quality_campaign_capture_plan.json",
+        )
         self.assertGreater(len(document["annotations"]), 0)
         for annotation in document["annotations"]:
             path = ROOT / annotation["assetPath"]
-            self.assertTrue(path.is_file(), annotation["assetPath"])
+            self.assertFalse(path.is_file(), annotation["assetPath"])
             lowered = annotation["assetPath"].lower()
             self.assertFalse(any(marker in lowered for marker in synthetic_markers))
             self.assertNotIn(annotation["scene"], {"synthetic_edges_text", "synthetic_motion"})

@@ -72,7 +72,7 @@
 | M6.5 matrix contract | `tools/verify_quality_matrix.py` | M6.5 | contract-tested, real matrix pending |
 | M6.5 schema-v2 gap report | `tools/report_quality_matrix_gaps.py`, `tests/test_quality_matrix_gap_report.py` | M6.5 | current; `/tmp/tforge-m6-schema2-gap-report.json` records the saved-evidence gaps |
 | M6.5 schema-v2 spatial campaign | `benchmarks/quality_sweeps/m6_schema2_spatial_campaign.json`, `tests/test_m6_schema2_campaign.py` | M6.5 | current; five candidates, four real scenes, scene-specific classSelections, temporal pending |
-| Visually grounded M6 class annotations | `benchmarks/quality_sweeps/m6_quality_class_annotations.json`, `tests/test_m6_quality_class_annotations.py` | M6.5 | current; four spatial entries, temporal evidence explicitly unavailable |
+| Visually grounded M6 class annotations | `benchmarks/quality_sweeps/m6_quality_class_annotations.json`, `tests/test_m6_quality_class_annotations.py` | M6.5 | historical identity retained; old image payloads purged and superseded by the active shared campaign capture plan |
 | First identity-validated temporal capture | `/tmp/tforge-m6-3-bilinear-fabric-rerun-20260823-escalated` | M6.3 | current; one real sequence, wrapper exit 0, not a complete matrix |
 | Corrected Sintel rooftop temporal capture | `/tmp/tforge-m6-3-bilinear-rooftop-retry-p-only-20260823` | M6.3 | current; one real baseline sequence, wrapper exit 0, not a complete matrix |
 | Grounded Sintel-cave event capture | `benchmarks/video_corpus/results/m6_event_sintel_cave_20260829T060839Z` | M6 event metadata | current; one candidate-linked 18-frame event row, not a complete matrix |

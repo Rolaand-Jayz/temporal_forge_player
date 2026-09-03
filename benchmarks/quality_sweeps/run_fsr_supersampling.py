@@ -15,6 +15,7 @@ import csv
 import datetime as dt
 import os
 import re
+import struct
 import subprocess
 import time
 import uuid
@@ -87,6 +88,14 @@ def sha256_file(path: Path) -> str:
     return digest.hexdigest()
 
 
+def png_dimensions(path: Path) -> tuple[int, int]:
+    with path.open("rb") as stream:
+        if stream.read(8) != b"\x89PNG\r\n\x1a\n":
+            raise RuntimeError(f"reference cache entry is not a PNG: {path}")
+        stream.seek(16)
+        return struct.unpack(">II", stream.read(8))
+
+
 def prune_image_payloads(root: Path) -> None:
     """Remove derived raster/video payloads while retaining campaign data."""
     suffixes = {".png", ".ppm", ".pgm", ".jpg", ".jpeg", ".mkv", ".mp4", ".webm"}
@@ -101,11 +110,25 @@ def git_identity(root: Path) -> tuple[str, bool]:
         cwd=root, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
         check=True,
     ).stdout.strip()
-    dirty = bool(subprocess.run(
-        ["git", "-C", str(root), "status", "--porcelain"],
-        cwd=root, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-        check=True,
-    ).stdout.strip())
+    # The unified campaign publishes its own generated catalog and images as
+    # routes finish. Exclude only those known outputs from subsequent arm
+    # provenance checks; the top-level runner requires a clean tree before
+    # the first route starts, and every source/config change remains visible.
+    generated_pathspecs = (
+        ":(exclude)review_harness/catalog.js",
+        ":(exclude)review_harness/images/**",
+    )
+    worktree = subprocess.run(
+        ["git", "-C", str(root), "diff", "--quiet", "--", ".", *generated_pathspecs],
+        cwd=root, check=False,
+    )
+    staged = subprocess.run(
+        ["git", "-C", str(root), "diff", "--cached", "--quiet"],
+        cwd=root, check=False,
+    )
+    if worktree.returncode not in (0, 1) or staged.returncode not in (0, 1):
+        raise RuntimeError("could not determine campaign git state")
+    dirty = worktree.returncode == 1 or staged.returncode == 1
     return head, dirty
 
 
@@ -113,7 +136,8 @@ def validate_runtime_trace(path: Path, *, run_id: str, source: str,
                            output: str, scale: float,
                            cas_enabled: bool, binary_sha256: str,
                            git_head: str, git_dirty: bool,
-                           profile: str, config_sha256: str) -> dict[str, object]:
+                           profile: str, config_sha256: str,
+                           expected_cas_strength: float | None = None) -> dict[str, object]:
     """Require the player to prove the effective state of this arm."""
     if not path.is_file():
         raise RuntimeError(f"Temporal Forge did not emit runtime trace: {path}")
@@ -127,8 +151,11 @@ def validate_runtime_trace(path: Path, *, run_id: str, source: str,
     source_w, source_h = (int(value) for value in source.split("x"))
     nominal_model_w = even_dimension(round(output_w / max(1.0, scale)))
     nominal_model_h = even_dimension(round(output_h / max(1.0, scale)))
-    expected_model_w = min(nominal_model_w, source_w)
-    expected_model_h = min(nominal_model_h, source_h)
+    # Supersampling arms intentionally reconstruct on the requested nominal
+    # grid even when it is larger than the decoded source. The player must not
+    # clamp the model dimensions back to the decoder dimensions.
+    expected_model_w = nominal_model_w
+    expected_model_h = nominal_model_h
     expected_jitter = profile != "JITTER_OFF_DIAGNOSTIC"
     expected_jitter_mode = (
         "prepass_input_resolve" if profile == "AMD_SEMANTIC_BASELINE"
@@ -155,6 +182,21 @@ def validate_runtime_trace(path: Path, *, run_id: str, source: str,
                 f"runtime state mismatch for {key}: requested={value!r}, "
                 f"effective={trace.get(key)!r}, trace={path}"
             )
+    if expected_cas_strength is None:
+        expected_cas_strength = 0.2 if cas_enabled else 0.0
+    expected_cas_stage = "integrated_post_reconstruction" if cas_enabled else "none"
+    if trace.get("cas_stage") != expected_cas_stage:
+        raise RuntimeError(
+            f"CAS stage mismatch: expected={expected_cas_stage!r}, "
+            f"effective={trace.get('cas_stage')!r}, trace={path}"
+        )
+    trace_cas_strength = trace.get("cas_strength")
+    if (not isinstance(trace_cas_strength, (int, float)) or
+            abs(float(trace_cas_strength) - expected_cas_strength) > 0.001):
+        raise RuntimeError(
+            f"CAS strength mismatch: expected={expected_cas_strength:.2f}, "
+            f"effective={trace_cas_strength!r}, trace={path}"
+        )
     if profile == "AMD_SEMANTIC_BASELINE":
         required_baseline_state = {
             "prepass_source_tap_mulaw": True,
@@ -174,9 +216,7 @@ def validate_runtime_trace(path: Path, *, run_id: str, source: str,
         raise RuntimeError(f"runtime trace has invalid reconstruction resolution: {path}")
     if trace.get("requested_model_resolution") != f"{nominal_model_w}x{nominal_model_h}":
         raise RuntimeError(f"requested model grid mismatch: {path}")
-    if trace.get("scale_clamped_to_source") != (
-        expected_model_w < nominal_model_w or expected_model_h < nominal_model_h
-    ):
+    if trace.get("scale_clamped_to_source") is not False:
         raise RuntimeError(f"unreported source-size scale clamp: {path}")
     if reconstruction != f"{expected_model_w}x{expected_model_h}":
         raise RuntimeError(
@@ -231,6 +271,8 @@ def main() -> int:
                         help="override the video-corpus manifest for controlled fixtures")
     parser.add_argument("--artifact-root", type=Path, required=True)
     parser.add_argument("--output-csv", type=Path, required=True)
+    parser.add_argument("--reference-cache", type=Path,
+                        help="pair-local cache for common final-resolution reference frames")
     parser.add_argument("--final", default="2560x1440")
     parser.add_argument("--scene", action="append", choices=SCENES + ("synthetic_edges_text", "bbb_branches"))
     parser.add_argument("--source", default="1280x720")
@@ -252,11 +294,23 @@ def main() -> int:
     player = args.player.resolve()
     artifact_root = args.artifact_root.resolve()
     artifact_root.mkdir(parents=True, exist_ok=True)
+    reference_cache = args.reference_cache.resolve() if args.reference_cache else None
+    if reference_cache:
+        reference_cache.mkdir(parents=True, exist_ok=True)
     output_rows: list[dict[str, str]] = []
     git_head, git_dirty = git_identity(root)
     binary_sha256 = sha256_file(player)
     config_sha256 = sha256_file(root / "benchmarks/video_corpus/benchmark_settings.json")
-    requested_scales = tuple(args.scale) if args.scale else SCALES
+    if args.scale:
+        requested_scales = tuple(args.scale)
+    elif args.preset == "NativeAA":
+        # NativeAA is a fixed native-shape control, not five independent
+        # multiplier arms. Repeating it under 2.25x..3.00x would create fake
+        # identities for the same native output and fail effective-state
+        # validation.
+        requested_scales = (2.0,)
+    else:
+        requested_scales = SCALES
     preserve_images = os.environ.get("TFORGE_PRESERVE_SPATIAL_IMAGES", "1") == "1"
 
     manifest = (args.manifest or (root / "benchmarks/video_corpus/manifest.csv")).resolve()
@@ -322,11 +376,10 @@ def main() -> int:
                 })
             else:
                 env["TFORGE_QUALITY_PROFILE"] = args.profile
-            if args.cas_placement == "none":
-                env["TFORGE_FSR4_DISABLE_CAS"] = "1"
-            elif args.cas_placement == "post":
+            if args.cas_placement in ("post", "none"):
                 env["TFORGE_FSR4_DISABLE_CAS"] = "1"
                 env["TFORGE_REVIEW_FSR_CAS"] = ""
+                env["TFORGE_FSR4_CAS_STRENGTH"] = "0.00"
             vram_before, vram_peak = run_player(
                 [str(root / "benchmarks/video_corpus/run_quality.sh"), str(player),
                 args.source, str(raw_csv)], env=env, cwd=root)
@@ -341,6 +394,8 @@ def main() -> int:
                     output=f"{intermediate_w}x{intermediate_h}",
                     scale=scale,
                     cas_enabled=args.cas_placement == "pre",
+                    expected_cas_strength=(float(args.cas_strength)
+                                           if args.cas_placement == "pre" else 0.0),
                     binary_sha256=binary_sha256,
                     git_head=git_head,
                     git_dirty=git_dirty,
@@ -371,7 +426,7 @@ def main() -> int:
                     "input_resolution": f"{row['width']}x{row['height']}",
                     "delivery_resolution": args.final,
                     "nominal_scale": f"{scale:.2f}",
-                    "cas_strength": args.cas_strength,
+                    "cas_strength": args.cas_strength if args.cas_placement != "none" else "0.00",
                     "cas_placement": args.cas_placement,
                     "runtime_trace_path": str(runtime_trace),
                 }
@@ -380,16 +435,28 @@ def main() -> int:
                 os.replace(temporary_record, scene_root / "experiment.json")
                 raise
             final_candidate = scene_root / "candidate_final.png"
-            reference_final = scene_root / "reference_final.png"
+            reference_final = (
+                reference_cache / f"{scene}__frame-{args.frame:04d}__{final_w}x{final_h}.png"
+                if reference_cache else scene_root / "reference_final.png"
+            )
             reference = Path(raw["control_source_path"]).parent / (
                 f"{scene}_reference_{intermediate_w}x{intermediate_h}_f{args.frame}_{candidate}.png"
             )
             # The quality runner's reference is a scaled version of the
             # lossless 2160p master. Regenerate the common final reference
             # directly from that master for an identical reference across arms.
-            run(["ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-i", row["reference_path"],
-                 "-vf", f"select=eq(n\\,{args.frame}),scale={final_w}:{final_h}:flags=lanczos",
-                 "-frames:v", "1", str(reference_final)], env=env, cwd=root)
+            if reference_final.is_file():
+                if png_dimensions(reference_final) != (final_w, final_h):
+                    raise RuntimeError(f"reference cache dimensions mismatch: {reference_final}")
+            else:
+                temporary_reference = reference_final.with_name(
+                    f".{reference_final.name}.{os.getpid()}.tmp.png"
+                )
+                run(["ffmpeg", "-hide_banner", "-loglevel", "error", "-y",
+                     "-i", row["reference_path"],
+                     "-vf", f"select=eq(n\\,{args.frame}),scale={final_w}:{final_h}:flags=lanczos",
+                     "-frames:v", "1", str(temporary_reference)], env=env, cwd=root)
+                os.replace(temporary_reference, reference_final)
             reduction = "lanczos" if scale > 2.0 else "fit"
             source_dimensions = (int(row["width"]), int(row["height"]))
             needs_final_fit = source_dimensions[0] * final_h != source_dimensions[1] * final_w
@@ -423,7 +490,7 @@ def main() -> int:
             gpu = re.findall(r"GPU=([0-9.]+)ms", stage_text)
             output_rows.append({
                 "scene": scene, "scale": f"{scale:.2f}",
-                "cas_strength": args.cas_strength,
+                "cas_strength": args.cas_strength if args.cas_placement != "none" else "0.00",
                 "source_resolution": f"{row['width']}x{row['height']}",
                 "intermediate_resolution": f"{intermediate_w}x{intermediate_h}",
                 "final_resolution": args.final, "downsample": reduction,
@@ -462,7 +529,7 @@ def main() -> int:
                 "reconstruction_resolution": f"{intermediate_w}x{intermediate_h}",
                 "delivery_resolution": args.final,
                 "nominal_scale": f"{scale:.2f}",
-                "cas_strength": args.cas_strength,
+                "cas_strength": args.cas_strength if args.cas_placement != "none" else "0.00",
                 "cas_placement": args.cas_placement,
                 "source_artifact": raw.get("control_source_path", ""),
                 "source_sha256": raw.get("control_source_sha256", ""),

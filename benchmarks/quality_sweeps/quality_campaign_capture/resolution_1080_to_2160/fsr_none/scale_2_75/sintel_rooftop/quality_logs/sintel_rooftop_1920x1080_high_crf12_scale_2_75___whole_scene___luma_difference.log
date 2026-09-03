@@ -1,0 +1,52 @@
+Input #0, png_pipe, from '/home/rolaandjayz/ZCodeProject/temporal_forge_player/benchmarks/quality_sweeps/quality_campaign_capture/resolution_1080_to_2160/fsr_none/scale_2_75/sintel_rooftop/quality_frames/sintel_rooftop_1920x1080_high_crf12_f48_scale_2_75.png':
+  Duration: N/A, bitrate: N/A
+  Stream #0:0: Video: png, rgb24(pc, gbr/bt709/unknown), 5280x2970, 25 fps, 25 tbr, 25 tbn
+Input #1, png_pipe, from '/home/rolaandjayz/ZCodeProject/temporal_forge_player/benchmarks/quality_sweeps/quality_campaign_capture/resolution_1080_to_2160/fsr_none/scale_2_75/sintel_rooftop/quality_frames/sintel_rooftop_reference_5280x2970_f48_scale_2_75.png':
+  Duration: N/A, bitrate: N/A
+  Stream #1:0: Video: png, rgb24(pc, gbr/unknown/unknown), 5280x2970 [SAR 1:1 DAR 16:9], 25 fps, 25 tbr, 25 tbn
+Stream mapping:
+  Stream #0:0 (png) -> format:default
+  Stream #1:0 (png) -> format:default
+  metadata:default -> Stream #0:0 (wrapped_avframe)
+Press [q] to stop, [?] for help
+[swscaler @ 0x7fea6def5640] deprecated pixel format used, make sure you did set range correctly
+[Parsed_metadata_6 @ 0x7fea6c005800] frame:0    pts:0       pts_time:0
+[Parsed_metadata_6 @ 0x7fea6c005800] date:create=2026-09-03T05:41:35+00:00
+[Parsed_metadata_6 @ 0x7fea6c005800] date:modify=2026-09-03T05:41:35+00:00
+[Parsed_metadata_6 @ 0x7fea6c005800] date:timestamp=2026-09-03T05:41:35+00:00
+[Parsed_metadata_6 @ 0x7fea6c005800] lavfi.signalstats.YMIN=0
+[Parsed_metadata_6 @ 0x7fea6c005800] lavfi.signalstats.YLOW=0
+[Parsed_metadata_6 @ 0x7fea6c005800] lavfi.signalstats.YAVG=1.92923
+[Parsed_metadata_6 @ 0x7fea6c005800] lavfi.signalstats.YHIGH=4
+[Parsed_metadata_6 @ 0x7fea6c005800] lavfi.signalstats.YMAX=63
+[Parsed_metadata_6 @ 0x7fea6c005800] lavfi.signalstats.UMIN=128
+[Parsed_metadata_6 @ 0x7fea6c005800] lavfi.signalstats.ULOW=128
+[Parsed_metadata_6 @ 0x7fea6c005800] lavfi.signalstats.UAVG=128
+[Parsed_metadata_6 @ 0x7fea6c005800] lavfi.signalstats.UHIGH=128
+[Parsed_metadata_6 @ 0x7fea6c005800] lavfi.signalstats.UMAX=128
+[Parsed_metadata_6 @ 0x7fea6c005800] lavfi.signalstats.VMIN=128
+[Parsed_metadata_6 @ 0x7fea6c005800] lavfi.signalstats.VLOW=128
+[Parsed_metadata_6 @ 0x7fea6c005800] lavfi.signalstats.VAVG=128
+[Parsed_metadata_6 @ 0x7fea6c005800] lavfi.signalstats.VHIGH=128
+[Parsed_metadata_6 @ 0x7fea6c005800] lavfi.signalstats.VMAX=128
+[Parsed_metadata_6 @ 0x7fea6c005800] lavfi.signalstats.SATMIN=0
+[Parsed_metadata_6 @ 0x7fea6c005800] lavfi.signalstats.SATLOW=0
+[Parsed_metadata_6 @ 0x7fea6c005800] lavfi.signalstats.SATAVG=0
+[Parsed_metadata_6 @ 0x7fea6c005800] lavfi.signalstats.SATHIGH=0
+[Parsed_metadata_6 @ 0x7fea6c005800] lavfi.signalstats.SATMAX=0
+[Parsed_metadata_6 @ 0x7fea6c005800] lavfi.signalstats.HUEMED=180
+[Parsed_metadata_6 @ 0x7fea6c005800] lavfi.signalstats.HUEAVG=180
+[Parsed_metadata_6 @ 0x7fea6c005800] lavfi.signalstats.YDIF=0
+[Parsed_metadata_6 @ 0x7fea6c005800] lavfi.signalstats.UDIF=0
+[Parsed_metadata_6 @ 0x7fea6c005800] lavfi.signalstats.VDIF=0
+[Parsed_metadata_6 @ 0x7fea6c005800] lavfi.signalstats.YBITDEPTH=6
+[Parsed_metadata_6 @ 0x7fea6c005800] lavfi.signalstats.UBITDEPTH=1
+[Parsed_metadata_6 @ 0x7fea6c005800] lavfi.signalstats.VBITDEPTH=1
+Output #0, null, to 'pipe:':
+  Metadata:
+    encoder         : Lavf63.1.101
+  Stream #0:0: Video: wrapped_avframe, yuvj444p(pc, unknown/bt709/unknown, progressive), 5280x2970, q=2-31, 200 kb/s, 25 fps, 25 tbn
+    Metadata:
+      encoder         : Lavc63.1.101 wrapped_avframe
+[out#0/null @ 0x55a6d3770180] video:0KiB audio:0KiB subtitle:0KiB other streams:0KiB global headers:0KiB muxing overhead: unknown
+frame=    1 fps=0.0 q=-0.0 Lsize=N/A time=00:00:00.04 bitrate=N/A speed=0.129x elapsed=0:00:00.31    

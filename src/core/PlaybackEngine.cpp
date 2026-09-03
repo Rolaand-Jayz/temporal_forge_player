@@ -135,8 +135,12 @@ FsrJitterPair computeFsrJitterPair(uint32_t decodedW, uint32_t decodedH,
   const uint32_t fsrInputH = std::max(
       2u, alignEven(static_cast<uint32_t>(std::round(
               pair.neuralTargetH / std::max(1.0f, selectedScale)))));
-  const uint32_t modelW = std::min(fsrInputW, decodedW);
-  const uint32_t modelH = std::min(fsrInputH, decodedH);
+  // The selected multiplier defines the reconstruction grid. Do not clamp it
+  // to the decoded frame: supersampling arms intentionally reconstruct from
+  // a model-sized input larger than the decoded source before presentation
+  // downsampling. The uploader keeps decoded and model dimensions separate.
+  const uint32_t modelW = fsrInputW;
+  const uint32_t modelH = fsrInputH;
   pair.nativePassthrough =
       pair.neuralTargetW == decodedW && pair.neuralTargetH == decodedH &&
       pair.displayW == decodedW && pair.displayH == decodedH;

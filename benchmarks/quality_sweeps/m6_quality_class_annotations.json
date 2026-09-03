@@ -2,6 +2,12 @@
   "schemaVersion": 1,
   "annotationSetId": "m6-visually-verified-quality-classes",
   "evidenceBasis": "visual-inspection-of-existing-stills",
+  "retention": {
+    "status": "image-payloads-purged",
+    "purgedAt": "2026-09-02",
+    "supersededBy": "benchmarks/quality_sweeps/quality_campaign_capture_plan.json",
+    "note": "Annotation identity is retained as historical context; the referenced harness images were intentionally removed before the new shared campaign capture."
+  },
   "corpus": {
     "manifestPath": "benchmarks/video_corpus/manifest.csv",
     "syntheticFamiliesExcluded": true

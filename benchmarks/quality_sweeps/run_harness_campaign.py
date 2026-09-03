@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
-"""Populate the portable review harness from one resumable serial command.
+"""Populate campaign evidence and the portable review harness together.
 
 Each pair is a transaction: renderer arms are captured serially, source-based
 controls are created from the matched decoded input frame, then every method
 for the pair is exported and dimension-checked.  A pair is never marked done
-until all 23 method IDs have files for all four scenes.
+until all 23 method IDs have files for all four scenes. Planning is the safe
+default; live capture requires the explicit ``--execute`` gate.
 """
 from __future__ import annotations
 
@@ -15,7 +16,7 @@ import hashlib
 import json
 import os
 import re
-import signal
+import shutil
 import struct
 import subprocess
 import sys
@@ -25,16 +26,81 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 from benchmarks.quality_sweeps.trackmania_guard import DEFAULT_GAME_PATTERNS, running_games
-SCENES = ("tos_daylight", "tos_debris", "sintel_rooftop", "sintel_cave")
-SCALES = (2.00, 2.25, 2.50, 2.75, 3.00)
+from tools.export_review_image import export_review_image
+
+CAPTURE_PLAN_PATH = ROOT / "benchmarks/quality_sweeps/quality_campaign_capture_plan.json"
+
+
+def load_capture_plan(path: Path = CAPTURE_PLAN_PATH) -> dict[str, object]:
+    """Load and fail closed on the checked-in campaign/harness contract."""
+    data = json.loads(path.read_text(encoding="utf-8"))
+    if data.get("schema") != "temporal_forge.quality_campaign_capture_plan.v1":
+        raise ValueError(f"unsupported capture plan schema: {path}")
+    pairs = data.get("pairs")
+    scenes = data.get("scenes")
+    scales = data.get("scales")
+    if not isinstance(pairs, list) or not isinstance(scenes, list) or not isinstance(scales, list):
+        raise ValueError(f"capture plan is missing pairs/scenes/scales: {path}")
+    expected = {
+        (360, 480), (360, 720), (360, 1080),
+        (480, 720), (480, 1080), (480, 1440),
+        (720, 1080), (720, 1440), (720, 2160),
+        (1080, 1440), (1080, 2160),
+    }
+    actual = {(item.get("inputHeight"), item.get("outputHeight")) for item in pairs}
+    if actual != expected or len(pairs) != len(expected):
+        raise ValueError(f"capture plan must contain exactly the 11 legal upscale pairs: {path}")
+    if 540 in {value for pair in actual for value in pair}:
+        raise ValueError("540p is not part of the active quality campaign")
+    if len(scenes) != 4 or len(set(scenes)) != 4:
+        raise ValueError("capture plan must contain four unique campaign scenes")
+    if scales != [2.0, 2.25, 2.5, 2.75, 3.0]:
+        raise ValueError("capture plan scale set does not match the campaign contract")
+    expected_dimensions = {
+        360: "640x360", 480: "854x480", 720: "1280x720", 1080: "1920x1080",
+        1440: "2560x1440", 2160: "3840x2160",
+    }
+    for item in pairs:
+        if item.get("uses") != ["quality_campaign", "review_harness"]:
+            raise ValueError("each planned pair must explicitly name both evidence consumers")
+        input_height = item["inputHeight"]
+        output_height = item["outputHeight"]
+        if item.get("source") != expected_dimensions[input_height]:
+            raise ValueError(f"source dimensions do not match {input_height}p")
+        if item.get("delivery") != expected_dimensions[output_height]:
+            raise ValueError(f"delivery dimensions do not match {output_height}p")
+    required_metadata = {
+        "campaignId": "quality-campaign-20260902",
+        "status": "ready_not_started",
+        "frame": 48,
+        "casStrength": 0.2,
+        "profile": "AMD_SEMANTIC_BASELINE",
+    }
+    for key, value in required_metadata.items():
+        if data.get(key) != value:
+            raise ValueError(f"capture plan {key} must be {value!r}")
+    expected_arms = [
+        {"id": "resolve_cas20", "rendererCas": 0.2, "afterDownsamplingCas": 0.0,
+         "label": "CAS 0.20 before downsampling"},
+        {"id": "external_post_cas20", "rendererCas": 0.0, "afterDownsamplingCas": 0.2,
+         "label": "CAS 0.20 after downsampling"},
+        {"id": "no_cas", "rendererCas": 0.0, "afterDownsamplingCas": 0.0,
+         "label": "No CAS sharpening"},
+    ]
+    if data.get("downsamplingArms") != expected_arms:
+        raise ValueError("capture plan must define the three independent downsampling CAS arms")
+    return data
+
+
+CAPTURE_PLAN = load_capture_plan()
+SCENES = tuple(str(scene) for scene in CAPTURE_PLAN["scenes"])
+SCALES = tuple(float(scale) for scale in CAPTURE_PLAN["scales"])
 CAS_PLACEMENTS = ("pre", "post", "none")
 CAS_METHOD_SUFFIX = {"pre": "resolve_cas20", "post": "external_post_cas20", "none": "no_cas"}
-PAIRS = (
-    (360, "640x360", 720), (360, "640x360", 1080), (360, "640x360", 1440), (360, "640x360", 2160),
-    (480, "854x480", 720), (480, "854x480", 1080), (480, "854x480", 1440), (480, "854x480", 2160),
-    (540, "960x540", 720), (540, "960x540", 1080), (540, "960x540", 1440), (540, "960x540", 2160),
-    (720, "1280x720", 1080), (720, "1280x720", 1440), (720, "1280x720", 2160),
-    (1080, "1920x1080", 1440), (1080, "1920x1080", 2160),
+PAIRS = tuple(
+    (int(item["inputHeight"]), str(item["source"]),
+     int(item["outputHeight"]), str(item["delivery"]))
+    for item in CAPTURE_PLAN["pairs"]
 )
 METHODS = (
     "current_cas20", "base_only_bilinear_cas20", "fsr_direct_cas20",
@@ -75,6 +141,8 @@ def catalog_record(path: Path, *, scene: str, method: str, input_height: int,
     record = image_record(path)
     record.update({"scene": scene, "method": method, "input": input_height,
                    "output": output_height, "view": view,
+                   "frame": int(CAPTURE_PLAN["frame"]),
+                   "campaign_id": CAPTURE_PLAN["campaignId"],
                    "validation": "validated_experiment"})
     if provenance:
         record.update(provenance)
@@ -119,7 +187,8 @@ def write_catalog(harness: Path, records: list[dict[str, object]]) -> None:
             existing = {"schema": "temporal_forge.review_catalog.v1", "assets": []}
     by_key = {
         (item.get("scene"), item.get("method"), item.get("input"), item.get("output"), item.get("view")): item
-        for item in existing["assets"] if isinstance(item, dict)
+        for item in existing["assets"]
+        if isinstance(item, dict) and item.get("campaign_id") == CAPTURE_PLAN["campaignId"]
     }
     for item in records:
         key = (item["scene"], item["method"], item["input"], item["output"], item["view"])
@@ -130,14 +199,28 @@ def write_catalog(harness: Path, records: list[dict[str, object]]) -> None:
         str(item.get("scene")), int(item.get("input", 0)), int(item.get("output", 0)),
         str(item.get("method")), str(item.get("view"))))
     atomic_json(catalog_path, {
-        "schema": "temporal_forge.review_catalog.v1",
+        "schema": "temporal_forge.review_catalog.v2",
+        "campaign": CAPTURE_PLAN["campaignId"],
         "validation": "entries are emitted only after pair validation",
         "assets": assets,
     })
     catalog_js = harness / "catalog.js"
     temporary = catalog_js.with_name(f".{catalog_js.name}.{os.getpid()}.tmp")
-    temporary.write_text("window.__tforgeCatalog = " + json.dumps({"assets": assets}) + ";\n",
-                         encoding="utf-8")
+    browser_plan = {
+        "campaignId": CAPTURE_PLAN["campaignId"],
+        "status": CAPTURE_PLAN["status"],
+        "frame": CAPTURE_PLAN["frame"],
+        "downsamplingArms": CAPTURE_PLAN["downsamplingArms"],
+        "pairs": [
+            {"input": item["inputHeight"], "output": item["outputHeight"]}
+            for item in CAPTURE_PLAN["pairs"]
+        ],
+    }
+    temporary.write_text(
+        "window.__tforgeCampaign = " + json.dumps(browser_plan) + ";\n" +
+        "window.__tforgeCatalog = " + json.dumps({"assets": assets}) + ";\n",
+        encoding="utf-8",
+    )
     os.replace(temporary, catalog_js)
 
 
@@ -174,6 +257,8 @@ class PausingRunner:
         return
 
     def run(self, command: list[str], label: str, cwd: Path = ROOT) -> None:
+        started = time.monotonic()
+        print(f"[{now()}] START {label}", flush=True)
         self.record("command_start", {"label": label, "command": command})
         proc = subprocess.Popen(command, cwd=cwd, start_new_session=True)
         try:
@@ -181,6 +266,7 @@ class PausingRunner:
             if proc.returncode:
                 raise subprocess.CalledProcessError(proc.returncode, command)
             self.record("command_complete", {"label": label, "returncode": proc.returncode})
+            print(f"[{now()}] DONE  {label} ({time.monotonic() - started:.1f}s)", flush=True)
         except BaseException:
             if proc.poll() is None:
                 proc.terminate()
@@ -202,19 +288,19 @@ def has_native_output(method: str) -> bool:
 
 
 def export(runner: PausingRunner, source: Path, scene: str, input_height: int, method: str, output_height: int, harness: Path) -> None:
-    runner.run([sys.executable, str(ROOT / "tools/export_review_image.py"), str(source),
-         "--scene", scene, "--frame", "0048", "--input", str(input_height),
-         "--method", method, "--output", str(output_height), "--root", str(harness)],
-         f"export {scene}/{method} {input_height}->{output_height}")
+    export_review_image(
+        source, scene=scene, frame=f"{int(CAPTURE_PLAN['frame']):04d}",
+        input_height=input_height, method=method, output_height=output_height,
+        root=harness,
+    )
 
 
 def export_native(runner: PausingRunner, source: Path, scene: str, input_height: int,
                   method: str, output_height: int, harness: Path) -> None:
     output = harness / "images" / native_filename(scene, input_height, method, output_height)
     output.parent.mkdir(parents=True, exist_ok=True)
-    runner.run(["ffmpeg", "-hide_banner", "-loglevel", "error", "-y",
-                "-i", str(source), "-frames:v", "1", str(output)],
-               f"native {scene}/{method} {input_height}->{output_height}")
+    image_record(source)
+    shutil.copyfile(source, output)
 
 
 def source_raw(scene_root: Path) -> Path:
@@ -245,7 +331,7 @@ def validate_resume_pair(pair_root: Path, input_height: int, output_height: int,
         data = json.loads(marker.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as error:
         raise SystemExit(f"cannot validate resume marker {marker}: {error}") from error
-    if data.get("schemaVersion") != 2 or data.get("runnerVersion") != 2:
+    if data.get("schemaVersion") != 3 or data.get("runnerVersion") != 3:
         raise SystemExit(f"stale completion marker schema: {marker}")
     if data.get("input") != input_height or data.get("output") != output_height:
         raise SystemExit(f"completion marker pair mismatch: {marker}")
@@ -271,7 +357,8 @@ def validate_resume_pair(pair_root: Path, input_height: int, output_height: int,
             raise SystemExit(f"completion marker CSV is missing: {csv_path}")
         with csv_path.open(newline="", encoding="utf-8") as stream:
             rows = list(csv.DictReader(stream))
-        if len(rows) != len(SCALES) * len(SCENES):
+        expected_rows = len(SCENES) if arm.startswith("nativeaa_") else len(SCALES) * len(SCENES)
+        if len(rows) != expected_rows:
             raise SystemExit(f"completion marker CSV row count mismatch: {csv_path}")
         for row in rows:
             trace = Path(row.get("runtime_trace_path", ""))
@@ -332,7 +419,8 @@ def validate_resume_data_only_pair(pair_root: Path, input_height: int,
             raise SystemExit(f"data-only CSV provenance mismatch: {path}")
         with path.open(newline="", encoding="utf-8") as stream:
             rows = list(csv.DictReader(stream))
-        if len(rows) != len(SCALES) * len(SCENES):
+        expected_rows = len(SCENES) if path.name.startswith("nativeaa_") else len(SCALES) * len(SCENES)
+        if len(rows) != expected_rows:
             raise SystemExit(f"data-only CSV row count mismatch: {path}")
         for row in rows:
             trace = Path(row.get("runtime_trace_path", ""))
@@ -355,28 +443,62 @@ def validate_resume_data_only_pair(pair_root: Path, input_height: int,
                 raise SystemExit(f"data-only configuration provenance mismatch: {record}")
             if record_data.get("output_retained") is not False or not record_data.get("output_sha256"):
                 raise SystemExit(f"data-only output retention contract mismatch: {record}")
-    if len(seen_experiments) != 6 * len(SCALES) * len(SCENES):
+    expected_experiments = (3 * len(SCALES) * len(SCENES)) + (3 * len(SCENES))
+    if len(seen_experiments) != expected_experiments:
         raise SystemExit(f"data-only experiment count mismatch: {marker}")
 
 
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--player", type=Path, default=Path("build-fast/temporal_forge_player"))
-    parser.add_argument("--artifact-root", type=Path, default=Path("benchmarks/quality_sweeps/harness_campaign_recapture_20260901"))
+    parser.add_argument("--artifact-root", type=Path,
+                        default=Path("benchmarks/quality_sweeps/quality_campaign_capture"))
     parser.add_argument("--harness-root", type=Path, default=Path("review_harness"))
-    parser.add_argument("--fixture-manifest", type=Path,
-                        default=Path("benchmarks/quality_sweeps/resolution_540p_fixture_20260901.csv"))
     parser.add_argument("--only", action="append", metavar="INPUTxOUTPUT",
                         help="limit this invocation to selected pair(s); repeatable")
+    parser.add_argument("--execute", action="store_true",
+                        help="start live capture; without this flag only the plan is printed")
     parser.add_argument("--resume", action="store_true")
     parser.add_argument("--data-only", action="store_true",
                         help="recapture campaign CSV/raw data without rewriting harness images")
     parser.add_argument("--allow-game", action="append", default=[], metavar="PATTERN",
-                        help="allow a matching game pattern without pausing; repeatable")
+                        help="exclude a matching game from provenance observations; repeatable")
     parser.add_argument("--game-pattern", action="append", default=[], metavar="PATTERN",
                         help="additional game process pattern; repeatable")
     parser.add_argument("--poll-seconds", type=float, default=2.0)
     args = parser.parse_args()
+    legal_pair_names = {f"{input_height}x{output_height}"
+                        for input_height, _, output_height, _ in PAIRS}
+    requested_pairs = set(args.only or legal_pair_names)
+    unknown_pairs = requested_pairs - legal_pair_names
+    if unknown_pairs:
+        parser.error(f"unknown resolution pair(s): {', '.join(sorted(unknown_pairs))}")
+    selected_pairs = [pair for pair in PAIRS if f"{pair[0]}x{pair[2]}" in requested_pairs]
+    plan_summary = {
+        "schema": "temporal_forge.quality_campaign_capture_preview.v1",
+        "campaign": CAPTURE_PLAN["campaignId"],
+        "mode": "execute" if args.execute else "plan_only",
+        "capture_started": False,
+        "pairs": [f"{pair[0]}->{pair[2]}" for pair in selected_pairs],
+        "pair_count": len(selected_pairs),
+        "scenes_per_pair": len(SCENES),
+        "methods_per_scene": len(METHODS),
+        "renderer_arms_per_pair": 6,
+        "expected_player_launches_per_pair": 72,
+        "consumers": ["quality_campaign", "review_harness"],
+    }
+    print(json.dumps(plan_summary, indent=2))
+    if not args.execute:
+        return 0
+    player = args.player.resolve()
+    if not player.is_file() or not os.access(player, os.X_OK):
+        raise SystemExit(f"capture player is missing or not executable: {player}")
+    tracked_dirty = (
+        subprocess.run(["git", "-C", str(ROOT), "diff", "--quiet"], check=False).returncode != 0 or
+        subprocess.run(["git", "-C", str(ROOT), "diff", "--cached", "--quiet"], check=False).returncode != 0
+    )
+    if tracked_dirty:
+        raise SystemExit("live capture requires a committed tracked worktree")
     # A data-only campaign retains the measurements and provenance but does
     # not retain the rendered payloads. Image-producing harness runs must opt
     # into retention explicitly through this branch.
@@ -386,10 +508,13 @@ def main() -> int:
     runner = PausingRunner(artifacts, patterns, tuple(args.allow_game), args.poll_seconds)
     campaign_manifest = artifacts / "campaign_manifest.json"
     run_capture = ROOT / "benchmarks/quality_sweeps/run_fsr_supersampling.py"
-    for input_height, source, output_height in PAIRS:
-        if args.only and f"{input_height}x{output_height}" not in args.only:
-            continue
+    for pair_index, (input_height, source, output_height, final) in enumerate(selected_pairs, 1):
         stem = f"resolution_{input_height}_to_{output_height}"
+        print(
+            f"[{now()}] ROUTE {pair_index}/{len(selected_pairs)} START "
+            f"{input_height}p -> {output_height}p",
+            flush=True,
+        )
         pair_root = artifacts / stem
         marker = pair_root / "harness_pair_complete.json"
         pair_started = now()
@@ -401,8 +526,6 @@ def main() -> int:
             print(f"Skipping complete {stem}")
             continue
         runner.wait_until_clear(stem)
-        final = f"{round(output_height * 16 / 9)}x{output_height}"
-        manifest = args.fixture_manifest if input_height == 540 else None
         roots = {}
         for placement in CAS_PLACEMENTS:
             runner.wait_until_clear(f"{stem}/{placement}")
@@ -410,10 +533,9 @@ def main() -> int:
             csv_path = pair_root / f"fsr_{placement}.csv"
             command = [sys.executable, str(run_capture), "--player", str(args.player.resolve()),
                        "--repo", str(ROOT), "--artifact-root", str(root), "--output-csv", str(csv_path),
+                       "--reference-cache", str(pair_root / "shared_references"),
                        "--final", final, "--source", source, "--cas-strength", "0.20",
                        "--cas-placement", placement]
-            if manifest:
-                command.extend(["--manifest", str(manifest.resolve())])
             runner.run(command, f"capture {stem}/{placement}")
             roots[placement] = root
         native_roots = {}
@@ -424,10 +546,9 @@ def main() -> int:
             runner.wait_until_clear(f"{stem}/nativeaa_{placement}")
             command = [sys.executable, str(run_capture), "--player", str(args.player.resolve()),
                        "--repo", str(ROOT), "--artifact-root", str(native_root), "--output-csv", str(native_csv),
+                       "--reference-cache", str(pair_root / "shared_references"),
                        "--final", final, "--source", source, "--cas-strength", "0.20",
                        "--cas-placement", placement, "--preset", "NativeAA"]
-            if manifest:
-                command.extend(["--manifest", str(manifest.resolve())])
             runner.run(command, f"capture {stem}/nativeaa_{placement}")
             native_roots[placement] = native_root
             native_csvs[placement] = native_csv
@@ -435,13 +556,19 @@ def main() -> int:
             csv_paths = [pair_root / f"fsr_{placement}.csv" for placement in CAS_PLACEMENTS]
             csv_paths.extend(native_csvs.values())
             records = [csv_record(path) for path in csv_paths]
-            expected_rows = len(SCALES) * len(SCENES)
-            if any(record["rows"] != expected_rows for record in records):
-                raise SystemExit(f"{stem} data incomplete: expected {expected_rows} rows per arm")
+            expected_rows = {
+                path.name: (len(SCENES) if path.name.startswith("nativeaa_")
+                            else len(SCALES) * len(SCENES))
+                for path in csv_paths
+            }
+            if any(record["rows"] != expected_rows[Path(str(record["path"])).name]
+                   for record in records):
+                raise SystemExit(f"{stem} data incomplete: arm row count mismatch")
             completed = now()
             marker_data = {"input": input_height, "output": output_height,
                            "scenes": list(SCENES), "scales": list(SCALES),
-                           "arms": [f"fsr_{placement}" for placement in CAS_PLACEMENTS] + ["nativeaa"],
+                           "arms": ([f"fsr_{placement}" for placement in CAS_PLACEMENTS] +
+                                    [f"nativeaa_{placement}" for placement in CAS_PLACEMENTS]),
                            "data_only": True, "completed_at": completed,
                            "guard_log": str(runner.log), "csv_records": records}
             atomic_json(marker, marker_data)
@@ -450,7 +577,7 @@ def main() -> int:
                 history = json.loads(campaign_manifest.read_text(encoding="utf-8")).get("pairs", [])
                 history = [entry for entry in history if entry.get("pair") != stem]
             history.append({"pair": stem, "marker": str(marker), "completed_at": completed,
-                            "arms": len(records), "rows_per_arm": expected_rows})
+                            "arms": len(records), "rows": sum(int(record["rows"]) for record in records)})
             atomic_json(campaign_manifest, {"version": 1, "mode": "data-only",
                                             "updated_at": now(), "pairs": history})
             print(f"completed {stem}: {sum(record['rows'] for record in records)} data rows")
@@ -461,16 +588,27 @@ def main() -> int:
             raw = source_raw(resolve_scene)
             # Conventional controls and bilinear+CAS are actual transforms of
             # the matched decoded input frame, never copies of FSR output.
-            for method, flags in (("conventional_lanczos", "lanczos"), ("conventional_bicubic", "bicubic"),
-                                  ("base_only_bilinear_cas20", "bilinear")):
-                output = harness / "images" / filename(scene, input_height, method, output_height)
-                output.parent.mkdir(parents=True, exist_ok=True)
-                vf = f"scale={round(output_height * 16 / 9)}:{output_height}:flags={flags}"
-                if method == "base_only_bilinear_cas20":
-                    vf += ",cas=strength=0.20"
-                runner.run(["ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-i", str(raw),
-                            "-vf", vf, "-frames:v", "1", str(output)],
-                           f"control {scene}/{method} {input_height}->{output_height}")
+            control_outputs = {
+                method: harness / "images" / filename(
+                    scene, input_height, method, output_height)
+                for method in ("conventional_lanczos", "conventional_bicubic",
+                               "base_only_bilinear_cas20")
+            }
+            next(iter(control_outputs.values())).parent.mkdir(parents=True, exist_ok=True)
+            final_w, final_h = (int(value) for value in final.split("x"))
+            filters = (
+                f"[0:v]split=3[l0][b0][c0];"
+                f"[l0]scale={final_w}:{final_h}:flags=lanczos[l];"
+                f"[b0]scale={final_w}:{final_h}:flags=bicubic[b];"
+                f"[c0]scale={final_w}:{final_h}:flags=bilinear,cas=strength=0.20[c]"
+            )
+            runner.run([
+                "ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-i", str(raw),
+                "-filter_complex", filters,
+                "-map", "[l]", "-frames:v", "1", str(control_outputs["conventional_lanczos"]),
+                "-map", "[b]", "-frames:v", "1", str(control_outputs["conventional_bicubic"]),
+                "-map", "[c]", "-frames:v", "1", str(control_outputs["base_only_bilinear_cas20"]),
+            ], f"controls {scene} {input_height}->{output_height}")
             # At 2.00x the delivery grid equals the final image. These are the
             # direct/current controls, recorded as an explicit same-pipeline
             # provenance rather than silently pretending they were separate.
@@ -533,7 +671,9 @@ def main() -> int:
         marker.parent.mkdir(parents=True, exist_ok=True)
         marker_data = {"input": input_height, "output": output_height,
                                       "scenes": list(SCENES), "methods": list(METHODS),
-                                      "schemaVersion": 2, "runnerVersion": 2,
+                                      "schemaVersion": 3, "runnerVersion": 3,
+                                      "capture_plan": str(CAPTURE_PLAN_PATH),
+                                      "campaign_id": CAPTURE_PLAN["campaignId"],
                                       "assets": len(asset_records), "native_assets": len(native_records),
                                       "started_at": pair_started, "completed_at": completed,
                                       "guard_log": str(runner.log), "assets_detail": asset_records,
@@ -556,7 +696,12 @@ def main() -> int:
             history = [entry for entry in history if entry.get("pair") != stem]
         history.append({"pair": stem, "marker": str(marker), "completed_at": completed, "assets": len(asset_records)})
         atomic_json(campaign_manifest, {"version": 1, "updated_at": now(), "pairs": history})
-        print(f"completed {stem}: {len(SCENES) * len(METHODS)} assets")
+        print(
+            f"[{now()}] ROUTE {pair_index}/{len(selected_pairs)} DONE "
+            f"{input_height}p -> {output_height}p: "
+            f"{len(SCENES) * len(METHODS)} assets",
+            flush=True,
+        )
     return 0
 
 

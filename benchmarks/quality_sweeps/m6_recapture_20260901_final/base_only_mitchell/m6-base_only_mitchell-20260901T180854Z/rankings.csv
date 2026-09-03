@@ -1,2 +1,0 @@
-candidateId,exitCode,rowCount,meanFsrPsnrDb,meanFsrSsim,meanFsrEdgeSsim,meanLanczosSsim,meanBicubicSsim,meanLowfreqLumaMae,meanLowfreqLumaBias,meanGpuMs,meanPipelineCpuMs
-base_only_mitchell,0,4,27.0535655,0.5975045,0.5802505,0.58358525,0.589623,0.02112,0.005396,,

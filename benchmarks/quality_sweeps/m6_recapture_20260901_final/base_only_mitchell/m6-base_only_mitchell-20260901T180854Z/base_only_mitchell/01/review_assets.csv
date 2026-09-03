@@ -1,5 +1,0 @@
-scene,frame,path,width,height
-tos_daylight,48,/home/rolaandjayz/ZCodeProject/temporal_forge_player/benchmarks/video_corpus/results/quality_frames/tos_daylight_426x240_high_crf12_f48_m6-base_only_mitchell-20260901T180854Z-01-base_only_mitchell.png,1920,1080
-tos_debris,48,/home/rolaandjayz/ZCodeProject/temporal_forge_player/benchmarks/video_corpus/results/quality_frames/tos_debris_426x240_high_crf12_f48_m6-base_only_mitchell-20260901T180854Z-01-base_only_mitchell.png,1920,1080
-sintel_rooftop,48,/home/rolaandjayz/ZCodeProject/temporal_forge_player/benchmarks/video_corpus/results/quality_frames/sintel_rooftop_426x240_high_crf12_f48_m6-base_only_mitchell-20260901T180854Z-01-base_only_mitchell.png,1920,1080
-sintel_cave,48,/home/rolaandjayz/ZCodeProject/temporal_forge_player/benchmarks/video_corpus/results/quality_frames/sintel_cave_426x240_high_crf12_f48_m6-base_only_mitchell-20260901T180854Z-01-base_only_mitchell.png,1920,1080

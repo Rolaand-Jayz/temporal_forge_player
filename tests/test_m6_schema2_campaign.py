@@ -39,13 +39,16 @@ class M6Schema2CampaignTests(unittest.TestCase):
         with (ROOT / "benchmarks/quality_sweeps/m6_quality_class_annotations.json").open(
             encoding="utf-8"
         ) as stream:
-            annotations = json.load(stream)["annotations"]
+            annotation_document = json.load(stream)
+        annotations = annotation_document["annotations"]
+        payloads_purged = annotation_document.get("retention", {}).get("status") == "image-payloads-purged"
         expected = {
             scene: [] for scene in self.campaign["corpus"]["selection"]
         }
         for annotation in annotations:
             expected[annotation["scene"]].append(annotation["qualityClass"])
-            if self.campaign.get("evidenceMode", "visual_and_metrics") == "visual_and_metrics":
+            if (self.campaign.get("evidenceMode", "visual_and_metrics") == "visual_and_metrics"
+                    and not payloads_purged):
                 self.assertTrue((ROOT / annotation["assetPath"]).is_file())
         for scene in expected:
             expected[scene] = sorted(set(expected[scene]))

@@ -1,2 +1,0 @@
-candidateId,exitCode,rowCount,meanFsrPsnrDb,meanFsrSsim,meanFsrEdgeSsim,meanLanczosSsim,meanBicubicSsim,meanLowfreqLumaMae,meanLowfreqLumaBias,meanGpuMs,meanPipelineCpuMs
-base_only_lanczos2,0,4,26.79025325,0.59051425,0.57659875,0.58358525,0.589623,0.02151125,0.00591525,,
