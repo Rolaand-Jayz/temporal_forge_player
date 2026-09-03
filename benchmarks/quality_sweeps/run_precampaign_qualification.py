@@ -92,16 +92,21 @@ def main() -> int:
                 stage_b = case / "stages" / "stage-B-color.ppm"
                 if not stage_b.is_file():
                     raise SystemExit(f"missing Stage-B capture for {csv_path}")
-                score = checker_score(stage_b)
+                # The gate must score the native/final Temporal Forge output,
+                # not Stage B. Stage B remains a provenance artifact, while
+                # this final-output tripwire catches temporal feedback
+                # recurrence downstream of the resize handoff.
+                score = checker_score(image)
                 if score >= 0.20:
-                    raise SystemExit(f"periodic lattice tripwire exceeded for {csv_path}: {score:.4f}")
+                    raise SystemExit(f"final-output periodic lattice tripwire exceeded for {csv_path}: {score:.4f}")
                 harness_image = ppm_png(out / "harness", scene, inp, delivery, cas_name)
                 harness_image.parent.mkdir(parents=True, exist_ok=True)
                 shutil.copyfile(image, harness_image)
                 records.append({"scene": scene, "input": inp, "output": delivery, "cas": cas_name,
                                 "csv": str(csv_path), "image": str(harness_image), "width": int(row["output_width"]),
                                 "height": int(row["output_height"]), "sha256": digest(harness_image),
-                                "stage_b_checker_score": score,
+                                "final_checker_score": score,
+                                "stage_b_checker_score": checker_score(stage_b),
                                 "binary_sha256": binary_sha, "config_sha256": config_sha})
     harness = out / "harness"
     hashes = [item["sha256"] for item in records]
