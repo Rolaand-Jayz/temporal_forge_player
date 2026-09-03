@@ -68,6 +68,12 @@ def main() -> int:
                 row = rows[0]
                 image = Path(row["output_path"])
                 if not image.is_file() or image.stat().st_size == 0: raise SystemExit(f"missing output: {image}")
+                expected = (int(viewport.split("x")[0]), int(viewport.split("x")[1]))
+                if (int(row["output_width"]), int(row["output_height"])) != expected:
+                    raise SystemExit(f"geometry mismatch for {csv_path}: {row['output_width']}x{row['output_height']} != {viewport}")
+                controls = list(case.glob("frames/*_bicubic.png")) + list(case.glob("frames/*_lanczos.png"))
+                if len(controls) != 2 or any(p.stat().st_size == 0 for p in controls):
+                    raise SystemExit(f"missing conventional controls for {csv_path}")
                 harness_image = ppm_png(out / "harness", scene, inp, delivery, cas_name)
                 harness_image.parent.mkdir(parents=True, exist_ok=True)
                 shutil.copyfile(image, harness_image)
@@ -76,6 +82,9 @@ def main() -> int:
                                 "height": int(row["output_height"]), "sha256": digest(harness_image),
                                 "binary_sha256": binary_sha, "config_sha256": config_sha})
     harness = out / "harness"
+    hashes = [item["sha256"] for item in records]
+    if len(hashes) != len(set(hashes)):
+        raise SystemExit("duplicate/stale precampaign harness image hashes")
     catalog = {"schema": "temporal_forge.precampaign_harness.v1", "status": "AUTOMATED QUALIFICATION: PASS", "human_review": "PENDING", "assets": records}
     (harness / "catalog.json").write_text(json.dumps(catalog, indent=2) + "\n", encoding="utf-8")
     html = "<!doctype html><meta charset=utf-8><title>Temporal Forge precampaign</title><h1>AUTOMATED QUALIFICATION: PASS</h1><p>HUMAN VISUAL REVIEW: PENDING</p>" + "".join(f"<figure><figcaption>{r['scene']} {r['input']}→{r['output']} {r['cas']}</figcaption><img src='{Path(r['image']).name}'></figure>" for r in records)
