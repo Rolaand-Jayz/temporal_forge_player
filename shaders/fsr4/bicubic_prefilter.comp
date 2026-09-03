@@ -40,12 +40,24 @@ void main() {
         vec2(destinationSize) - vec2(0.5);
     const ivec2 base = ivec2(floor(sourcePos));
     const vec2 f = fract(sourcePos);
+    // A fixed four-tap footprint is correct for enlargement, but aliases
+    // rational shrink phases (for example 1280→960) because it samples only
+    // a subset of the source support. Widen the cubic footprint for
+    // downsampling while retaining the same Catmull-Rom kernel for upsampling.
+    const vec2 scale = vec2(destinationSize) / vec2(sourceSize);
+    const vec2 filterScale = min(scale, vec2(1.0));
     vec3 result = vec3(0.0);
     float total = 0.0;
-    for (int y = -1; y <= 2; ++y) {
-        const float wy = cubicWeight(float(y) - f.y);
-        for (int x = -1; x <= 2; ++x) {
-            const float weight = cubicWeight(float(x) - f.x) * wy;
+    for (int y = -4; y <= 5; ++y) {
+        const float dy = (float(y) - f.y) * filterScale.y;
+        if (abs(dy) >= 2.0)
+            continue;
+        const float wy = cubicWeight(dy) * filterScale.y;
+        for (int x = -4; x <= 5; ++x) {
+            const float dx = (float(x) - f.x) * filterScale.x;
+            if (abs(dx) >= 2.0)
+                continue;
+            const float weight = cubicWeight(dx) * filterScale.x * wy;
             result += loadSource(base + ivec2(x, y), sourceSize) * weight;
             total += weight;
         }

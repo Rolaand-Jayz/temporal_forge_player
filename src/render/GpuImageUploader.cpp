@@ -1103,6 +1103,15 @@ bool GpuImageUploader::dispatchBicubicPrefilter(const DecodedVideoFrame &frame) 
   if (prefilterPipeline_ == VK_NULL_HANDLE || prefilterSet_ == VK_NULL_HANDLE ||
       rawPresentation_.image == VK_NULL_HANDLE || color_.image == VK_NULL_HANDLE)
     return false;
+  static bool loggedGpuResampler = false;
+  if (!loggedGpuResampler) {
+    loggedGpuResampler = true;
+    TFORGE_LOG_INFO("GpuImageUploader: source_model_resampler={} {}x{}->{}x{}",
+                    std::getenv("TFORGE_FSR4_REFERENCE_RESIZE")
+                        ? "reference_libswscale_bicubic"
+                        : "gpu_scale_aware_bicubic",
+                    srcW_, srcH_, modelW_, modelH_);
+  }
   if (!beginUploadCmd())
     return false;
 
@@ -1790,6 +1799,15 @@ bool GpuImageUploader::uploadColorTo(const DecodedVideoFrame &frame,
             frame, compareEnabled_.load(std::memory_order_acquire), sharpness))
       return false;
     if (modelW_ != srcW_ || modelH_ != srcH_) {
+      static bool loggedGpuResampler = false;
+      if (!loggedGpuResampler) {
+        loggedGpuResampler = true;
+        TFORGE_LOG_INFO("GpuImageUploader: source_model_resampler={} {}x{}->{}x{}",
+                        std::getenv("TFORGE_FSR4_REFERENCE_RESIZE")
+                            ? "reference_libswscale_bicubic"
+                            : "gpu_scale_aware_bicubic",
+                        srcW_, srcH_, modelW_, modelH_);
+      }
       // Controlled ablation: keep the GPU YUV conversion and every downstream
       // FSR stage identical, but replace only the source→model GPU prefilter
       // with libswscale bicubic. This is opt-in diagnostic work and is never

@@ -461,6 +461,8 @@ def main() -> int:
     parser.add_argument("--resume", action="store_true")
     parser.add_argument("--data-only", action="store_true",
                         help="recapture campaign CSV/raw data without rewriting harness images")
+    parser.add_argument("--qualification", type=Path,
+                        help="passing precampaign qualification manifest required for live capture")
     parser.add_argument("--allow-game", action="append", default=[], metavar="PATTERN",
                         help="exclude a matching game from provenance observations; repeatable")
     parser.add_argument("--game-pattern", action="append", default=[], metavar="PATTERN",
@@ -499,6 +501,22 @@ def main() -> int:
     )
     if tracked_dirty:
         raise SystemExit("live capture requires a committed tracked worktree")
+    if args.qualification is None:
+        raise SystemExit("live campaign capture requires --qualification from a passing precampaign")
+    qualification = args.qualification.resolve()
+    try:
+        qualification_data = json.loads(qualification.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as error:
+        raise SystemExit(f"cannot read qualification manifest: {qualification}: {error}") from error
+    if qualification_data.get("status") != "AUTOMATED QUALIFICATION: PASS":
+        raise SystemExit(f"qualification is not passing: {qualification}")
+    expected_binary = hashlib.sha256(player.read_bytes()).hexdigest()
+    expected_config = hashlib.sha256((ROOT / "benchmarks/video_corpus/benchmark_settings.json").read_bytes()).hexdigest()
+    expected_head = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip()
+    if (qualification_data.get("binary_sha256") != expected_binary or
+            qualification_data.get("config_sha256") != expected_config or
+            qualification_data.get("git_head") != expected_head):
+        raise SystemExit("qualification identity does not match campaign binary/config/Git HEAD")
     # A data-only campaign retains the measurements and provenance but does
     # not retain the rendered payloads. Image-producing harness runs must opt
     # into retention explicitly through this branch.
