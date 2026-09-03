@@ -373,11 +373,11 @@ at a forced 1920x1080 viewport, frame 48, integrated-best-findings
 configuration, CAS disabled, and recurrent admission disabled (history reads
 remained enabled). The output dimensions and periodic 2x2 scores were:
 
-| Case | Capture | Dimensions | Score | Visual review |
-| --- | --- | --- | ---: | --- |
-| 720→1080 mismatch | `/tmp/tforge_fix720_1788461977/frames/sintel_cave_1280x720_high_crf12_f48.png` | 1920x1080 | 0.0232 | clean; no lattice or new halos/color shifts |
-| 360→1080 mismatch | `/tmp/tforge_fix360_1788462006/frames/sintel_cave_640x360_high_crf12_f48.png` | 1920x1080 | 0.0169 | clean; expected upscale softness only |
-| 360→720 source==model | `/tmp/tforge_fix360eq_1788462026/frames/sintel_cave_640x360_high_crf12_f48.png` | 1280x720 | 0.0303 | clean; no periodic contamination |
+| Case | Capture | Dimensions | SHA-256 | Score | Visual review |
+| --- | --- | --- | --- | ---: | --- |
+| 720→1080 mismatch | `/tmp/tforge_fix720_1788461977/frames/sintel_cave_1280x720_high_crf12_f48.png` | 1920x1080 | `2082d450bb69b8db2bb564e1beee252eadb1077e2870342c8d7ff62a3910b654` | 0.0232 | clean; no lattice or new halos/color shifts |
+| 360→1080 mismatch | `/tmp/tforge_fix360_1788462006/frames/sintel_cave_640x360_high_crf12_f48.png` | 1920x1080 | `cbc70dd510c7f2ee617e9a4d01d02f800e19ba74033ff1f28c8553a423c181c1` | 0.0169 | clean; expected upscale softness only |
+| 360→720 source==model | `/tmp/tforge_fix360eq_1788462026/frames/sintel_cave_640x360_high_crf12_f48.png` | 1280x720 | `6ab52ef07388d3a8cf350284914c754f8449473c8b308d37d675d9f0c94f7070` | 0.0303 | clean; no periodic contamination |
 
 All scores are below the 0.20 fail-closed tripwire. The focused static
 regression contract checks that mismatch no longer forces a full reset and that
