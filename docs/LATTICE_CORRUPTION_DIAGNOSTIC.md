@@ -422,3 +422,23 @@ No repeating lattice, trails, halos, or color shifts were observed. The
 corresponding SSIM values were 0.983629, 0.794357, and 0.683053. PNGs are
 retained beside the prior failing evidence as `candidate_cave720_fix.png`,
 `candidate_cave360_fix.png`, and `candidate_cave360eq_fix.png`.
+
+### Production-semantic closeout (2026-09-03; PASS)
+
+The three cases were rerun through `run_fsr_supersampling.py` after the fix,
+using its `AMD_SEMANTIC_BASELINE` activation and imported runtime validator.
+All traces passed. They report history and recurrent enabled, active
+`prepass_input_resolve` jitter, source-tap Mu-law enabled, unjittered motion
+with validity, reject-invalid-history, conditional reset policy, CAS disabled,
+and no geometry-mismatch forced reset. The current binary is
+`3d2b88a27bcae3b145db75dd95ad449ce6f7d1fb244a0d75f3e475f52936c412`; Git HEAD
+is `cc7daa763896d824c2caccbefc3e1d312312b2ae`; all runs were clean and used
+config SHA `576ad1c1d6a02a95a4ef0ce732aea5440fed88d4e0277ea6c9552725d0880346`.
+
+Final-output 2×2 periodic scores were 0.023164 (720→1080), 0.016783
+(360→1080), and 0.030382 (360→720), all below the 0.20 fail-closed tripwire.
+The mismatch outputs and source==model control were independently reviewed
+clean, with no lattice, recurrent trails, stale contamination, halos, color
+shifts, or instability. The temporal lattice P0 is closed under the same
+semantic contract as the production quality campaign; the retained production
+feedback fix remains `u_historyOut = upscaledColor`.
