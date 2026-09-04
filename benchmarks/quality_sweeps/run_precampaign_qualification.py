@@ -38,6 +38,7 @@ def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--player", type=Path, default=ROOT / "build-fast/temporal_forge_player")
     ap.add_argument("--output-root", type=Path)
+    ap.add_argument("--manifest", type=Path, default=ROOT / "benchmarks/video_corpus/manifest.csv")
     args = ap.parse_args()
     player = args.player.resolve()
     if not player.is_file() or not os.access(player, os.X_OK):
@@ -63,7 +64,7 @@ def main() -> int:
                 case = out / f"{scene}_{inp}to{delivery}_{cas_name}"
                 env = os.environ.copy()
                 env.update({
-                    "TFORGE_QUALITY_MANIFEST": str(ROOT / "benchmarks/video_corpus/manifest.csv"),
+                    "TFORGE_QUALITY_MANIFEST": str(args.manifest.resolve()),
                     "TFORGE_QUALITY_CLIP": f"^{scene}$", "TFORGE_QUALITY_QUALITY": "high",
                     "TFORGE_QUALITY_FRAME": "48", "TFORGE_QUALITY_CAPTURE_ATTEMPTS": "180",
                     "TFORGE_QUALITY_ARTIFACT_ROOT": str(case), "TFORGE_QUALITY_FRAMES_DIR": str(case / "frames"),
