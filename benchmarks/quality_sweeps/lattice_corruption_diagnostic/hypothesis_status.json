@@ -20,14 +20,15 @@
       "evidence": "production prepass jitter, jitter-off, and full-reset oracle were visually clean"
     },
     "rgb10_vs_fp16_model_carrier": {
-      "status": "not_isolated",
-      "reason": "GpuImageUploader has no alternate RGBA16F source/model carrier; adding one would require broad descriptor/resource changes outside the smallest evidence-supported fix",
-      "nearest_evidence": "FP16_FP8 boundary diagnostic and CPU float resize reference were clean"
+      "status": "offline_ablation_not_causal",
+      "reason": "The production source/model descriptors are RGB10/A2 and an in-process RGBA16F carrier swap would require broad descriptor/resource changes outside the smallest fix. The captured native stage-A data was nevertheless re-evaluated with float32 and simulated RGB10 quantization; the carrier residual had RMSE 0.0001482 and periodic energy 8.02e-09, with no narrow short-period amplification.",
+      "evidence": "precision_order_ablation.json; FP16_FP8 boundary diagnostic and CPU float resize reference were clean",
+      "limitation": "This is a deterministic numerical ablation, not a GPU RGBA16F resource substitution."
     },
     "transform_ordering": {
-      "status": "production_order_verified_only",
-      "evidence": "runtime traces prove pretransformed EOTF/Mu-law before model-grid resolve; the reference-resize ablation preserves that transformed input",
-      "not_run": "independent resolve-before-transform arm"
+      "status": "offline_ablation_not_causal",
+      "evidence": "precision_order_ablation.json compares transform-before-resolve with resolve-before-transform using a high-precision float carrier derived from the native stage-A readback; ordering is numerically distinguishable (RMSE 0.0014204, max error 0.09435), but neither ordering produced the short-period residual signature.",
+      "limitation": "An independent GPU resolve-before-transform arm remains outside the current descriptor contract; the production trace still verifies transform-before-resolve."
     }
   }
 }

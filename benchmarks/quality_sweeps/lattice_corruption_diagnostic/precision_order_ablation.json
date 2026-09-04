@@ -1,0 +1,112 @@
+{
+  "schema": "temporal_forge.lattice_precision_order_ablation.v1",
+  "input": "benchmarks/quality_sweeps/lattice_corruption_diagnostic/runs/20260904T-reopened-current/bad_semantic/stages/stage-A-sourceModel.ppm",
+  "source_dimensions": [
+    1280,
+    720
+  ],
+  "resolve_dimensions": [
+    960,
+    540
+  ],
+  "carrier": {
+    "rgb10_a2_vs_float32": {
+      "rmse": 0.00014821502554696053,
+      "max_abs": 0.0004830360412597656,
+      "periodic_energy": 8.020665021035711e-09,
+      "dominant_periods": [
+        {
+          "period_x_px": 960.0,
+          "period_y_px": 270.0,
+          "energy_fraction": 0.005914133042097092
+        },
+        {
+          "period_x_px": 960.0,
+          "period_y_px": 270.0,
+          "energy_fraction": 0.005914133042097092
+        },
+        {
+          "period_x_px": 480.0,
+          "period_y_px": 540.0,
+          "energy_fraction": 0.014561070129275322
+        },
+        {
+          "period_x_px": 480.0,
+          "period_y_px": 540.0,
+          "energy_fraction": 0.014561070129275322
+        },
+        {
+          "period_x_px": 480.0,
+          "period_y_px": 540.0,
+          "energy_fraction": 0.017520399764180183
+        },
+        {
+          "period_x_px": 480.0,
+          "period_y_px": 540.0,
+          "energy_fraction": 0.017520399764180183
+        },
+        {
+          "period_x_px": 960.0,
+          "period_y_px": 270.0,
+          "energy_fraction": 0.017981596291065216
+        },
+        {
+          "period_x_px": 960.0,
+          "period_y_px": 270.0,
+          "energy_fraction": 0.017981596291065216
+        }
+      ]
+    },
+    "interpretation": "No periodic residual amplification was observed in the quantized carrier comparison; this is an offline ablation, not a production carrier swap."
+  },
+  "transform_order": {
+    "transform_before_resolve_vs_resolve_before_transform": {
+      "rmse": 0.001420366927050054,
+      "max_abs": 0.09435437619686127,
+      "periodic_energy": 1.1151241778861731e-06,
+      "dominant_periods": [
+        {
+          "period_x_px": 960.0,
+          "period_y_px": 270.0,
+          "energy_fraction": 0.0019626899156719446
+        },
+        {
+          "period_x_px": 960.0,
+          "period_y_px": 270.0,
+          "energy_fraction": 0.0019626899156719446
+        },
+        {
+          "period_x_px": 960.0,
+          "period_y_px": 180.0,
+          "energy_fraction": 0.002052989089861512
+        },
+        {
+          "period_x_px": 960.0,
+          "period_y_px": 180.0,
+          "energy_fraction": 0.002052989089861512
+        },
+        {
+          "period_x_px": 480.0,
+          "period_y_px": 270.0,
+          "energy_fraction": 0.0026604935992509127
+        },
+        {
+          "period_x_px": 480.0,
+          "period_y_px": 270.0,
+          "energy_fraction": 0.0026604935992509127
+        },
+        {
+          "period_x_px": 960.0,
+          "period_y_px": 270.0,
+          "energy_fraction": 0.004150853492319584
+        },
+        {
+          "period_x_px": 960.0,
+          "period_y_px": 270.0,
+          "energy_fraction": 0.004150853492319584
+        }
+      ]
+    },
+    "interpretation": "Ordering is numerically distinguishable, but the independent GPU resolve-before-transform arm remains outside the current descriptor contract."
+  }
+}

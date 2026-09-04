@@ -40,4 +40,10 @@ assert '540' not in runner
 assert '--history' in supersampling and '--recurrent' in supersampling
 assert 'expected_history=args.history == "on"' in supersampling
 assert 'expected_recurrent=args.recurrent == "on"' in supersampling
+ablation = (ROOT / "benchmarks/quality_sweeps/lattice_corruption_diagnostic/precision_order_ablation.py").read_text()
+assert 'rgb10_a2_vs_float32' in ablation
+assert 'transform_before_resolve_vs_resolve_before_transform' in ablation
+ablation_report = ROOT / "benchmarks/quality_sweeps/lattice_corruption_diagnostic/precision_order_ablation.json"
+assert ablation_report.exists()
+assert 'lattice_precision_order_ablation.v1' in ablation_report.read_text()
 print('lattice corruption diagnostic contract: PASS')
