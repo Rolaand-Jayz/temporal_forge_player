@@ -4,19 +4,20 @@
 
 The three required cases were rerun through `run_fsr_supersampling.py` with
 `AMD_SEMANTIC_BASELINE`; all imported runtime-trace validations passed. The
-current binary SHA is `3d2b88a27bcae3b145db75dd95ad449ce6f7d1fb244a0d75f3e475f52936c412`,
-Git HEAD is `cc7daa763896d824c2caccbefc3e1d312312b2ae`, and config SHA is
+current binary SHA is `531403376de27ffc107f5647ee58d59146626daf3081c1d090d878880f6581a1`,
+Git HEAD is `850a6bd6e0b303c02d8efc8b27a9bd8162882b16`, and config SHA is
 `576ad1c1d6a02a95a4ef0ce732aea5440fed88d4e0277ea6c9552725d0880346`.
 
 | Case | Source → model → output | Runtime trace | Final PNG | 2×2 score | SHA-256 |
 | --- | --- | --- | --- | ---: | --- |
-| cave720 | 1280×720 → 960×540 → 1920×1080 | `candidate_cave720.runtime_pipeline.json` | `candidate_cave720_fix.png` | 0.023164 | `01b2898d90479489b6875427d8cabfe34cd8d90e4eeb243415aac7c10712aa57` |
-| cave360 | 640×360 → 960×540 → 1920×1080 | `candidate_cave360.runtime_pipeline.json` | `candidate_cave360_fix.png` | 0.016783 | `0f53032a1bfdbecaa738166e2877de97de225167b9d7e9db6aac90df25ea10e5` |
-| cave360eq | 640×360 → 640×360 → 1280×720 | `candidate_cave360eq.runtime_pipeline.json` | `candidate_cave360eq_fix.png` | 0.030382 | `3bd9f1ecbdb705cf507b1ca544ae2400419101a6a3f7b63d3aad91a236e71388` |
+| cave720 | 1280×720 → 960×540 → 1920×1080 | `candidate_cave720.runtime_pipeline.json` | `candidate_cave720_fix.png` | 0.023164 | `9484c4a0b6e3f07ac48ce6f83db966f30acdcd709b74849b705491e75414ae9f` |
+| cave360 | 640×360 → 960×540 → 1920×1080 | `candidate_cave360.runtime_pipeline.json` | `candidate_cave360_fix.png` | 0.016783 | `e24ef0c0f62f92129149a463b94f2d482126fa4ebdeed0d187a9c70de53b1915` |
+| cave360eq | 640×360 → 640×360 → 1280×720 | `candidate_cave360eq.runtime_pipeline.json` | `candidate_cave360eq_fix.png` | 0.030382 | `70b60699f225e538b5f28dd1f2262b61dbf30e8b05be461f8609b4b43da57641` |
 
 All required runtime fields are present and validated: history/recurrent,
-prepass input-resolve jitter, source-tap Mu-law, unjittered valid motion,
-conditional reset policy, CAS off, and no geometry-mismatch reset. Independent
+prepass input-resolve jitter, the requested source-tap profile is separated
+from effective upstream Mu-law, unjittered valid motion, conditional reset
+policy, CAS off, and no geometry-mismatch reset. Independent
 visual review found all three outputs clean. The following section preserves
 the earlier failing qualification as historical evidence.
 

@@ -415,9 +415,9 @@ Exact AMD semantic captures were independently reviewed and found clean:
 
 | case | final PNG SHA-256 |
 | --- | --- |
-| sintel_cave 720→1080 | `14515f480d7f69110723adf836611b3ca9b512edeb50952d40da5b57ce1c0fba` |
-| sintel_cave 360→1080 | `9278b8716afacab69dd480bcbbae80e9b3d8e3a223bb99733aff63cc17830773` |
-| sintel_cave 360→720 | `f2838747da3232a9cd8280dd41efe9620c128cf0d6a25f3e9bb28198d61823e5` |
+| sintel_cave 720→1080 | `9484c4a0b6e3f07ac48ce6f83db966f30acdcd709b74849b705491e75414ae9f` |
+| sintel_cave 360→1080 | `e24ef0c0f62f92129149a463b94f2d482126fa4ebdeed0d187a9c70de53b1915` |
+| sintel_cave 360→720 | `70b60699f225e538b5f28dd1f2262b61dbf30e8b05be461f8609b4b43da57641` |
 
 No repeating lattice, trails, halos, or color shifts were observed. The
 corresponding SSIM values were 0.983629, 0.794357, and 0.683053. PNGs are
@@ -432,8 +432,8 @@ All traces passed. They report history and recurrent enabled, active
 `prepass_input_resolve` jitter, source-tap Mu-law enabled, unjittered motion
 with validity, reject-invalid-history, conditional reset policy, CAS disabled,
 and no geometry-mismatch forced reset. The current binary is
-`3d2b88a27bcae3b145db75dd95ad449ce6f7d1fb244a0d75f3e475f52936c412`; Git HEAD
-is `cc7daa763896d824c2caccbefc3e1d312312b2ae`; all runs were clean and used
+`531403376de27ffc107f5647ee58d59146626daf3081c1d090d878880f6581a1`; Git HEAD
+is `850a6bd6e0b303c02d8efc8b27a9bd8162882b16`; all runs were clean and used
 config SHA `576ad1c1d6a02a95a4ef0ce732aea5440fed88d4e0277ea6c9552725d0880346`.
 
 Final-output 2×2 periodic scores were 0.023164 (720→1080), 0.016783
@@ -443,3 +443,11 @@ clean, with no lattice, recurrent trails, stale contamination, halos, color
 shifts, or instability. The temporal lattice P0 is closed under the same
 semantic contract as the production quality campaign; the retained production
 feedback fix remains `u_historyOut = upscaledColor`.
+
+The authoritative effective color path is: decoded YUV → RGB conversion →
+EOTF + Mu-law in `yuv_to_fsr_input` → RGB10/A2 `u_color` model image →
+source-to-model resampling when needed → prepass-owned Halton-23 jittered
+Gaussian resolve → neural reconstruction → FP16 temporal history/recurrent
+composition. The rgba8 source-display image is retained for presentation and
+control uses and is not sampled for the production prepass current-color
+resolve.
