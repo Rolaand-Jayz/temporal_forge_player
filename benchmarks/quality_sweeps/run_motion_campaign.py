@@ -68,6 +68,7 @@ def plans(args: argparse.Namespace):
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--run", action="store_true", help="execute captures (default is dry-run)")
+    ap.add_argument("--resume", action="store_true", help="skip keys already marked complete in the manifest")
     ap.add_argument("--output-root", type=Path, default=ROOT / "benchmarks" / "quality_sweeps" / "motion_campaign")
     ap.add_argument("--player", type=Path, default=ROOT / "build-fast" / "temporal_forge_player")
     ap.add_argument("--config", type=Path, default=ROOT / "benchmarks" / "quality_sweeps" / "swarm" / "agent_recheck_current" / "config.json")
@@ -88,10 +89,22 @@ def main() -> int:
         ap.error(f"quality config not found: {args.config}")
     args.output_root.mkdir(parents=True, exist_ok=True)
     manifest = args.output_root / "manifest.jsonl"
+    completed = set()
+    if args.resume and manifest.is_file():
+        for line in manifest.read_text(encoding="utf-8").splitlines():
+            try:
+                prior = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if prior.get("status") == "complete":
+                completed.add(prior.get("key"))
     count = 0
     for scene, tier, arm, conf, inp, ref, ref_kind in plans(args):
         count += 1
         key = f"{scene}/{tier}/{arm}/confidence-{conf or 'default'}"
+        if key in completed:
+            print(f"[{count}] skipped complete {key}", flush=True)
+            continue
         run_dir = args.output_root / scene / tier / arm / f"confidence-{conf or 'default'}"
         row = {"key": key, "scene": scene, "input_resolution": tier, "output_resolution": "1920x1080",
                "arm": arm, "confidence_threshold": conf, "input": str(inp), "reference": str(ref),
