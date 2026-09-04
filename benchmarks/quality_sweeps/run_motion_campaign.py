@@ -126,10 +126,24 @@ def main() -> int:
                         # process that occupies the GPU for ten minutes.
                         "TFORGE_FSR4_FENCE_TIMEOUT_MS": "15000",
                         "TFORGE_FSR4_ENABLE_COLOR_HISTORY": "1", "TFORGE_FSR4_ENABLE_RECURRENT": "1",
-                        "TFORGE_PRESERVE_IMAGE_ARTIFACTS": "1", "TFORGE_TEMPORAL_ARTIFACT_DIR": str(run_dir / "artifacts"),
+                        # Keep the historical retention default, but allow a
+                        # derived evidence pass to disable large image/video
+                        # copies while still retaining records and metrics.
+                        "TFORGE_PRESERVE_IMAGE_ARTIFACTS": os.environ.get("TFORGE_PRESERVE_IMAGE_ARTIFACTS", "1"),
+                        "TFORGE_TEMPORAL_ARTIFACT_DIR": str(run_dir / "artifacts"),
                         "TFORGE_TEMPORAL_FAILURE_ARTIFACT_DIR": str(run_dir / "failure_artifacts"),
                         "TFORGE_FSR4_DUMP_MOTION_TEXTURE": "1", "TFORGE_FSR4_DUMP_MOTION_SIDECAR": "1",
                         "TFORGE_FSR4_DUMP_REPROJECTED_COLOR": "1", "TFORGE_FSR4_DUMP_EVENT_TRACE": "1",
+                        "TFORGE_TEMPORAL_EVENTS_JSON": str(run_dir / "event_trace.json"),
+                        "TFORGE_TEMPORAL_CANDIDATE_ID": key,
+                        "TFORGE_TEMPORAL_SCENE": scene,
+                        "TFORGE_TEMPORAL_CONFIG_ID": "motion_campaign",
+                        "TFORGE_TEMPORAL_CLASS": "motion_campaign",
+                        "TFORGE_TEMPORAL_START_FRAME": "0",
+                        "TFORGE_TEMPORAL_ANALYSIS_FRAME_INDICES": ",".join(str(index) for index in range(args.frames)),
+                        "TFORGE_TEMPORAL_GHOST_THRESHOLD": "0.1",
+                        "TFORGE_TEMPORAL_RESET_THRESHOLD": "0.1",
+                        "TFORGE_TEMPORAL_ALLOW_NO_EVENT": "1",
                         "TFORGE_TEMPORAL_CLASS": "motion_campaign", "TFORGE_TEMPORAL_SCENE": scene,
                         "TFORGE_TEMPORAL_CONFIG_ID": "motion_campaign", "TFORGE_EXPERIMENT_ID": key,
                         "TFORGE_RUNTIME_TRACE_PATH": str(run_dir / "runtime.json")})
