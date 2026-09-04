@@ -1,0 +1,18 @@
+{
+  "campaign_id": "quality-campaign-20260904-canonical-v1",
+  "campaign_generation": "post_lattice_fix_canonical_v1",
+  "pipeline_revision": "temporal_lattice_fix_closeout",
+  "quality_profile": "AMD_SEMANTIC_BASELINE",
+  "git_head": "f965123860b539c14a7bb356cdb7dc8186c6e50a",
+  "git_dirty": false,
+  "binary_sha256": "531403376de27ffc107f5647ee58d59146626daf3081c1d090d878880f6581a1",
+  "config_sha256": "576ad1c1d6a02a95a4ef0ce732aea5440fed88d4e0277ea6c9552725d0880346",
+  "manifest_path": "/tmp/tforge_canonical_manifest.csv",
+  "qualification_manifest": "/tmp/tforge_precampaign_canonical_v4/qualification_manifest.json",
+  "start_timestamp": "2026-09-04T00:46:20.560888+00:00",
+  "end_timestamp": "2026-09-04T02:44:23.260354+00:00",
+  "canonical": true,
+  "historical_only": false,
+  "route_count": 11,
+  "assets_per_route": 92
+}

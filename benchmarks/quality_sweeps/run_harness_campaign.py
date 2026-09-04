@@ -146,6 +146,8 @@ def catalog_record(path: Path, *, scene: str, method: str, input_height: int,
                    "output": output_height, "view": view,
                    "frame": int(CAPTURE_PLAN["frame"]),
                    "campaign_id": CAPTURE_PLAN["campaignId"],
+                   "campaign_generation": CAPTURE_PLAN["campaignGeneration"],
+                   "pipeline_revision": CAPTURE_PLAN["pipelineRevision"],
                    "validation": "validated_experiment"})
     if provenance:
         record.update(provenance)

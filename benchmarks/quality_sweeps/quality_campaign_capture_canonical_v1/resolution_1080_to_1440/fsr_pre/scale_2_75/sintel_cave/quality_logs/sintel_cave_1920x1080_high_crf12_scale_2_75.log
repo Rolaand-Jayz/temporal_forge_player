@@ -1,0 +1,78 @@
+lsfg-vk: Placing default configuration file at /tmp/tforge-quality-config.6EHnqb/lsfg-vk/conf.toml
+[2026-09-03 21:17:29] INFO  ?:0: Vulkan: using Qt shared instance
+[2026-09-03 21:17:29] DEBUG ?:0: Vulkan: candidate 'AMD Radeon RX 7900 GRE (RADV NAVI31)' vendor=0x1002 type=2 vram=16368MiB [AMD/RADV]
+[2026-09-03 21:17:29] DEBUG ?:0: Vulkan: candidate 'AMD Ryzen 7 7800X3D 8-Core Processor (RADV RAPHAEL_MENDOCINO)' vendor=0x1002 type=1 vram=10748MiB [AMD/RADV]
+[2026-09-03 21:17:29] INFO  ?:0: Vulkan: shaderStorageImageExtendedFormats=true
+[2026-09-03 21:17:29] INFO  ?:0: Vulkan: graphics queue family 0, FSR compute queue family 1
+[2026-09-03 21:17:29] INFO  ?:0: Vulkan: device 'AMD Radeon RX 7900 GRE (RADV NAVI31)' selected, queue family 0
+[2026-09-03 21:17:29] INFO  ?:0: Settings: loaded (path: /tmp/tforge-quality-config.6EHnqb/temporal-forge-player/settings.json)
+[2026-09-03 21:17:29] INFO  ?:0: QualityLab: /home/rolaandjayz/ZCodeProject/temporal_forge_player/config/quality_lab.json enabled=true composition=base_only base=bilinear colorSpace=model sharpen=none toneEV=-0.015
+[2026-09-03 21:17:29] WARN  ?:0: Unknown benchmark preset 'saved'; using saved preset
+[2026-09-03 21:17:29] INFO  ?:0: GpuCapabilityProbe: AMD Radeon RX 7900 GRE (RADV NAVI31) (radv) -> INT8 DOT4 (RDNA3 cooperative matrix, SINT8->SINT32) [tile 16x16, SINT8->SINT32 accum] + FP16 fallback available
+[2026-09-03 21:17:29] INFO  ?:0: PlaybackEngine: Vulkan handles set; FSR4 will be initialized on first frame
+[2026-09-03 21:17:29] INFO  ?:0: PlaybackEngine: FSR4 upscaling enabled
+qt.qml.propertyCache.append: Member enabled of the object LabeledSlider_QMLTYPE_104 overrides a member of the base object. Consider renaming it or adding final or override specifier
+QQmlExpression: Expression qrc:/qt/qml/TemporalForge/resources/qml/VideoContextMenu.qml:79:13 depends on non-bindable properties:
+    temporal_forge::VideoSurfaceItem::aspectMode
+QQmlExpression: Expression qrc:/qt/qml/TemporalForge/resources/qml/VideoContextMenu.qml:73:13 depends on non-bindable properties:
+    temporal_forge::VideoSurfaceItem::aspectMode
+QQmlExpression: Expression qrc:/qt/qml/TemporalForge/resources/qml/VideoContextMenu.qml:67:13 depends on non-bindable properties:
+    temporal_forge::VideoSurfaceItem::aspectMode
+QQmlExpression: Expression qrc:/qt/qml/TemporalForge/resources/qml/VideoContextMenu.qml:61:13 depends on non-bindable properties:
+    temporal_forge::VideoSurfaceItem::aspectMode
+QQmlExpression: Expression qrc:/qt/qml/TemporalForge/resources/qml/VideoContextMenu.qml:55:13 depends on non-bindable properties:
+    temporal_forge::VideoSurfaceItem::aspectMode
+QQmlExpression: Expression qrc:/qt/qml/TemporalForge/resources/qml/VideoContextMenu.qml:49:13 depends on non-bindable properties:
+    temporal_forge::VideoSurfaceItem::aspectMode
+[2026-09-03 21:17:29] INFO  ?:0: Auto-opening playlist with 1 item(s)
+[2026-09-03 21:17:29] INFO  ?:0: PlaybackEngine: openUrl('file:///home/rolaandjayz/ZCodeProject/temporal_forge_player/benchmarks/video_corpus/clips/sintel_cave_1920x1080_high_crf12.mp4')
+[2026-09-03 21:17:29] INFO  ?:0: PlaybackEngine: close() stopThreads
+[2026-09-03 21:17:29] INFO  ?:0: PlaybackEngine: close() audio.stop
+[2026-09-03 21:17:29] INFO  ?:0: PlaybackEngine: FSR4 path torn down
+[2026-09-03 21:17:29] INFO  ?:0: PlaybackEngine: close() fully done
+[2026-09-03 21:17:29] INFO  ?:0: PlaybackEngine: close() done, opening demuxer
+[2026-09-03 21:17:29] INFO  ?:0: PlaybackEngine: demux->open('/home/rolaandjayz/ZCodeProject/temporal_forge_player/benchmarks/video_corpus/clips/sintel_cave_1920x1080_high_crf12.mp4')
+[2026-09-03 21:17:29] INFO  ?:0: Demuxer: opened '/home/rolaandjayz/ZCodeProject/temporal_forge_player/benchmarks/video_corpus/clips/sintel_cave_1920x1080_high_crf12.mp4' [mov,mp4,m4a,3gp,3g2,mj2] duration=10.000s streams=2 video=0 audio=-1381258232 sub=-1381258232
+[2026-09-03 21:17:29] DEBUG ?:0: Demuxer: video 1920x1080 24 fps
+[2026-09-03 21:17:29] INFO  ?:0: PlaybackEngine: demux opened ok
+[2026-09-03 21:17:29] INFO  ?:0: VideoDecoder: hardware decode disabled because codec motion metadata was requested
+[2026-09-03 21:17:29] INFO  ?:0: VideoDecoder: opened codec 'h264' 1920x1080 pix_fmt=yuv420p
+[2026-09-03 21:17:29] INFO  ?:0: PlaybackEngine: starting decode threads
+[2026-09-03 21:17:29] INFO  ?:0: PlaybackEngine: opened '/home/rolaandjayz/ZCodeProject/temporal_forge_player/benchmarks/video_corpus/clips/sintel_cave_1920x1080_high_crf12.mp4', playing=true
+[2026-09-03 21:17:29] INFO  ?:0: Temporal Forge Player: ready
+[h264 @ 0x564cea8c5740] A hardware frames or device context is required for hardware accelerated decoding.
+[h264 @ 0x564cea8c5740] Failed setup for format vaapi: hwaccel initialisation returned error.
+[2026-09-03 21:17:29] INFO  ?:0: PlaybackEngine: FSR4 pass decoded 1920x1080 -> model 1280x720 -> 3520x1980
+[2026-09-03 21:17:29] INFO  ?:0: Fsr4Harness: generic pipeline cache loaded (1110664 bytes)
+[2026-09-03 21:17:29] INFO  ?:0: Fsr4Harness: prepass pipeline created (7256 words SPIR-V)
+[2026-09-03 21:17:29] INFO  ?:0: Fsr4Harness: conv pipelines created (dw 6297 words, pw scalar 3443 words, pw coop 5899 words, fp16 coop 3858 words, pw direct 2968 words, spatial direct 3346 words, upscale coop 3273 words, downscale coop 2614 words)
+[2026-09-03 21:17:29] INFO  ?:0: Fsr4Harness: scatter pipeline created (799 words)
+[2026-09-03 21:17:29] INFO  ?:0: Fsr4Harness: postpass pipeline created (21697 words)
+[2026-09-03 21:17:29] INFO  ?:0: Fsr4Harness: SPD pipeline created (954 words)
+[2026-09-03 21:17:29] INFO  ?:0: Fsr4Harness: native INT8 pipeline cache loaded (1388964 bytes)
+[2026-09-03 21:17:29] INFO  ?:0: Fsr4Harness: initialized on AMD Radeon RX 7900 GRE (RADV NAVI31) (all 6 pipelines: prepass+conv+scatter+postpass+spd)
+[2026-09-03 21:17:29] INFO  ?:0: Fsr4Harness: resources allocated src=1280x720 out=3520x1980 (scratch=218824KB accum=217800KB feat=326700KB)
+[2026-09-03 21:17:29] INFO  ?:0: WeightBlob: loaded Quality (131072 B, 255 unique uint8, drs=false)
+[2026-09-03 21:17:29] INFO  ?:0: PlaybackEngine: FSR4 multiplier Performance uses standard blob Quality (quality.bin, 131072 bytes)
+[2026-09-03 21:17:29] INFO  ?:0: Fsr4Harness: uploaded 131072 B raw model + prepacked INT8/scales and FP16 cooperative weights
+[2026-09-03 21:17:29] INFO  ?:0: GpuImageUploader: EASU RGBA8 format features optimal=0x1dd83
+[2026-09-03 21:17:29] INFO  ?:0: GpuImageUploader: allocated source 1920x1080 -> model 1280x720 -> output 3520x1980
+[2026-09-03 21:17:29] INFO  ?:0: PlaybackEngine: FSR4 pass decoded 1920x1080 -> model 1920x1080 -> 3520x1980
+[2026-09-03 21:17:29] INFO  ?:0: Fsr4Harness: generic pipeline cache loaded (1110664 bytes)
+[2026-09-03 21:17:29] INFO  ?:0: Fsr4Harness: prepass pipeline created (7256 words SPIR-V)
+[2026-09-03 21:17:29] INFO  ?:0: Fsr4Harness: conv pipelines created (dw 6297 words, pw scalar 3443 words, pw coop 5899 words, fp16 coop 3858 words, pw direct 2968 words, spatial direct 3346 words, upscale coop 3273 words, downscale coop 2614 words)
+[2026-09-03 21:17:29] INFO  ?:0: Fsr4Harness: scatter pipeline created (799 words)
+[2026-09-03 21:17:29] INFO  ?:0: Fsr4Harness: postpass pipeline created (21697 words)
+[2026-09-03 21:17:29] INFO  ?:0: Fsr4Harness: SPD pipeline created (954 words)
+[2026-09-03 21:17:29] INFO  ?:0: Fsr4Harness: native INT8 pipeline cache loaded (1388964 bytes)
+[2026-09-03 21:17:29] INFO  ?:0: Fsr4Harness: initialized on AMD Radeon RX 7900 GRE (RADV NAVI31) (all 6 pipelines: prepass+conv+scatter+postpass+spd)
+[2026-09-03 21:17:29] INFO  ?:0: Fsr4Harness: resources allocated src=1920x1080 out=3520x1980 (scratch=218824KB accum=217800KB feat=326700KB)
+[2026-09-03 21:17:29] INFO  ?:0: Fsr4Harness: uploaded 131072 B raw model + prepacked INT8/scales and FP16 cooperative weights
+[2026-09-03 21:17:29] INFO  ?:0: GpuImageUploader: EASU RGBA8 format features optimal=0x1dd83
+[2026-09-03 21:17:29] INFO  ?:0: GpuImageUploader: allocated source 1920x1080 -> model 1920x1080 -> output 3520x1980
+[2026-09-03 21:17:29] INFO  ?:0: PlaybackEngine: FSR4 path ready decoded 1920x1080 -> model 1280x720 -> 3520x1980
+[2026-09-03 21:17:29] INFO  ?:0: PlaybackEngine: FSR4 progressive chain passes=1
+[2026-09-03 21:17:29] INFO  GpuImageUploader.cpp:1805: GpuImageUploader: source_model_resampler=gpu_scale_aware_bicubic 1920x1080->1280x720
+[2026-09-03 21:17:29] INFO  GpuImageUploader.cpp:1109: GpuImageUploader: source_model_resampler=gpu_scale_aware_bicubic 1920x1080->1280x720
+[2026-09-03 21:17:30] INFO  ?:0: PlaybackEngine: dumped native FSR4 output frame=48 3520x1980 to /home/rolaandjayz/ZCodeProject/temporal_forge_player/benchmarks/quality_sweeps/quality_campaign_capture_canonical_v1/resolution_1080_to_1440/fsr_pre/scale_2_75/sintel_cave/quality_frames/sintel_cave_1920x1080_high_crf12_f48_scale_2_75.ppm
+[2026-09-03 21:17:31] INFO  ?:0: PlaybackEngine: dumped raw decoded image frame=48 1920x1080 to /home/rolaandjayz/ZCodeProject/temporal_forge_player/benchmarks/quality_sweeps/quality_campaign_capture_canonical_v1/resolution_1080_to_1440/fsr_pre/scale_2_75/sintel_cave/quality_frames/sintel_cave_1920x1080_high_crf12_f48_scale_2_75_gpu_raw.ppm
