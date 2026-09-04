@@ -66,6 +66,12 @@ The older all-purpose reconstruction plan is preserved as
 [`../archive/plans/QUALITY_RECONSTRUCTION_PLAN_20260822-20260902.md`](../archive/plans/QUALITY_RECONSTRUCTION_PLAN_20260822-20260902.md).
 It is historical context, not an active instruction source.
 
+The previously published `quality-campaign-20260904-canonical-v1` metadata is
+now historical/invalidated after human review of a visible periodic lattice;
+its media remains local and is not a campaign baseline. The reopened diagnostic,
+matched reference-resize ablation, prevalence matrix, and focused fix are
+recorded in [`LATTICE_CORRUPTION_DIAGNOSTIC.md`](../../docs/LATTICE_CORRUPTION_DIAGNOSTIC.md).
+
 ## Completion
 
 Do not promote a quality change from this plan without matching evidence,

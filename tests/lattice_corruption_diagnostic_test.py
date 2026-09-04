@@ -14,8 +14,9 @@ campaign = (ROOT / "benchmarks/quality_sweeps/run_harness_campaign.py").read_tex
 assert 'TFORGE_FSR4_REFERENCE_RESIZE' in uploader
 assert 'TFORGE_FSR4_DUMP_STAGE_DIR' in engine
 assert 'dispatchBicubicPrefilter(frame)' in uploader
-assert 'filterScale = min(scale, vec2(1.0))' in shader
-assert 'for (int x = -4; x <= 5; ++x)' in shader
+assert 'if (scale.x < 1.0 || scale.y < 1.0)' in shader
+assert 'vec3 p00 = loadSource(base, sourceSize);' in shader
+assert 'for (int x = -1; x <= 2; ++x)' in shader
 prepass = (ROOT / "shaders/fsr4/prepass_pq_eotf.comp").read_text()
 # Geometry mismatch remains an explicit scale-aware path, but no longer forces
 # a per-frame history reset; publication of the current resolve keeps the

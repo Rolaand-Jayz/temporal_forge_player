@@ -1,0 +1,104 @@
+{
+  "schema": "temporal_forge.periodic_lattice_prevalence.v1",
+  "campaign_id": "quality-campaign-20260904-canonical-v1",
+  "classification_legend": {
+    "lattice_present": "human-visible repeating lattice",
+    "lattice_absent": "human review found none",
+    "uncertain": "not visually classifiable or semantic trigger absent"
+  },
+  "corpus_scope": "reopened exact semantic reproducer and reference ablation; broad canonical media is historical and semantic activation is unclassifiable",
+  "rows": [
+    {
+      "case": "bad_semantic",
+      "scene": "sintel_cave",
+      "input_resolution": "1280x720",
+      "output_resolution": "1920x1080",
+      "model_resolution": "960x540",
+      "scale": 2,
+      "cas": "none",
+      "native": true,
+      "delivery": "final_temporal",
+      "method": "temporal_fsr",
+      "classification": "lattice_present",
+      "candidate_sha256": "c30fe4929111a0d304457b8de26c8ead768393db7caf89ee26b0652f19ca36db",
+      "evidence": "human_visual_review"
+    },
+    {
+      "case": "bad_reference_current",
+      "scene": "sintel_cave",
+      "input_resolution": "1280x720",
+      "output_resolution": "1920x1080",
+      "model_resolution": "960x540",
+      "scale": 2,
+      "cas": "none",
+      "native": true,
+      "delivery": "final_temporal",
+      "method": "temporal_fsr",
+      "classification": "lattice_absent",
+      "candidate_sha256": "e667a48a43301c23464bf6cd03767858e61db3a3cccd9ca1dc5b4d902ae9989c",
+      "evidence": "human_visual_review"
+    },
+    {
+      "case": "healthy_semantic",
+      "scene": "sintel_cave",
+      "input_resolution": "640x360",
+      "output_resolution": "1280x720",
+      "model_resolution": "640x360",
+      "scale": 2,
+      "cas": "none",
+      "native": true,
+      "delivery": "final_temporal",
+      "method": "temporal_fsr",
+      "classification": "lattice_absent",
+      "candidate_sha256": "a3b533b52a1d28f74b45856c930cca2bd162b61884c03f1aa44916374f0745ac",
+      "evidence": "human_visual_review"
+    },
+    {
+      "case": "bad_semantic.stage-A-sourceModel",
+      "input_resolution": "1280x720",
+      "output_resolution": "1920x1080",
+      "classification": "lattice_absent",
+      "evidence": "human_visual_review"
+    },
+    {
+      "case": "bad_semantic.stage-B-color",
+      "input_resolution": "960x540",
+      "output_resolution": "960x540",
+      "classification": "lattice_absent",
+      "evidence": "human_visual_review"
+    },
+    {
+      "case": "bad_semantic.stage-C-prepass",
+      "input_resolution": "960x540",
+      "output_resolution": "1920x1080",
+      "classification": "uncertain",
+      "evidence": "normalized_dump_nondiscriminating"
+    },
+    {
+      "case": "fix_downsample_bilinear.bad",
+      "scene": "sintel_cave",
+      "input_resolution": "1280x720",
+      "output_resolution": "1920x1080",
+      "method": "temporal_fsr",
+      "cas": "none",
+      "native": true,
+      "classification": "lattice_absent",
+      "candidate_sha256": "521db0b637361bf0d1d04cdf250d1c04f537c5e90ade55d1d215d3f279746ff5",
+      "evidence": "human_visual_review",
+      "fix": "downsample_bilinear_gpu_prefilter"
+    },
+    {
+      "case": "fix_downsample_bilinear.healthy",
+      "scene": "sintel_cave",
+      "input_resolution": "640x360",
+      "output_resolution": "1280x720",
+      "method": "temporal_fsr",
+      "cas": "none",
+      "native": true,
+      "classification": "lattice_absent",
+      "candidate_sha256": "eb377a48d65ce312589f055239707e46fb1ac2d016378a828c42de178db12688",
+      "evidence": "human_visual_review",
+      "fix": "downsample_bilinear_gpu_prefilter"
+    }
+  ]
+}

@@ -68,7 +68,11 @@
       "config_sha256": "576ad1c1d6a02a95a4ef0ce732aea5440fed88d4e0277ea6c9552725d0880346",
       "alias_of": "b62adda283a0401c9ec31618801e9e83",
       "campaign_generation": "post_lattice_fix_canonical_v1",
-      "pipeline_revision": "temporal_lattice_fix_closeout"
+      "pipeline_revision": "temporal_lattice_fix_closeout",
+      "canonical": false,
+      "historical_only": true,
+      "campaign_status": "invalidated_after_human_review",
+      "failed_quality_gate": "visible_periodic_lattice"
     },
     {
       "path": "/home/rolaandjayz/ZCodeProject/temporal_forge_player/review_harness_canonical_v1/images/scene-tos_daylight__frame-0048__in-1080p__method-base_only_bilinear_cas20__out-1440p.png",
@@ -89,7 +93,11 @@
       "campaign_generation": "post_lattice_fix_canonical_v1",
       "pipeline_revision": "temporal_lattice_fix_closeout",
       "binary_sha256": "531403376de27ffc107f5647ee58d59146626daf3081c1d090d878880f6581a1",
-      "config_sha256": "576ad1c1d6a02a95a4ef0ce732aea5440fed88d4e0277ea6c9552725d0880346"
+      "config_sha256": "576ad1c1d6a02a95a4ef0ce732aea5440fed88d4e0277ea6c9552725d0880346",
+      "canonical": false,
+      "historical_only": true,
+      "campaign_status": "invalidated_after_human_review",
+      "failed_quality_gate": "visible_periodic_lattice"
     },
     {
       "path": "/home/rolaandjayz/ZCodeProject/temporal_forge_player/review_harness_canonical_v1/images/scene-tos_daylight__frame-0048__in-1080p__method-fsr_direct_cas20__out-1440p.png",
@@ -116,7 +124,11 @@
       "binary_sha256": "531403376de27ffc107f5647ee58d59146626daf3081c1d090d878880f6581a1",
       "config_sha256": "576ad1c1d6a02a95a4ef0ce732aea5440fed88d4e0277ea6c9552725d0880346",
       "campaign_generation": "post_lattice_fix_canonical_v1",
-      "pipeline_revision": "temporal_lattice_fix_closeout"
+      "pipeline_revision": "temporal_lattice_fix_closeout",
+      "canonical": false,
+      "historical_only": true,
+      "campaign_status": "invalidated_after_human_review",
+      "failed_quality_gate": "visible_periodic_lattice"
     },
     {
       "path": "/home/rolaandjayz/ZCodeProject/temporal_forge_player/review_harness_canonical_v1/images/scene-tos_daylight__frame-0048__in-1080p__method-fsr_200x_downsample_resolve_cas20__out-1440p.png",
@@ -143,7 +155,11 @@
       "binary_sha256": "531403376de27ffc107f5647ee58d59146626daf3081c1d090d878880f6581a1",
       "config_sha256": "576ad1c1d6a02a95a4ef0ce732aea5440fed88d4e0277ea6c9552725d0880346",
       "campaign_generation": "post_lattice_fix_canonical_v1",
-      "pipeline_revision": "temporal_lattice_fix_closeout"
+      "pipeline_revision": "temporal_lattice_fix_closeout",
+      "canonical": false,
+      "historical_only": true,
+      "campaign_status": "invalidated_after_human_review",
+      "failed_quality_gate": "visible_periodic_lattice"
     },
     {
       "path": "/home/rolaandjayz/ZCodeProject/temporal_forge_player/review_harness_canonical_v1/images/scene-tos_daylight__frame-0048__in-1080p__method-fsr_200x_downsample_external_post_cas20__out-1440p.png",
@@ -170,7 +186,11 @@
       "binary_sha256": "531403376de27ffc107f5647ee58d59146626daf3081c1d090d878880f6581a1",
       "config_sha256": "576ad1c1d6a02a95a4ef0ce732aea5440fed88d4e0277ea6c9552725d0880346",
       "campaign_generation": "post_lattice_fix_canonical_v1",
-      "pipeline_revision": "temporal_lattice_fix_closeout"
+      "pipeline_revision": "temporal_lattice_fix_closeout",
+      "canonical": false,
+      "historical_only": true,
+      "campaign_status": "invalidated_after_human_review",
+      "failed_quality_gate": "visible_periodic_lattice"
     },
     {
       "path": "/home/rolaandjayz/ZCodeProject/temporal_forge_player/review_harness_canonical_v1/images/scene-tos_daylight__frame-0048__in-1080p__method-fsr_200x_downsample_no_cas__out-1440p.png",
@@ -197,7 +217,11 @@
       "binary_sha256": "531403376de27ffc107f5647ee58d59146626daf3081c1d090d878880f6581a1",
       "config_sha256": "576ad1c1d6a02a95a4ef0ce732aea5440fed88d4e0277ea6c9552725d0880346",
       "campaign_generation": "post_lattice_fix_canonical_v1",
-      "pipeline_revision": "temporal_lattice_fix_closeout"
+      "pipeline_revision": "temporal_lattice_fix_closeout",
+      "canonical": false,
+      "historical_only": true,
+      "campaign_status": "invalidated_after_human_review",
+      "failed_quality_gate": "visible_periodic_lattice"
     },
     {
       "path": "/home/rolaandjayz/ZCodeProject/temporal_forge_player/review_harness_canonical_v1/images/scene-tos_daylight__frame-0048__in-1080p__method-fsr_225x_downsample_resolve_cas20__out-1440p.png",
@@ -224,7 +248,11 @@
       "binary_sha256": "531403376de27ffc107f5647ee58d59146626daf3081c1d090d878880f6581a1",
       "config_sha256": "576ad1c1d6a02a95a4ef0ce732aea5440fed88d4e0277ea6c9552725d0880346",
       "campaign_generation": "post_lattice_fix_canonical_v1",
-      "pipeline_revision": "temporal_lattice_fix_closeout"
+      "pipeline_revision": "temporal_lattice_fix_closeout",
+      "canonical": false,
+      "historical_only": true,
+      "campaign_status": "invalidated_after_human_review",
+      "failed_quality_gate": "visible_periodic_lattice"
     },
     {
       "path": "/home/rolaandjayz/ZCodeProject/temporal_forge_player/review_harness_canonical_v1/images/scene-tos_daylight__frame-0048__in-1080p__method-fsr_225x_downsample_external_post_cas20__out-1440p.png",
@@ -251,7 +279,11 @@
       "binary_sha256": "531403376de27ffc107f5647ee58d59146626daf3081c1d090d878880f6581a1",
       "config_sha256": "576ad1c1d6a02a95a4ef0ce732aea5440fed88d4e0277ea6c9552725d0880346",
       "campaign_generation": "post_lattice_fix_canonical_v1",
-      "pipeline_revision": "temporal_lattice_fix_closeout"
+      "pipeline_revision": "temporal_lattice_fix_closeout",
+      "canonical": false,
+      "historical_only": true,
+      "campaign_status": "invalidated_after_human_review",
+      "failed_quality_gate": "visible_periodic_lattice"
     },
     {
       "path": "/home/rolaandjayz/ZCodeProject/temporal_forge_player/review_harness_canonical_v1/images/scene-tos_daylight__frame-0048__in-1080p__method-fsr_225x_downsample_no_cas__out-1440p.png",
@@ -278,7 +310,11 @@
       "binary_sha256": "531403376de27ffc107f5647ee58d59146626daf3081c1d090d878880f6581a1",
       "config_sha256": "576ad1c1d6a02a95a4ef0ce732aea5440fed88d4e0277ea6c9552725d0880346",
       "campaign_generation": "post_lattice_fix_canonical_v1",
-      "pipeline_revision": "temporal_lattice_fix_closeout"
+      "pipeline_revision": "temporal_lattice_fix_closeout",
+      "canonical": false,
+      "historical_only": true,
+      "campaign_status": "invalidated_after_human_review",
+      "failed_quality_gate": "visible_periodic_lattice"
     },
     {
       "path": "/home/rolaandjayz/ZCodeProject/temporal_forge_player/review_harness_canonical_v1/images/scene-tos_daylight__frame-0048__in-1080p__method-fsr_250x_downsample_resolve_cas20__out-1440p.png",
@@ -305,7 +341,11 @@
       "binary_sha256": "531403376de27ffc107f5647ee58d59146626daf3081c1d090d878880f6581a1",
       "config_sha256": "576ad1c1d6a02a95a4ef0ce732aea5440fed88d4e0277ea6c9552725d0880346",
       "campaign_generation": "post_lattice_fix_canonical_v1",
-      "pipeline_revision": "temporal_lattice_fix_closeout"
+      "pipeline_revision": "temporal_lattice_fix_closeout",
+      "canonical": false,
+      "historical_only": true,
+      "campaign_status": "invalidated_after_human_review",
+      "failed_quality_gate": "visible_periodic_lattice"
     },
     {
       "path": "/home/rolaandjayz/ZCodeProject/temporal_forge_player/review_harness_canonical_v1/images/scene-tos_daylight__frame-0048__in-1080p__method-fsr_250x_downsample_external_post_cas20__out-1440p.png",
@@ -332,7 +372,11 @@
       "binary_sha256": "531403376de27ffc107f5647ee58d59146626daf3081c1d090d878880f6581a1",
       "config_sha256": "576ad1c1d6a02a95a4ef0ce732aea5440fed88d4e0277ea6c9552725d0880346",
       "campaign_generation": "post_lattice_fix_canonical_v1",
-      "pipeline_revision": "temporal_lattice_fix_closeout"
+      "pipeline_revision": "temporal_lattice_fix_closeout",
+      "canonical": false,
+      "historical_only": true,
+      "campaign_status": "invalidated_after_human_review",
+      "failed_quality_gate": "visible_periodic_lattice"
     },
     {
       "path": "/home/rolaandjayz/ZCodeProject/temporal_forge_player/review_harness_canonical_v1/images/scene-tos_daylight__frame-0048__in-1080p__method-fsr_250x_downsample_no_cas__out-1440p.png",
@@ -359,7 +403,11 @@
       "binary_sha256": "531403376de27ffc107f5647ee58d59146626daf3081c1d090d878880f6581a1",
       "config_sha256": "576ad1c1d6a02a95a4ef0ce732aea5440fed88d4e0277ea6c9552725d0880346",
       "campaign_generation": "post_lattice_fix_canonical_v1",
-      "pipeline_revision": "temporal_lattice_fix_closeout"
+      "pipeline_revision": "temporal_lattice_fix_closeout",
+      "canonical": false,
+      "historical_only": true,
+      "campaign_status": "invalidated_after_human_review",
+      "failed_quality_gate": "visible_periodic_lattice"
     },
     {
       "path": "/home/rolaandjayz/ZCodeProject/temporal_forge_player/review_harness_canonical_v1/images/scene-tos_daylight__frame-0048__in-1080p__method-fsr_275x_downsample_resolve_cas20__out-1440p.png",
@@ -386,7 +434,11 @@
       "binary_sha256": "531403376de27ffc107f5647ee58d59146626daf3081c1d090d878880f6581a1",
       "config_sha256": "576ad1c1d6a02a95a4ef0ce732aea5440fed88d4e0277ea6c9552725d0880346",
       "campaign_generation": "post_lattice_fix_canonical_v1",
-      "pipeline_revision": "temporal_lattice_fix_closeout"
+      "pipeline_revision": "temporal_lattice_fix_closeout",
+      "canonical": false,
+      "historical_only": true,
+      "campaign_status": "invalidated_after_human_review",
+      "failed_quality_gate": "visible_periodic_lattice"
     },
     {
       "path": "/home/rolaandjayz/ZCodeProject/temporal_forge_player/review_harness_canonical_v1/images/scene-tos_daylight__frame-0048__in-1080p__method-fsr_275x_downsample_external_post_cas20__out-1440p.png",
@@ -413,7 +465,11 @@
       "binary_sha256": "531403376de27ffc107f5647ee58d59146626daf3081c1d090d878880f6581a1",
       "config_sha256": "576ad1c1d6a02a95a4ef0ce732aea5440fed88d4e0277ea6c9552725d0880346",
       "campaign_generation": "post_lattice_fix_canonical_v1",
-      "pipeline_revision": "temporal_lattice_fix_closeout"
+      "pipeline_revision": "temporal_lattice_fix_closeout",
+      "canonical": false,
+      "historical_only": true,
+      "campaign_status": "invalidated_after_human_review",
+      "failed_quality_gate": "visible_periodic_lattice"
     },
     {
       "path": "/home/rolaandjayz/ZCodeProject/temporal_forge_player/review_harness_canonical_v1/images/scene-tos_daylight__frame-0048__in-1080p__method-fsr_275x_downsample_no_cas__out-1440p.png",
@@ -440,7 +496,11 @@
       "binary_sha256": "531403376de27ffc107f5647ee58d59146626daf3081c1d090d878880f6581a1",
       "config_sha256": "576ad1c1d6a02a95a4ef0ce732aea5440fed88d4e0277ea6c9552725d0880346",
       "campaign_generation": "post_lattice_fix_canonical_v1",
-      "pipeline_revision": "temporal_lattice_fix_closeout"
+      "pipeline_revision": "temporal_lattice_fix_closeout",
+      "canonical": false,
+      "historical_only": true,
+      "campaign_status": "invalidated_after_human_review",
+      "failed_quality_gate": "visible_periodic_lattice"
     },
     {
       "path": "/home/rolaandjayz/ZCodeProject/temporal_forge_player/review_harness_canonical_v1/images/scene-tos_daylight__frame-0048__in-1080p__method-fsr_300x_downsample_resolve_cas20__out-1440p.png",
@@ -467,7 +527,11 @@
       "binary_sha256": "531403376de27ffc107f5647ee58d59146626daf3081c1d090d878880f6581a1",
       "config_sha256": "576ad1c1d6a02a95a4ef0ce732aea5440fed88d4e0277ea6c9552725d0880346",
       "campaign_generation": "post_lattice_fix_canonical_v1",
-      "pipeline_revision": "temporal_lattice_fix_closeout"
+      "pipeline_revision": "temporal_lattice_fix_closeout",
+      "canonical": false,
+      "historical_only": true,
+      "campaign_status": "invalidated_after_human_review",
+      "failed_quality_gate": "visible_periodic_lattice"
     },
     {
       "path": "/home/rolaandjayz/ZCodeProject/temporal_forge_player/review_harness_canonical_v1/images/scene-tos_daylight__frame-0048__in-1080p__method-fsr_300x_downsample_external_post_cas20__out-1440p.png",
@@ -494,7 +558,11 @@
       "binary_sha256": "531403376de27ffc107f5647ee58d59146626daf3081c1d090d878880f6581a1",
       "config_sha256": "576ad1c1d6a02a95a4ef0ce732aea5440fed88d4e0277ea6c9552725d0880346",
       "campaign_generation": "post_lattice_fix_canonical_v1",
-      "pipeline_revision": "temporal_lattice_fix_closeout"
+      "pipeline_revision": "temporal_lattice_fix_closeout",
+      "canonical": false,
+      "historical_only": true,
+      "campaign_status": "invalidated_after_human_review",
+      "failed_quality_gate": "visible_periodic_lattice"
     },
     {
       "path": "/home/rolaandjayz/ZCodeProject/temporal_forge_player/review_harness_canonical_v1/images/scene-tos_daylight__frame-0048__in-1080p__method-fsr_300x_downsample_no_cas__out-1440p.png",
@@ -521,7 +589,11 @@
       "binary_sha256": "531403376de27ffc107f5647ee58d59146626daf3081c1d090d878880f6581a1",
       "config_sha256": "576ad1c1d6a02a95a4ef0ce732aea5440fed88d4e0277ea6c9552725d0880346",
       "campaign_generation": "post_lattice_fix_canonical_v1",
-      "pipeline_revision": "temporal_lattice_fix_closeout"
+      "pipeline_revision": "temporal_lattice_fix_closeout",
+      "canonical": false,
+      "historical_only": true,
+      "campaign_status": "invalidated_after_human_review",
+      "failed_quality_gate": "visible_periodic_lattice"
     },
     {
       "path": "/home/rolaandjayz/ZCodeProject/temporal_forge_player/review_harness_canonical_v1/images/scene-tos_daylight__frame-0048__in-1080p__method-fsr_nativeaa_downsample_resolve_cas20__out-1440p.png",
@@ -548,7 +620,11 @@
       "binary_sha256": "531403376de27ffc107f5647ee58d59146626daf3081c1d090d878880f6581a1",
       "config_sha256": "576ad1c1d6a02a95a4ef0ce732aea5440fed88d4e0277ea6c9552725d0880346",
       "campaign_generation": "post_lattice_fix_canonical_v1",
-      "pipeline_revision": "temporal_lattice_fix_closeout"
+      "pipeline_revision": "temporal_lattice_fix_closeout",
+      "canonical": false,
+      "historical_only": true,
+      "campaign_status": "invalidated_after_human_review",
+      "failed_quality_gate": "visible_periodic_lattice"
     },
     {
       "path": "/home/rolaandjayz/ZCodeProject/temporal_forge_player/review_harness_canonical_v1/images/scene-tos_daylight__frame-0048__in-1080p__method-fsr_nativeaa_downsample_external_post_cas20__out-1440p.png",
@@ -575,7 +651,11 @@
       "binary_sha256": "531403376de27ffc107f5647ee58d59146626daf3081c1d090d878880f6581a1",
       "config_sha256": "576ad1c1d6a02a95a4ef0ce732aea5440fed88d4e0277ea6c9552725d0880346",
       "campaign_generation": "post_lattice_fix_canonical_v1",
-      "pipeline_revision": "temporal_lattice_fix_closeout"
+      "pipeline_revision": "temporal_lattice_fix_closeout",
+      "canonical": false,
+      "historical_only": true,
+      "campaign_status": "invalidated_after_human_review",
+      "failed_quality_gate": "visible_periodic_lattice"
     },
     {
       "path": "/home/rolaandjayz/ZCodeProject/temporal_forge_player/review_harness_canonical_v1/images/scene-tos_daylight__frame-0048__in-1080p__method-fsr_nativeaa_downsample_no_cas__out-1440p.png",
@@ -602,7 +682,11 @@
       "binary_sha256": "531403376de27ffc107f5647ee58d59146626daf3081c1d090d878880f6581a1",
       "config_sha256": "576ad1c1d6a02a95a4ef0ce732aea5440fed88d4e0277ea6c9552725d0880346",
       "campaign_generation": "post_lattice_fix_canonical_v1",
-      "pipeline_revision": "temporal_lattice_fix_closeout"
+      "pipeline_revision": "temporal_lattice_fix_closeout",
+      "canonical": false,
+      "historical_only": true,
+      "campaign_status": "invalidated_after_human_review",
+      "failed_quality_gate": "visible_periodic_lattice"
     },
     {
       "path": "/home/rolaandjayz/ZCodeProject/temporal_forge_player/review_harness_canonical_v1/images/scene-tos_daylight__frame-0048__in-1080p__method-conventional_lanczos__out-1440p.png",
@@ -623,7 +707,11 @@
       "campaign_generation": "post_lattice_fix_canonical_v1",
       "pipeline_revision": "temporal_lattice_fix_closeout",
       "binary_sha256": "531403376de27ffc107f5647ee58d59146626daf3081c1d090d878880f6581a1",
-      "config_sha256": "576ad1c1d6a02a95a4ef0ce732aea5440fed88d4e0277ea6c9552725d0880346"
+      "config_sha256": "576ad1c1d6a02a95a4ef0ce732aea5440fed88d4e0277ea6c9552725d0880346",
+      "canonical": false,
+      "historical_only": true,
+      "campaign_status": "invalidated_after_human_review",
+      "failed_quality_gate": "visible_periodic_lattice"
     },
     {
       "path": "/home/rolaandjayz/ZCodeProject/temporal_forge_player/review_harness_canonical_v1/images/scene-tos_daylight__frame-0048__in-1080p__method-conventional_bicubic__out-1440p.png",
@@ -644,7 +732,11 @@
       "campaign_generation": "post_lattice_fix_canonical_v1",
       "pipeline_revision": "temporal_lattice_fix_closeout",
       "binary_sha256": "531403376de27ffc107f5647ee58d59146626daf3081c1d090d878880f6581a1",
-      "config_sha256": "576ad1c1d6a02a95a4ef0ce732aea5440fed88d4e0277ea6c9552725d0880346"
+      "config_sha256": "576ad1c1d6a02a95a4ef0ce732aea5440fed88d4e0277ea6c9552725d0880346",
+      "canonical": false,
+      "historical_only": true,
+      "campaign_status": "invalidated_after_human_review",
+      "failed_quality_gate": "visible_periodic_lattice"
     },
     {
       "path": "/home/rolaandjayz/ZCodeProject/temporal_forge_player/review_harness_canonical_v1/images/scene-tos_debris__frame-0048__in-1080p__method-current_cas20__out-1440p.png",
@@ -672,7 +764,11 @@
       "config_sha256": "576ad1c1d6a02a95a4ef0ce732aea5440fed88d4e0277ea6c9552725d0880346",
       "alias_of": "46edaf4ea8524459878c8e5ef1fe3511",
       "campaign_generation": "post_lattice_fix_canonical_v1",
-      "pipeline_revision": "temporal_lattice_fix_closeout"
+      "pipeline_revision": "temporal_lattice_fix_closeout",
+      "canonical": false,
+      "historical_only": true,
+      "campaign_status": "invalidated_after_human_review",
+      "failed_quality_gate": "visible_periodic_lattice"
     },
     {
       "path": "/home/rolaandjayz/ZCodeProject/temporal_forge_player/review_harness_canonical_v1/images/scene-tos_debris__frame-0048__in-1080p__method-base_only_bilinear_cas20__out-1440p.png",
@@ -693,7 +789,11 @@
       "campaign_generation": "post_lattice_fix_canonical_v1",
       "pipeline_revision": "temporal_lattice_fix_closeout",
       "binary_sha256": "531403376de27ffc107f5647ee58d59146626daf3081c1d090d878880f6581a1",
-      "config_sha256": "576ad1c1d6a02a95a4ef0ce732aea5440fed88d4e0277ea6c9552725d0880346"
+      "config_sha256": "576ad1c1d6a02a95a4ef0ce732aea5440fed88d4e0277ea6c9552725d0880346",
+      "canonical": false,
+      "historical_only": true,
+      "campaign_status": "invalidated_after_human_review",
+      "failed_quality_gate": "visible_periodic_lattice"
     },
     {
       "path": "/home/rolaandjayz/ZCodeProject/temporal_forge_player/review_harness_canonical_v1/images/scene-tos_debris__frame-0048__in-1080p__method-fsr_direct_cas20__out-1440p.png",
@@ -720,7 +820,11 @@
       "binary_sha256": "531403376de27ffc107f5647ee58d59146626daf3081c1d090d878880f6581a1",
       "config_sha256": "576ad1c1d6a02a95a4ef0ce732aea5440fed88d4e0277ea6c9552725d0880346",
       "campaign_generation": "post_lattice_fix_canonical_v1",
-      "pipeline_revision": "temporal_lattice_fix_closeout"
+      "pipeline_revision": "temporal_lattice_fix_closeout",
+      "canonical": false,
+      "historical_only": true,
+      "campaign_status": "invalidated_after_human_review",
+      "failed_quality_gate": "visible_periodic_lattice"
     },
     {
       "path": "/home/rolaandjayz/ZCodeProject/temporal_forge_player/review_harness_canonical_v1/images/scene-tos_debris__frame-0048__in-1080p__method-fsr_200x_downsample_resolve_cas20__out-1440p.png",
@@ -747,7 +851,11 @@
       "binary_sha256": "531403376de27ffc107f5647ee58d59146626daf3081c1d090d878880f6581a1",
       "config_sha256": "576ad1c1d6a02a95a4ef0ce732aea5440fed88d4e0277ea6c9552725d0880346",
       "campaign_generation": "post_lattice_fix_canonical_v1",
-      "pipeline_revision": "temporal_lattice_fix_closeout"
+      "pipeline_revision": "temporal_lattice_fix_closeout",
+      "canonical": false,
+      "historical_only": true,
+      "campaign_status": "invalidated_after_human_review",
+      "failed_quality_gate": "visible_periodic_lattice"
     },
     {
       "path": "/home/rolaandjayz/ZCodeProject/temporal_forge_player/review_harness_canonical_v1/images/scene-tos_debris__frame-0048__in-1080p__method-fsr_200x_downsample_external_post_cas20__out-1440p.png",
@@ -774,7 +882,11 @@
       "binary_sha256": "531403376de27ffc107f5647ee58d59146626daf3081c1d090d878880f6581a1",
       "config_sha256": "576ad1c1d6a02a95a4ef0ce732aea5440fed88d4e0277ea6c9552725d0880346",
       "campaign_generation": "post_lattice_fix_canonical_v1",
-      "pipeline_revision": "temporal_lattice_fix_closeout"
+      "pipeline_revision": "temporal_lattice_fix_closeout",
+      "canonical": false,
+      "historical_only": true,
+      "campaign_status": "invalidated_after_human_review",
+      "failed_quality_gate": "visible_periodic_lattice"
     },
     {
       "path": "/home/rolaandjayz/ZCodeProject/temporal_forge_player/review_harness_canonical_v1/images/scene-tos_debris__frame-0048__in-1080p__method-fsr_200x_downsample_no_cas__out-1440p.png",
@@ -801,7 +913,11 @@
       "binary_sha256": "531403376de27ffc107f5647ee58d59146626daf3081c1d090d878880f6581a1",
       "config_sha256": "576ad1c1d6a02a95a4ef0ce732aea5440fed88d4e0277ea6c9552725d0880346",
       "campaign_generation": "post_lattice_fix_canonical_v1",
-      "pipeline_revision": "temporal_lattice_fix_closeout"
+      "pipeline_revision": "temporal_lattice_fix_closeout",
+      "canonical": false,
+      "historical_only": true,
+      "campaign_status": "invalidated_after_human_review",
+      "failed_quality_gate": "visible_periodic_lattice"
     },
     {
       "path": "/home/rolaandjayz/ZCodeProject/temporal_forge_player/review_harness_canonical_v1/images/scene-tos_debris__frame-0048__in-1080p__method-fsr_225x_downsample_resolve_cas20__out-1440p.png",
@@ -828,7 +944,11 @@
       "binary_sha256": "531403376de27ffc107f5647ee58d59146626daf3081c1d090d878880f6581a1",
       "config_sha256": "576ad1c1d6a02a95a4ef0ce732aea5440fed88d4e0277ea6c9552725d0880346",
       "campaign_generation": "post_lattice_fix_canonical_v1",
-      "pipeline_revision": "temporal_lattice_fix_closeout"
+      "pipeline_revision": "temporal_lattice_fix_closeout",
+      "canonical": false,
+      "historical_only": true,
+      "campaign_status": "invalidated_after_human_review",
+      "failed_quality_gate": "visible_periodic_lattice"
     },
     {
       "path": "/home/rolaandjayz/ZCodeProject/temporal_forge_player/review_harness_canonical_v1/images/scene-tos_debris__frame-0048__in-1080p__method-fsr_225x_downsample_external_post_cas20__out-1440p.png",
@@ -855,7 +975,11 @@
       "binary_sha256": "531403376de27ffc107f5647ee58d59146626daf3081c1d090d878880f6581a1",
       "config_sha256": "576ad1c1d6a02a95a4ef0ce732aea5440fed88d4e0277ea6c9552725d0880346",
       "campaign_generation": "post_lattice_fix_canonical_v1",
-      "pipeline_revision": "temporal_lattice_fix_closeout"
+      "pipeline_revision": "temporal_lattice_fix_closeout",
+      "canonical": false,
+      "historical_only": true,
+      "campaign_status": "invalidated_after_human_review",
+      "failed_quality_gate": "visible_periodic_lattice"
     },
     {
       "path": "/home/rolaandjayz/ZCodeProject/temporal_forge_player/review_harness_canonical_v1/images/scene-tos_debris__frame-0048__in-1080p__method-fsr_225x_downsample_no_cas__out-1440p.png",
@@ -882,7 +1006,11 @@
       "binary_sha256": "531403376de27ffc107f5647ee58d59146626daf3081c1d090d878880f6581a1",
       "config_sha256": "576ad1c1d6a02a95a4ef0ce732aea5440fed88d4e0277ea6c9552725d0880346",
       "campaign_generation": "post_lattice_fix_canonical_v1",
-      "pipeline_revision": "temporal_lattice_fix_closeout"
+      "pipeline_revision": "temporal_lattice_fix_closeout",
+      "canonical": false,
+      "historical_only": true,
+      "campaign_status": "invalidated_after_human_review",
+      "failed_quality_gate": "visible_periodic_lattice"
     },
     {
       "path": "/home/rolaandjayz/ZCodeProject/temporal_forge_player/review_harness_canonical_v1/images/scene-tos_debris__frame-0048__in-1080p__method-fsr_250x_downsample_resolve_cas20__out-1440p.png",
@@ -909,7 +1037,11 @@
       "binary_sha256": "531403376de27ffc107f5647ee58d59146626daf3081c1d090d878880f6581a1",
       "config_sha256": "576ad1c1d6a02a95a4ef0ce732aea5440fed88d4e0277ea6c9552725d0880346",
       "campaign_generation": "post_lattice_fix_canonical_v1",
-      "pipeline_revision": "temporal_lattice_fix_closeout"
+      "pipeline_revision": "temporal_lattice_fix_closeout",
+      "canonical": false,
+      "historical_only": true,
+      "campaign_status": "invalidated_after_human_review",
+      "failed_quality_gate": "visible_periodic_lattice"
     },
     {
       "path": "/home/rolaandjayz/ZCodeProject/temporal_forge_player/review_harness_canonical_v1/images/scene-tos_debris__frame-0048__in-1080p__method-fsr_250x_downsample_external_post_cas20__out-1440p.png",
@@ -936,7 +1068,11 @@
       "binary_sha256": "531403376de27ffc107f5647ee58d59146626daf3081c1d090d878880f6581a1",
       "config_sha256": "576ad1c1d6a02a95a4ef0ce732aea5440fed88d4e0277ea6c9552725d0880346",
       "campaign_generation": "post_lattice_fix_canonical_v1",
-      "pipeline_revision": "temporal_lattice_fix_closeout"
+      "pipeline_revision": "temporal_lattice_fix_closeout",
+      "canonical": false,
+      "historical_only": true,
+      "campaign_status": "invalidated_after_human_review",
+      "failed_quality_gate": "visible_periodic_lattice"
     },
     {
       "path": "/home/rolaandjayz/ZCodeProject/temporal_forge_player/review_harness_canonical_v1/images/scene-tos_debris__frame-0048__in-1080p__method-fsr_250x_downsample_no_cas__out-1440p.png",
@@ -963,7 +1099,11 @@
       "binary_sha256": "531403376de27ffc107f5647ee58d59146626daf3081c1d090d878880f6581a1",
       "config_sha256": "576ad1c1d6a02a95a4ef0ce732aea5440fed88d4e0277ea6c9552725d0880346",
       "campaign_generation": "post_lattice_fix_canonical_v1",
-      "pipeline_revision": "temporal_lattice_fix_closeout"
+      "pipeline_revision": "temporal_lattice_fix_closeout",
+      "canonical": false,
+      "historical_only": true,
+      "campaign_status": "invalidated_after_human_review",
+      "failed_quality_gate": "visible_periodic_lattice"
     },
     {
       "path": "/home/rolaandjayz/ZCodeProject/temporal_forge_player/review_harness_canonical_v1/images/scene-tos_debris__frame-0048__in-1080p__method-fsr_275x_downsample_resolve_cas20__out-1440p.png",
@@ -990,7 +1130,11 @@
       "binary_sha256": "531403376de27ffc107f5647ee58d59146626daf3081c1d090d878880f6581a1",
       "config_sha256": "576ad1c1d6a02a95a4ef0ce732aea5440fed88d4e0277ea6c9552725d0880346",
       "campaign_generation": "post_lattice_fix_canonical_v1",
-      "pipeline_revision": "temporal_lattice_fix_closeout"
+      "pipeline_revision": "temporal_lattice_fix_closeout",
+      "canonical": false,
+      "historical_only": true,
+      "campaign_status": "invalidated_after_human_review",
+      "failed_quality_gate": "visible_periodic_lattice"
     },
     {
       "path": "/home/rolaandjayz/ZCodeProject/temporal_forge_player/review_harness_canonical_v1/images/scene-tos_debris__frame-0048__in-1080p__method-fsr_275x_downsample_external_post_cas20__out-1440p.png",
@@ -1017,7 +1161,11 @@
       "binary_sha256": "531403376de27ffc107f5647ee58d59146626daf3081c1d090d878880f6581a1",
       "config_sha256": "576ad1c1d6a02a95a4ef0ce732aea5440fed88d4e0277ea6c9552725d0880346",
       "campaign_generation": "post_lattice_fix_canonical_v1",
-      "pipeline_revision": "temporal_lattice_fix_closeout"
+      "pipeline_revision": "temporal_lattice_fix_closeout",
+      "canonical": false,
+      "historical_only": true,
+      "campaign_status": "invalidated_after_human_review",
+      "failed_quality_gate": "visible_periodic_lattice"
     },
     {
       "path": "/home/rolaandjayz/ZCodeProject/temporal_forge_player/review_harness_canonical_v1/images/scene-tos_debris__frame-0048__in-1080p__method-fsr_275x_downsample_no_cas__out-1440p.png",
@@ -1044,7 +1192,11 @@
       "binary_sha256": "531403376de27ffc107f5647ee58d59146626daf3081c1d090d878880f6581a1",
       "config_sha256": "576ad1c1d6a02a95a4ef0ce732aea5440fed88d4e0277ea6c9552725d0880346",
       "campaign_generation": "post_lattice_fix_canonical_v1",
-      "pipeline_revision": "temporal_lattice_fix_closeout"
+      "pipeline_revision": "temporal_lattice_fix_closeout",
+      "canonical": false,
+      "historical_only": true,
+      "campaign_status": "invalidated_after_human_review",
+      "failed_quality_gate": "visible_periodic_lattice"
     },
     {
       "path": "/home/rolaandjayz/ZCodeProject/temporal_forge_player/review_harness_canonical_v1/images/scene-tos_debris__frame-0048__in-1080p__method-fsr_300x_downsample_resolve_cas20__out-1440p.png",
@@ -1071,7 +1223,11 @@
       "binary_sha256": "531403376de27ffc107f5647ee58d59146626daf3081c1d090d878880f6581a1",
       "config_sha256": "576ad1c1d6a02a95a4ef0ce732aea5440fed88d4e0277ea6c9552725d0880346",
       "campaign_generation": "post_lattice_fix_canonical_v1",
-      "pipeline_revision": "temporal_lattice_fix_closeout"
+      "pipeline_revision": "temporal_lattice_fix_closeout",
+      "canonical": false,
+      "historical_only": true,
+      "campaign_status": "invalidated_after_human_review",
+      "failed_quality_gate": "visible_periodic_lattice"
     },
     {
       "path": "/home/rolaandjayz/ZCodeProject/temporal_forge_player/review_harness_canonical_v1/images/scene-tos_debris__frame-0048__in-1080p__method-fsr_300x_downsample_external_post_cas20__out-1440p.png",
@@ -1098,7 +1254,11 @@
       "binary_sha256": "531403376de27ffc107f5647ee58d59146626daf3081c1d090d878880f6581a1",
       "config_sha256": "576ad1c1d6a02a95a4ef0ce732aea5440fed88d4e0277ea6c9552725d0880346",
       "campaign_generation": "post_lattice_fix_canonical_v1",
-      "pipeline_revision": "temporal_lattice_fix_closeout"
+      "pipeline_revision": "temporal_lattice_fix_closeout",
+      "canonical": false,
+      "historical_only": true,
+      "campaign_status": "invalidated_after_human_review",
+      "failed_quality_gate": "visible_periodic_lattice"
     },
     {
       "path": "/home/rolaandjayz/ZCodeProject/temporal_forge_player/review_harness_canonical_v1/images/scene-tos_debris__frame-0048__in-1080p__method-fsr_300x_downsample_no_cas__out-1440p.png",
@@ -1125,7 +1285,11 @@
       "binary_sha256": "531403376de27ffc107f5647ee58d59146626daf3081c1d090d878880f6581a1",
       "config_sha256": "576ad1c1d6a02a95a4ef0ce732aea5440fed88d4e0277ea6c9552725d0880346",
       "campaign_generation": "post_lattice_fix_canonical_v1",
-      "pipeline_revision": "temporal_lattice_fix_closeout"
+      "pipeline_revision": "temporal_lattice_fix_closeout",
+      "canonical": false,
+      "historical_only": true,
+      "campaign_status": "invalidated_after_human_review",
+      "failed_quality_gate": "visible_periodic_lattice"
     },
     {
       "path": "/home/rolaandjayz/ZCodeProject/temporal_forge_player/review_harness_canonical_v1/images/scene-tos_debris__frame-0048__in-1080p__method-fsr_nativeaa_downsample_resolve_cas20__out-1440p.png",
@@ -1152,7 +1316,11 @@
       "binary_sha256": "531403376de27ffc107f5647ee58d59146626daf3081c1d090d878880f6581a1",
       "config_sha256": "576ad1c1d6a02a95a4ef0ce732aea5440fed88d4e0277ea6c9552725d0880346",
       "campaign_generation": "post_lattice_fix_canonical_v1",
-      "pipeline_revision": "temporal_lattice_fix_closeout"
+      "pipeline_revision": "temporal_lattice_fix_closeout",
+      "canonical": false,
+      "historical_only": true,
+      "campaign_status": "invalidated_after_human_review",
+      "failed_quality_gate": "visible_periodic_lattice"
     },
     {
       "path": "/home/rolaandjayz/ZCodeProject/temporal_forge_player/review_harness_canonical_v1/images/scene-tos_debris__frame-0048__in-1080p__method-fsr_nativeaa_downsample_external_post_cas20__out-1440p.png",
@@ -1179,7 +1347,11 @@
       "binary_sha256": "531403376de27ffc107f5647ee58d59146626daf3081c1d090d878880f6581a1",
       "config_sha256": "576ad1c1d6a02a95a4ef0ce732aea5440fed88d4e0277ea6c9552725d0880346",
       "campaign_generation": "post_lattice_fix_canonical_v1",
-      "pipeline_revision": "temporal_lattice_fix_closeout"
+      "pipeline_revision": "temporal_lattice_fix_closeout",
+      "canonical": false,
+      "historical_only": true,
+      "campaign_status": "invalidated_after_human_review",
+      "failed_quality_gate": "visible_periodic_lattice"
     },
     {
       "path": "/home/rolaandjayz/ZCodeProject/temporal_forge_player/review_harness_canonical_v1/images/scene-tos_debris__frame-0048__in-1080p__method-fsr_nativeaa_downsample_no_cas__out-1440p.png",
@@ -1206,7 +1378,11 @@
       "binary_sha256": "531403376de27ffc107f5647ee58d59146626daf3081c1d090d878880f6581a1",
       "config_sha256": "576ad1c1d6a02a95a4ef0ce732aea5440fed88d4e0277ea6c9552725d0880346",
       "campaign_generation": "post_lattice_fix_canonical_v1",
-      "pipeline_revision": "temporal_lattice_fix_closeout"
+      "pipeline_revision": "temporal_lattice_fix_closeout",
+      "canonical": false,
+      "historical_only": true,
+      "campaign_status": "invalidated_after_human_review",
+      "failed_quality_gate": "visible_periodic_lattice"
     },
     {
       "path": "/home/rolaandjayz/ZCodeProject/temporal_forge_player/review_harness_canonical_v1/images/scene-tos_debris__frame-0048__in-1080p__method-conventional_lanczos__out-1440p.png",
@@ -1227,7 +1403,11 @@
       "campaign_generation": "post_lattice_fix_canonical_v1",
       "pipeline_revision": "temporal_lattice_fix_closeout",
       "binary_sha256": "531403376de27ffc107f5647ee58d59146626daf3081c1d090d878880f6581a1",
-      "config_sha256": "576ad1c1d6a02a95a4ef0ce732aea5440fed88d4e0277ea6c9552725d0880346"
+      "config_sha256": "576ad1c1d6a02a95a4ef0ce732aea5440fed88d4e0277ea6c9552725d0880346",
+      "canonical": false,
+      "historical_only": true,
+      "campaign_status": "invalidated_after_human_review",
+      "failed_quality_gate": "visible_periodic_lattice"
     },
     {
       "path": "/home/rolaandjayz/ZCodeProject/temporal_forge_player/review_harness_canonical_v1/images/scene-tos_debris__frame-0048__in-1080p__method-conventional_bicubic__out-1440p.png",
@@ -1248,7 +1428,11 @@
       "campaign_generation": "post_lattice_fix_canonical_v1",
       "pipeline_revision": "temporal_lattice_fix_closeout",
       "binary_sha256": "531403376de27ffc107f5647ee58d59146626daf3081c1d090d878880f6581a1",
-      "config_sha256": "576ad1c1d6a02a95a4ef0ce732aea5440fed88d4e0277ea6c9552725d0880346"
+      "config_sha256": "576ad1c1d6a02a95a4ef0ce732aea5440fed88d4e0277ea6c9552725d0880346",
+      "canonical": false,
+      "historical_only": true,
+      "campaign_status": "invalidated_after_human_review",
+      "failed_quality_gate": "visible_periodic_lattice"
     },
     {
       "path": "/home/rolaandjayz/ZCodeProject/temporal_forge_player/review_harness_canonical_v1/images/scene-sintel_rooftop__frame-0048__in-1080p__method-current_cas20__out-1440p.png",
@@ -1276,7 +1460,11 @@
       "config_sha256": "576ad1c1d6a02a95a4ef0ce732aea5440fed88d4e0277ea6c9552725d0880346",
       "alias_of": "df85e9b81e7c4649957a1770424fd93d",
       "campaign_generation": "post_lattice_fix_canonical_v1",
-      "pipeline_revision": "temporal_lattice_fix_closeout"
+      "pipeline_revision": "temporal_lattice_fix_closeout",
+      "canonical": false,
+      "historical_only": true,
+      "campaign_status": "invalidated_after_human_review",
+      "failed_quality_gate": "visible_periodic_lattice"
     },
     {
       "path": "/home/rolaandjayz/ZCodeProject/temporal_forge_player/review_harness_canonical_v1/images/scene-sintel_rooftop__frame-0048__in-1080p__method-base_only_bilinear_cas20__out-1440p.png",
@@ -1297,7 +1485,11 @@
       "campaign_generation": "post_lattice_fix_canonical_v1",
       "pipeline_revision": "temporal_lattice_fix_closeout",
       "binary_sha256": "531403376de27ffc107f5647ee58d59146626daf3081c1d090d878880f6581a1",
-      "config_sha256": "576ad1c1d6a02a95a4ef0ce732aea5440fed88d4e0277ea6c9552725d0880346"
+      "config_sha256": "576ad1c1d6a02a95a4ef0ce732aea5440fed88d4e0277ea6c9552725d0880346",
+      "canonical": false,
+      "historical_only": true,
+      "campaign_status": "invalidated_after_human_review",
+      "failed_quality_gate": "visible_periodic_lattice"
     },
     {
       "path": "/home/rolaandjayz/ZCodeProject/temporal_forge_player/review_harness_canonical_v1/images/scene-sintel_rooftop__frame-0048__in-1080p__method-fsr_direct_cas20__out-1440p.png",
@@ -1324,7 +1516,11 @@
       "binary_sha256": "531403376de27ffc107f5647ee58d59146626daf3081c1d090d878880f6581a1",
       "config_sha256": "576ad1c1d6a02a95a4ef0ce732aea5440fed88d4e0277ea6c9552725d0880346",
       "campaign_generation": "post_lattice_fix_canonical_v1",
-      "pipeline_revision": "temporal_lattice_fix_closeout"
+      "pipeline_revision": "temporal_lattice_fix_closeout",
+      "canonical": false,
+      "historical_only": true,
+      "campaign_status": "invalidated_after_human_review",
+      "failed_quality_gate": "visible_periodic_lattice"
     },
     {
       "path": "/home/rolaandjayz/ZCodeProject/temporal_forge_player/review_harness_canonical_v1/images/scene-sintel_rooftop__frame-0048__in-1080p__method-fsr_200x_downsample_resolve_cas20__out-1440p.png",
@@ -1351,7 +1547,11 @@
       "binary_sha256": "531403376de27ffc107f5647ee58d59146626daf3081c1d090d878880f6581a1",
       "config_sha256": "576ad1c1d6a02a95a4ef0ce732aea5440fed88d4e0277ea6c9552725d0880346",
       "campaign_generation": "post_lattice_fix_canonical_v1",
-      "pipeline_revision": "temporal_lattice_fix_closeout"
+      "pipeline_revision": "temporal_lattice_fix_closeout",
+      "canonical": false,
+      "historical_only": true,
+      "campaign_status": "invalidated_after_human_review",
+      "failed_quality_gate": "visible_periodic_lattice"
     },
     {
       "path": "/home/rolaandjayz/ZCodeProject/temporal_forge_player/review_harness_canonical_v1/images/scene-sintel_rooftop__frame-0048__in-1080p__method-fsr_200x_downsample_external_post_cas20__out-1440p.png",
@@ -1378,7 +1578,11 @@
       "binary_sha256": "531403376de27ffc107f5647ee58d59146626daf3081c1d090d878880f6581a1",
       "config_sha256": "576ad1c1d6a02a95a4ef0ce732aea5440fed88d4e0277ea6c9552725d0880346",
       "campaign_generation": "post_lattice_fix_canonical_v1",
-      "pipeline_revision": "temporal_lattice_fix_closeout"
+      "pipeline_revision": "temporal_lattice_fix_closeout",
+      "canonical": false,
+      "historical_only": true,
+      "campaign_status": "invalidated_after_human_review",
+      "failed_quality_gate": "visible_periodic_lattice"
     },
     {
       "path": "/home/rolaandjayz/ZCodeProject/temporal_forge_player/review_harness_canonical_v1/images/scene-sintel_rooftop__frame-0048__in-1080p__method-fsr_200x_downsample_no_cas__out-1440p.png",
@@ -1405,7 +1609,11 @@
       "binary_sha256": "531403376de27ffc107f5647ee58d59146626daf3081c1d090d878880f6581a1",
       "config_sha256": "576ad1c1d6a02a95a4ef0ce732aea5440fed88d4e0277ea6c9552725d0880346",
       "campaign_generation": "post_lattice_fix_canonical_v1",
-      "pipeline_revision": "temporal_lattice_fix_closeout"
+      "pipeline_revision": "temporal_lattice_fix_closeout",
+      "canonical": false,
+      "historical_only": true,
+      "campaign_status": "invalidated_after_human_review",
+      "failed_quality_gate": "visible_periodic_lattice"
     },
     {
       "path": "/home/rolaandjayz/ZCodeProject/temporal_forge_player/review_harness_canonical_v1/images/scene-sintel_rooftop__frame-0048__in-1080p__method-fsr_225x_downsample_resolve_cas20__out-1440p.png",
@@ -1432,7 +1640,11 @@
       "binary_sha256": "531403376de27ffc107f5647ee58d59146626daf3081c1d090d878880f6581a1",
       "config_sha256": "576ad1c1d6a02a95a4ef0ce732aea5440fed88d4e0277ea6c9552725d0880346",
       "campaign_generation": "post_lattice_fix_canonical_v1",
-      "pipeline_revision": "temporal_lattice_fix_closeout"
+      "pipeline_revision": "temporal_lattice_fix_closeout",
+      "canonical": false,
+      "historical_only": true,
+      "campaign_status": "invalidated_after_human_review",
+      "failed_quality_gate": "visible_periodic_lattice"
     },
     {
       "path": "/home/rolaandjayz/ZCodeProject/temporal_forge_player/review_harness_canonical_v1/images/scene-sintel_rooftop__frame-0048__in-1080p__method-fsr_225x_downsample_external_post_cas20__out-1440p.png",
@@ -1459,7 +1671,11 @@
       "binary_sha256": "531403376de27ffc107f5647ee58d59146626daf3081c1d090d878880f6581a1",
       "config_sha256": "576ad1c1d6a02a95a4ef0ce732aea5440fed88d4e0277ea6c9552725d0880346",
       "campaign_generation": "post_lattice_fix_canonical_v1",
-      "pipeline_revision": "temporal_lattice_fix_closeout"
+      "pipeline_revision": "temporal_lattice_fix_closeout",
+      "canonical": false,
+      "historical_only": true,
+      "campaign_status": "invalidated_after_human_review",
+      "failed_quality_gate": "visible_periodic_lattice"
     },
     {
       "path": "/home/rolaandjayz/ZCodeProject/temporal_forge_player/review_harness_canonical_v1/images/scene-sintel_rooftop__frame-0048__in-1080p__method-fsr_225x_downsample_no_cas__out-1440p.png",
@@ -1486,7 +1702,11 @@
       "binary_sha256": "531403376de27ffc107f5647ee58d59146626daf3081c1d090d878880f6581a1",
       "config_sha256": "576ad1c1d6a02a95a4ef0ce732aea5440fed88d4e0277ea6c9552725d0880346",
       "campaign_generation": "post_lattice_fix_canonical_v1",
-      "pipeline_revision": "temporal_lattice_fix_closeout"
+      "pipeline_revision": "temporal_lattice_fix_closeout",
+      "canonical": false,
+      "historical_only": true,
+      "campaign_status": "invalidated_after_human_review",
+      "failed_quality_gate": "visible_periodic_lattice"
     },
     {
       "path": "/home/rolaandjayz/ZCodeProject/temporal_forge_player/review_harness_canonical_v1/images/scene-sintel_rooftop__frame-0048__in-1080p__method-fsr_250x_downsample_resolve_cas20__out-1440p.png",
@@ -1513,7 +1733,11 @@
       "binary_sha256": "531403376de27ffc107f5647ee58d59146626daf3081c1d090d878880f6581a1",
       "config_sha256": "576ad1c1d6a02a95a4ef0ce732aea5440fed88d4e0277ea6c9552725d0880346",
       "campaign_generation": "post_lattice_fix_canonical_v1",
-      "pipeline_revision": "temporal_lattice_fix_closeout"
+      "pipeline_revision": "temporal_lattice_fix_closeout",
+      "canonical": false,
+      "historical_only": true,
+      "campaign_status": "invalidated_after_human_review",
+      "failed_quality_gate": "visible_periodic_lattice"
     },
     {
       "path": "/home/rolaandjayz/ZCodeProject/temporal_forge_player/review_harness_canonical_v1/images/scene-sintel_rooftop__frame-0048__in-1080p__method-fsr_250x_downsample_external_post_cas20__out-1440p.png",
@@ -1540,7 +1764,11 @@
       "binary_sha256": "531403376de27ffc107f5647ee58d59146626daf3081c1d090d878880f6581a1",
       "config_sha256": "576ad1c1d6a02a95a4ef0ce732aea5440fed88d4e0277ea6c9552725d0880346",
       "campaign_generation": "post_lattice_fix_canonical_v1",
-      "pipeline_revision": "temporal_lattice_fix_closeout"
+      "pipeline_revision": "temporal_lattice_fix_closeout",
+      "canonical": false,
+      "historical_only": true,
+      "campaign_status": "invalidated_after_human_review",
+      "failed_quality_gate": "visible_periodic_lattice"
     },
     {
       "path": "/home/rolaandjayz/ZCodeProject/temporal_forge_player/review_harness_canonical_v1/images/scene-sintel_rooftop__frame-0048__in-1080p__method-fsr_250x_downsample_no_cas__out-1440p.png",
@@ -1567,7 +1795,11 @@
       "binary_sha256": "531403376de27ffc107f5647ee58d59146626daf3081c1d090d878880f6581a1",
       "config_sha256": "576ad1c1d6a02a95a4ef0ce732aea5440fed88d4e0277ea6c9552725d0880346",
       "campaign_generation": "post_lattice_fix_canonical_v1",
-      "pipeline_revision": "temporal_lattice_fix_closeout"
+      "pipeline_revision": "temporal_lattice_fix_closeout",
+      "canonical": false,
+      "historical_only": true,
+      "campaign_status": "invalidated_after_human_review",
+      "failed_quality_gate": "visible_periodic_lattice"
     },
     {
       "path": "/home/rolaandjayz/ZCodeProject/temporal_forge_player/review_harness_canonical_v1/images/scene-sintel_rooftop__frame-0048__in-1080p__method-fsr_275x_downsample_resolve_cas20__out-1440p.png",
@@ -1594,7 +1826,11 @@
       "binary_sha256": "531403376de27ffc107f5647ee58d59146626daf3081c1d090d878880f6581a1",
       "config_sha256": "576ad1c1d6a02a95a4ef0ce732aea5440fed88d4e0277ea6c9552725d0880346",
       "campaign_generation": "post_lattice_fix_canonical_v1",
-      "pipeline_revision": "temporal_lattice_fix_closeout"
+      "pipeline_revision": "temporal_lattice_fix_closeout",
+      "canonical": false,
+      "historical_only": true,
+      "campaign_status": "invalidated_after_human_review",
+      "failed_quality_gate": "visible_periodic_lattice"
     },
     {
       "path": "/home/rolaandjayz/ZCodeProject/temporal_forge_player/review_harness_canonical_v1/images/scene-sintel_rooftop__frame-0048__in-1080p__method-fsr_275x_downsample_external_post_cas20__out-1440p.png",
@@ -1621,7 +1857,11 @@
       "binary_sha256": "531403376de27ffc107f5647ee58d59146626daf3081c1d090d878880f6581a1",
       "config_sha256": "576ad1c1d6a02a95a4ef0ce732aea5440fed88d4e0277ea6c9552725d0880346",
       "campaign_generation": "post_lattice_fix_canonical_v1",
-      "pipeline_revision": "temporal_lattice_fix_closeout"
+      "pipeline_revision": "temporal_lattice_fix_closeout",
+      "canonical": false,
+      "historical_only": true,
+      "campaign_status": "invalidated_after_human_review",
+      "failed_quality_gate": "visible_periodic_lattice"
     },
     {
       "path": "/home/rolaandjayz/ZCodeProject/temporal_forge_player/review_harness_canonical_v1/images/scene-sintel_rooftop__frame-0048__in-1080p__method-fsr_275x_downsample_no_cas__out-1440p.png",
@@ -1648,7 +1888,11 @@
       "binary_sha256": "531403376de27ffc107f5647ee58d59146626daf3081c1d090d878880f6581a1",
       "config_sha256": "576ad1c1d6a02a95a4ef0ce732aea5440fed88d4e0277ea6c9552725d0880346",
       "campaign_generation": "post_lattice_fix_canonical_v1",
-      "pipeline_revision": "temporal_lattice_fix_closeout"
+      "pipeline_revision": "temporal_lattice_fix_closeout",
+      "canonical": false,
+      "historical_only": true,
+      "campaign_status": "invalidated_after_human_review",
+      "failed_quality_gate": "visible_periodic_lattice"
     },
     {
       "path": "/home/rolaandjayz/ZCodeProject/temporal_forge_player/review_harness_canonical_v1/images/scene-sintel_rooftop__frame-0048__in-1080p__method-fsr_300x_downsample_resolve_cas20__out-1440p.png",
@@ -1675,7 +1919,11 @@
       "binary_sha256": "531403376de27ffc107f5647ee58d59146626daf3081c1d090d878880f6581a1",
       "config_sha256": "576ad1c1d6a02a95a4ef0ce732aea5440fed88d4e0277ea6c9552725d0880346",
       "campaign_generation": "post_lattice_fix_canonical_v1",
-      "pipeline_revision": "temporal_lattice_fix_closeout"
+      "pipeline_revision": "temporal_lattice_fix_closeout",
+      "canonical": false,
+      "historical_only": true,
+      "campaign_status": "invalidated_after_human_review",
+      "failed_quality_gate": "visible_periodic_lattice"
     },
     {
       "path": "/home/rolaandjayz/ZCodeProject/temporal_forge_player/review_harness_canonical_v1/images/scene-sintel_rooftop__frame-0048__in-1080p__method-fsr_300x_downsample_external_post_cas20__out-1440p.png",
@@ -1702,7 +1950,11 @@
       "binary_sha256": "531403376de27ffc107f5647ee58d59146626daf3081c1d090d878880f6581a1",
       "config_sha256": "576ad1c1d6a02a95a4ef0ce732aea5440fed88d4e0277ea6c9552725d0880346",
       "campaign_generation": "post_lattice_fix_canonical_v1",
-      "pipeline_revision": "temporal_lattice_fix_closeout"
+      "pipeline_revision": "temporal_lattice_fix_closeout",
+      "canonical": false,
+      "historical_only": true,
+      "campaign_status": "invalidated_after_human_review",
+      "failed_quality_gate": "visible_periodic_lattice"
     },
     {
       "path": "/home/rolaandjayz/ZCodeProject/temporal_forge_player/review_harness_canonical_v1/images/scene-sintel_rooftop__frame-0048__in-1080p__method-fsr_300x_downsample_no_cas__out-1440p.png",
@@ -1729,7 +1981,11 @@
       "binary_sha256": "531403376de27ffc107f5647ee58d59146626daf3081c1d090d878880f6581a1",
       "config_sha256": "576ad1c1d6a02a95a4ef0ce732aea5440fed88d4e0277ea6c9552725d0880346",
       "campaign_generation": "post_lattice_fix_canonical_v1",
-      "pipeline_revision": "temporal_lattice_fix_closeout"
+      "pipeline_revision": "temporal_lattice_fix_closeout",
+      "canonical": false,
+      "historical_only": true,
+      "campaign_status": "invalidated_after_human_review",
+      "failed_quality_gate": "visible_periodic_lattice"
     },
     {
       "path": "/home/rolaandjayz/ZCodeProject/temporal_forge_player/review_harness_canonical_v1/images/scene-sintel_rooftop__frame-0048__in-1080p__method-fsr_nativeaa_downsample_resolve_cas20__out-1440p.png",
@@ -1756,7 +2012,11 @@
       "binary_sha256": "531403376de27ffc107f5647ee58d59146626daf3081c1d090d878880f6581a1",
       "config_sha256": "576ad1c1d6a02a95a4ef0ce732aea5440fed88d4e0277ea6c9552725d0880346",
       "campaign_generation": "post_lattice_fix_canonical_v1",
-      "pipeline_revision": "temporal_lattice_fix_closeout"
+      "pipeline_revision": "temporal_lattice_fix_closeout",
+      "canonical": false,
+      "historical_only": true,
+      "campaign_status": "invalidated_after_human_review",
+      "failed_quality_gate": "visible_periodic_lattice"
     },
     {
       "path": "/home/rolaandjayz/ZCodeProject/temporal_forge_player/review_harness_canonical_v1/images/scene-sintel_rooftop__frame-0048__in-1080p__method-fsr_nativeaa_downsample_external_post_cas20__out-1440p.png",
@@ -1783,7 +2043,11 @@
       "binary_sha256": "531403376de27ffc107f5647ee58d59146626daf3081c1d090d878880f6581a1",
       "config_sha256": "576ad1c1d6a02a95a4ef0ce732aea5440fed88d4e0277ea6c9552725d0880346",
       "campaign_generation": "post_lattice_fix_canonical_v1",
-      "pipeline_revision": "temporal_lattice_fix_closeout"
+      "pipeline_revision": "temporal_lattice_fix_closeout",
+      "canonical": false,
+      "historical_only": true,
+      "campaign_status": "invalidated_after_human_review",
+      "failed_quality_gate": "visible_periodic_lattice"
     },
     {
       "path": "/home/rolaandjayz/ZCodeProject/temporal_forge_player/review_harness_canonical_v1/images/scene-sintel_rooftop__frame-0048__in-1080p__method-fsr_nativeaa_downsample_no_cas__out-1440p.png",
@@ -1810,7 +2074,11 @@
       "binary_sha256": "531403376de27ffc107f5647ee58d59146626daf3081c1d090d878880f6581a1",
       "config_sha256": "576ad1c1d6a02a95a4ef0ce732aea5440fed88d4e0277ea6c9552725d0880346",
       "campaign_generation": "post_lattice_fix_canonical_v1",
-      "pipeline_revision": "temporal_lattice_fix_closeout"
+      "pipeline_revision": "temporal_lattice_fix_closeout",
+      "canonical": false,
+      "historical_only": true,
+      "campaign_status": "invalidated_after_human_review",
+      "failed_quality_gate": "visible_periodic_lattice"
     },
     {
       "path": "/home/rolaandjayz/ZCodeProject/temporal_forge_player/review_harness_canonical_v1/images/scene-sintel_rooftop__frame-0048__in-1080p__method-conventional_lanczos__out-1440p.png",
@@ -1831,7 +2099,11 @@
       "campaign_generation": "post_lattice_fix_canonical_v1",
       "pipeline_revision": "temporal_lattice_fix_closeout",
       "binary_sha256": "531403376de27ffc107f5647ee58d59146626daf3081c1d090d878880f6581a1",
-      "config_sha256": "576ad1c1d6a02a95a4ef0ce732aea5440fed88d4e0277ea6c9552725d0880346"
+      "config_sha256": "576ad1c1d6a02a95a4ef0ce732aea5440fed88d4e0277ea6c9552725d0880346",
+      "canonical": false,
+      "historical_only": true,
+      "campaign_status": "invalidated_after_human_review",
+      "failed_quality_gate": "visible_periodic_lattice"
     },
     {
       "path": "/home/rolaandjayz/ZCodeProject/temporal_forge_player/review_harness_canonical_v1/images/scene-sintel_rooftop__frame-0048__in-1080p__method-conventional_bicubic__out-1440p.png",
@@ -1852,7 +2124,11 @@
       "campaign_generation": "post_lattice_fix_canonical_v1",
       "pipeline_revision": "temporal_lattice_fix_closeout",
       "binary_sha256": "531403376de27ffc107f5647ee58d59146626daf3081c1d090d878880f6581a1",
-      "config_sha256": "576ad1c1d6a02a95a4ef0ce732aea5440fed88d4e0277ea6c9552725d0880346"
+      "config_sha256": "576ad1c1d6a02a95a4ef0ce732aea5440fed88d4e0277ea6c9552725d0880346",
+      "canonical": false,
+      "historical_only": true,
+      "campaign_status": "invalidated_after_human_review",
+      "failed_quality_gate": "visible_periodic_lattice"
     },
     {
       "path": "/home/rolaandjayz/ZCodeProject/temporal_forge_player/review_harness_canonical_v1/images/scene-sintel_cave__frame-0048__in-1080p__method-current_cas20__out-1440p.png",
@@ -1880,7 +2156,11 @@
       "config_sha256": "576ad1c1d6a02a95a4ef0ce732aea5440fed88d4e0277ea6c9552725d0880346",
       "alias_of": "888c013225a44402897c7736d1b7a421",
       "campaign_generation": "post_lattice_fix_canonical_v1",
-      "pipeline_revision": "temporal_lattice_fix_closeout"
+      "pipeline_revision": "temporal_lattice_fix_closeout",
+      "canonical": false,
+      "historical_only": true,
+      "campaign_status": "invalidated_after_human_review",
+      "failed_quality_gate": "visible_periodic_lattice"
     },
     {
       "path": "/home/rolaandjayz/ZCodeProject/temporal_forge_player/review_harness_canonical_v1/images/scene-sintel_cave__frame-0048__in-1080p__method-base_only_bilinear_cas20__out-1440p.png",
@@ -1901,7 +2181,11 @@
       "campaign_generation": "post_lattice_fix_canonical_v1",
       "pipeline_revision": "temporal_lattice_fix_closeout",
       "binary_sha256": "531403376de27ffc107f5647ee58d59146626daf3081c1d090d878880f6581a1",
-      "config_sha256": "576ad1c1d6a02a95a4ef0ce732aea5440fed88d4e0277ea6c9552725d0880346"
+      "config_sha256": "576ad1c1d6a02a95a4ef0ce732aea5440fed88d4e0277ea6c9552725d0880346",
+      "canonical": false,
+      "historical_only": true,
+      "campaign_status": "invalidated_after_human_review",
+      "failed_quality_gate": "visible_periodic_lattice"
     },
     {
       "path": "/home/rolaandjayz/ZCodeProject/temporal_forge_player/review_harness_canonical_v1/images/scene-sintel_cave__frame-0048__in-1080p__method-fsr_direct_cas20__out-1440p.png",
@@ -1928,7 +2212,11 @@
       "binary_sha256": "531403376de27ffc107f5647ee58d59146626daf3081c1d090d878880f6581a1",
       "config_sha256": "576ad1c1d6a02a95a4ef0ce732aea5440fed88d4e0277ea6c9552725d0880346",
       "campaign_generation": "post_lattice_fix_canonical_v1",
-      "pipeline_revision": "temporal_lattice_fix_closeout"
+      "pipeline_revision": "temporal_lattice_fix_closeout",
+      "canonical": false,
+      "historical_only": true,
+      "campaign_status": "invalidated_after_human_review",
+      "failed_quality_gate": "visible_periodic_lattice"
     },
     {
       "path": "/home/rolaandjayz/ZCodeProject/temporal_forge_player/review_harness_canonical_v1/images/scene-sintel_cave__frame-0048__in-1080p__method-fsr_200x_downsample_resolve_cas20__out-1440p.png",
@@ -1955,7 +2243,11 @@
       "binary_sha256": "531403376de27ffc107f5647ee58d59146626daf3081c1d090d878880f6581a1",
       "config_sha256": "576ad1c1d6a02a95a4ef0ce732aea5440fed88d4e0277ea6c9552725d0880346",
       "campaign_generation": "post_lattice_fix_canonical_v1",
-      "pipeline_revision": "temporal_lattice_fix_closeout"
+      "pipeline_revision": "temporal_lattice_fix_closeout",
+      "canonical": false,
+      "historical_only": true,
+      "campaign_status": "invalidated_after_human_review",
+      "failed_quality_gate": "visible_periodic_lattice"
     },
     {
       "path": "/home/rolaandjayz/ZCodeProject/temporal_forge_player/review_harness_canonical_v1/images/scene-sintel_cave__frame-0048__in-1080p__method-fsr_200x_downsample_external_post_cas20__out-1440p.png",
@@ -1982,7 +2274,11 @@
       "binary_sha256": "531403376de27ffc107f5647ee58d59146626daf3081c1d090d878880f6581a1",
       "config_sha256": "576ad1c1d6a02a95a4ef0ce732aea5440fed88d4e0277ea6c9552725d0880346",
       "campaign_generation": "post_lattice_fix_canonical_v1",
-      "pipeline_revision": "temporal_lattice_fix_closeout"
+      "pipeline_revision": "temporal_lattice_fix_closeout",
+      "canonical": false,
+      "historical_only": true,
+      "campaign_status": "invalidated_after_human_review",
+      "failed_quality_gate": "visible_periodic_lattice"
     },
     {
       "path": "/home/rolaandjayz/ZCodeProject/temporal_forge_player/review_harness_canonical_v1/images/scene-sintel_cave__frame-0048__in-1080p__method-fsr_200x_downsample_no_cas__out-1440p.png",
@@ -2009,7 +2305,11 @@
       "binary_sha256": "531403376de27ffc107f5647ee58d59146626daf3081c1d090d878880f6581a1",
       "config_sha256": "576ad1c1d6a02a95a4ef0ce732aea5440fed88d4e0277ea6c9552725d0880346",
       "campaign_generation": "post_lattice_fix_canonical_v1",
-      "pipeline_revision": "temporal_lattice_fix_closeout"
+      "pipeline_revision": "temporal_lattice_fix_closeout",
+      "canonical": false,
+      "historical_only": true,
+      "campaign_status": "invalidated_after_human_review",
+      "failed_quality_gate": "visible_periodic_lattice"
     },
     {
       "path": "/home/rolaandjayz/ZCodeProject/temporal_forge_player/review_harness_canonical_v1/images/scene-sintel_cave__frame-0048__in-1080p__method-fsr_225x_downsample_resolve_cas20__out-1440p.png",
@@ -2036,7 +2336,11 @@
       "binary_sha256": "531403376de27ffc107f5647ee58d59146626daf3081c1d090d878880f6581a1",
       "config_sha256": "576ad1c1d6a02a95a4ef0ce732aea5440fed88d4e0277ea6c9552725d0880346",
       "campaign_generation": "post_lattice_fix_canonical_v1",
-      "pipeline_revision": "temporal_lattice_fix_closeout"
+      "pipeline_revision": "temporal_lattice_fix_closeout",
+      "canonical": false,
+      "historical_only": true,
+      "campaign_status": "invalidated_after_human_review",
+      "failed_quality_gate": "visible_periodic_lattice"
     },
     {
       "path": "/home/rolaandjayz/ZCodeProject/temporal_forge_player/review_harness_canonical_v1/images/scene-sintel_cave__frame-0048__in-1080p__method-fsr_225x_downsample_external_post_cas20__out-1440p.png",
@@ -2063,7 +2367,11 @@
       "binary_sha256": "531403376de27ffc107f5647ee58d59146626daf3081c1d090d878880f6581a1",
       "config_sha256": "576ad1c1d6a02a95a4ef0ce732aea5440fed88d4e0277ea6c9552725d0880346",
       "campaign_generation": "post_lattice_fix_canonical_v1",
-      "pipeline_revision": "temporal_lattice_fix_closeout"
+      "pipeline_revision": "temporal_lattice_fix_closeout",
+      "canonical": false,
+      "historical_only": true,
+      "campaign_status": "invalidated_after_human_review",
+      "failed_quality_gate": "visible_periodic_lattice"
     },
     {
       "path": "/home/rolaandjayz/ZCodeProject/temporal_forge_player/review_harness_canonical_v1/images/scene-sintel_cave__frame-0048__in-1080p__method-fsr_225x_downsample_no_cas__out-1440p.png",
@@ -2090,7 +2398,11 @@
       "binary_sha256": "531403376de27ffc107f5647ee58d59146626daf3081c1d090d878880f6581a1",
       "config_sha256": "576ad1c1d6a02a95a4ef0ce732aea5440fed88d4e0277ea6c9552725d0880346",
       "campaign_generation": "post_lattice_fix_canonical_v1",
-      "pipeline_revision": "temporal_lattice_fix_closeout"
+      "pipeline_revision": "temporal_lattice_fix_closeout",
+      "canonical": false,
+      "historical_only": true,
+      "campaign_status": "invalidated_after_human_review",
+      "failed_quality_gate": "visible_periodic_lattice"
     },
     {
       "path": "/home/rolaandjayz/ZCodeProject/temporal_forge_player/review_harness_canonical_v1/images/scene-sintel_cave__frame-0048__in-1080p__method-fsr_250x_downsample_resolve_cas20__out-1440p.png",
@@ -2117,7 +2429,11 @@
       "binary_sha256": "531403376de27ffc107f5647ee58d59146626daf3081c1d090d878880f6581a1",
       "config_sha256": "576ad1c1d6a02a95a4ef0ce732aea5440fed88d4e0277ea6c9552725d0880346",
       "campaign_generation": "post_lattice_fix_canonical_v1",
-      "pipeline_revision": "temporal_lattice_fix_closeout"
+      "pipeline_revision": "temporal_lattice_fix_closeout",
+      "canonical": false,
+      "historical_only": true,
+      "campaign_status": "invalidated_after_human_review",
+      "failed_quality_gate": "visible_periodic_lattice"
     },
     {
       "path": "/home/rolaandjayz/ZCodeProject/temporal_forge_player/review_harness_canonical_v1/images/scene-sintel_cave__frame-0048__in-1080p__method-fsr_250x_downsample_external_post_cas20__out-1440p.png",
@@ -2144,7 +2460,11 @@
       "binary_sha256": "531403376de27ffc107f5647ee58d59146626daf3081c1d090d878880f6581a1",
       "config_sha256": "576ad1c1d6a02a95a4ef0ce732aea5440fed88d4e0277ea6c9552725d0880346",
       "campaign_generation": "post_lattice_fix_canonical_v1",
-      "pipeline_revision": "temporal_lattice_fix_closeout"
+      "pipeline_revision": "temporal_lattice_fix_closeout",
+      "canonical": false,
+      "historical_only": true,
+      "campaign_status": "invalidated_after_human_review",
+      "failed_quality_gate": "visible_periodic_lattice"
     },
     {
       "path": "/home/rolaandjayz/ZCodeProject/temporal_forge_player/review_harness_canonical_v1/images/scene-sintel_cave__frame-0048__in-1080p__method-fsr_250x_downsample_no_cas__out-1440p.png",
@@ -2171,7 +2491,11 @@
       "binary_sha256": "531403376de27ffc107f5647ee58d59146626daf3081c1d090d878880f6581a1",
       "config_sha256": "576ad1c1d6a02a95a4ef0ce732aea5440fed88d4e0277ea6c9552725d0880346",
       "campaign_generation": "post_lattice_fix_canonical_v1",
-      "pipeline_revision": "temporal_lattice_fix_closeout"
+      "pipeline_revision": "temporal_lattice_fix_closeout",
+      "canonical": false,
+      "historical_only": true,
+      "campaign_status": "invalidated_after_human_review",
+      "failed_quality_gate": "visible_periodic_lattice"
     },
     {
       "path": "/home/rolaandjayz/ZCodeProject/temporal_forge_player/review_harness_canonical_v1/images/scene-sintel_cave__frame-0048__in-1080p__method-fsr_275x_downsample_resolve_cas20__out-1440p.png",
@@ -2198,7 +2522,11 @@
       "binary_sha256": "531403376de27ffc107f5647ee58d59146626daf3081c1d090d878880f6581a1",
       "config_sha256": "576ad1c1d6a02a95a4ef0ce732aea5440fed88d4e0277ea6c9552725d0880346",
       "campaign_generation": "post_lattice_fix_canonical_v1",
-      "pipeline_revision": "temporal_lattice_fix_closeout"
+      "pipeline_revision": "temporal_lattice_fix_closeout",
+      "canonical": false,
+      "historical_only": true,
+      "campaign_status": "invalidated_after_human_review",
+      "failed_quality_gate": "visible_periodic_lattice"
     },
     {
       "path": "/home/rolaandjayz/ZCodeProject/temporal_forge_player/review_harness_canonical_v1/images/scene-sintel_cave__frame-0048__in-1080p__method-fsr_275x_downsample_external_post_cas20__out-1440p.png",
@@ -2225,7 +2553,11 @@
       "binary_sha256": "531403376de27ffc107f5647ee58d59146626daf3081c1d090d878880f6581a1",
       "config_sha256": "576ad1c1d6a02a95a4ef0ce732aea5440fed88d4e0277ea6c9552725d0880346",
       "campaign_generation": "post_lattice_fix_canonical_v1",
-      "pipeline_revision": "temporal_lattice_fix_closeout"
+      "pipeline_revision": "temporal_lattice_fix_closeout",
+      "canonical": false,
+      "historical_only": true,
+      "campaign_status": "invalidated_after_human_review",
+      "failed_quality_gate": "visible_periodic_lattice"
     },
     {
       "path": "/home/rolaandjayz/ZCodeProject/temporal_forge_player/review_harness_canonical_v1/images/scene-sintel_cave__frame-0048__in-1080p__method-fsr_275x_downsample_no_cas__out-1440p.png",
@@ -2252,7 +2584,11 @@
       "binary_sha256": "531403376de27ffc107f5647ee58d59146626daf3081c1d090d878880f6581a1",
       "config_sha256": "576ad1c1d6a02a95a4ef0ce732aea5440fed88d4e0277ea6c9552725d0880346",
       "campaign_generation": "post_lattice_fix_canonical_v1",
-      "pipeline_revision": "temporal_lattice_fix_closeout"
+      "pipeline_revision": "temporal_lattice_fix_closeout",
+      "canonical": false,
+      "historical_only": true,
+      "campaign_status": "invalidated_after_human_review",
+      "failed_quality_gate": "visible_periodic_lattice"
     },
     {
       "path": "/home/rolaandjayz/ZCodeProject/temporal_forge_player/review_harness_canonical_v1/images/scene-sintel_cave__frame-0048__in-1080p__method-fsr_300x_downsample_resolve_cas20__out-1440p.png",
@@ -2279,7 +2615,11 @@
       "binary_sha256": "531403376de27ffc107f5647ee58d59146626daf3081c1d090d878880f6581a1",
       "config_sha256": "576ad1c1d6a02a95a4ef0ce732aea5440fed88d4e0277ea6c9552725d0880346",
       "campaign_generation": "post_lattice_fix_canonical_v1",
-      "pipeline_revision": "temporal_lattice_fix_closeout"
+      "pipeline_revision": "temporal_lattice_fix_closeout",
+      "canonical": false,
+      "historical_only": true,
+      "campaign_status": "invalidated_after_human_review",
+      "failed_quality_gate": "visible_periodic_lattice"
     },
     {
       "path": "/home/rolaandjayz/ZCodeProject/temporal_forge_player/review_harness_canonical_v1/images/scene-sintel_cave__frame-0048__in-1080p__method-fsr_300x_downsample_external_post_cas20__out-1440p.png",
@@ -2306,7 +2646,11 @@
       "binary_sha256": "531403376de27ffc107f5647ee58d59146626daf3081c1d090d878880f6581a1",
       "config_sha256": "576ad1c1d6a02a95a4ef0ce732aea5440fed88d4e0277ea6c9552725d0880346",
       "campaign_generation": "post_lattice_fix_canonical_v1",
-      "pipeline_revision": "temporal_lattice_fix_closeout"
+      "pipeline_revision": "temporal_lattice_fix_closeout",
+      "canonical": false,
+      "historical_only": true,
+      "campaign_status": "invalidated_after_human_review",
+      "failed_quality_gate": "visible_periodic_lattice"
     },
     {
       "path": "/home/rolaandjayz/ZCodeProject/temporal_forge_player/review_harness_canonical_v1/images/scene-sintel_cave__frame-0048__in-1080p__method-fsr_300x_downsample_no_cas__out-1440p.png",
@@ -2333,7 +2677,11 @@
       "binary_sha256": "531403376de27ffc107f5647ee58d59146626daf3081c1d090d878880f6581a1",
       "config_sha256": "576ad1c1d6a02a95a4ef0ce732aea5440fed88d4e0277ea6c9552725d0880346",
       "campaign_generation": "post_lattice_fix_canonical_v1",
-      "pipeline_revision": "temporal_lattice_fix_closeout"
+      "pipeline_revision": "temporal_lattice_fix_closeout",
+      "canonical": false,
+      "historical_only": true,
+      "campaign_status": "invalidated_after_human_review",
+      "failed_quality_gate": "visible_periodic_lattice"
     },
     {
       "path": "/home/rolaandjayz/ZCodeProject/temporal_forge_player/review_harness_canonical_v1/images/scene-sintel_cave__frame-0048__in-1080p__method-fsr_nativeaa_downsample_resolve_cas20__out-1440p.png",
@@ -2360,7 +2708,11 @@
       "binary_sha256": "531403376de27ffc107f5647ee58d59146626daf3081c1d090d878880f6581a1",
       "config_sha256": "576ad1c1d6a02a95a4ef0ce732aea5440fed88d4e0277ea6c9552725d0880346",
       "campaign_generation": "post_lattice_fix_canonical_v1",
-      "pipeline_revision": "temporal_lattice_fix_closeout"
+      "pipeline_revision": "temporal_lattice_fix_closeout",
+      "canonical": false,
+      "historical_only": true,
+      "campaign_status": "invalidated_after_human_review",
+      "failed_quality_gate": "visible_periodic_lattice"
     },
     {
       "path": "/home/rolaandjayz/ZCodeProject/temporal_forge_player/review_harness_canonical_v1/images/scene-sintel_cave__frame-0048__in-1080p__method-fsr_nativeaa_downsample_external_post_cas20__out-1440p.png",
@@ -2387,7 +2739,11 @@
       "binary_sha256": "531403376de27ffc107f5647ee58d59146626daf3081c1d090d878880f6581a1",
       "config_sha256": "576ad1c1d6a02a95a4ef0ce732aea5440fed88d4e0277ea6c9552725d0880346",
       "campaign_generation": "post_lattice_fix_canonical_v1",
-      "pipeline_revision": "temporal_lattice_fix_closeout"
+      "pipeline_revision": "temporal_lattice_fix_closeout",
+      "canonical": false,
+      "historical_only": true,
+      "campaign_status": "invalidated_after_human_review",
+      "failed_quality_gate": "visible_periodic_lattice"
     },
     {
       "path": "/home/rolaandjayz/ZCodeProject/temporal_forge_player/review_harness_canonical_v1/images/scene-sintel_cave__frame-0048__in-1080p__method-fsr_nativeaa_downsample_no_cas__out-1440p.png",
@@ -2414,7 +2770,11 @@
       "binary_sha256": "531403376de27ffc107f5647ee58d59146626daf3081c1d090d878880f6581a1",
       "config_sha256": "576ad1c1d6a02a95a4ef0ce732aea5440fed88d4e0277ea6c9552725d0880346",
       "campaign_generation": "post_lattice_fix_canonical_v1",
-      "pipeline_revision": "temporal_lattice_fix_closeout"
+      "pipeline_revision": "temporal_lattice_fix_closeout",
+      "canonical": false,
+      "historical_only": true,
+      "campaign_status": "invalidated_after_human_review",
+      "failed_quality_gate": "visible_periodic_lattice"
     },
     {
       "path": "/home/rolaandjayz/ZCodeProject/temporal_forge_player/review_harness_canonical_v1/images/scene-sintel_cave__frame-0048__in-1080p__method-conventional_lanczos__out-1440p.png",
@@ -2435,7 +2795,11 @@
       "campaign_generation": "post_lattice_fix_canonical_v1",
       "pipeline_revision": "temporal_lattice_fix_closeout",
       "binary_sha256": "531403376de27ffc107f5647ee58d59146626daf3081c1d090d878880f6581a1",
-      "config_sha256": "576ad1c1d6a02a95a4ef0ce732aea5440fed88d4e0277ea6c9552725d0880346"
+      "config_sha256": "576ad1c1d6a02a95a4ef0ce732aea5440fed88d4e0277ea6c9552725d0880346",
+      "canonical": false,
+      "historical_only": true,
+      "campaign_status": "invalidated_after_human_review",
+      "failed_quality_gate": "visible_periodic_lattice"
     },
     {
       "path": "/home/rolaandjayz/ZCodeProject/temporal_forge_player/review_harness_canonical_v1/images/scene-sintel_cave__frame-0048__in-1080p__method-conventional_bicubic__out-1440p.png",
@@ -2456,7 +2820,11 @@
       "campaign_generation": "post_lattice_fix_canonical_v1",
       "pipeline_revision": "temporal_lattice_fix_closeout",
       "binary_sha256": "531403376de27ffc107f5647ee58d59146626daf3081c1d090d878880f6581a1",
-      "config_sha256": "576ad1c1d6a02a95a4ef0ce732aea5440fed88d4e0277ea6c9552725d0880346"
+      "config_sha256": "576ad1c1d6a02a95a4ef0ce732aea5440fed88d4e0277ea6c9552725d0880346",
+      "canonical": false,
+      "historical_only": true,
+      "campaign_status": "invalidated_after_human_review",
+      "failed_quality_gate": "visible_periodic_lattice"
     }
   ],
   "native_assets_detail": [
@@ -4277,6 +4645,8 @@
   "campaign_generation": "post_lattice_fix_canonical_v1",
   "pipeline_revision": "temporal_lattice_fix_closeout",
   "quality_profile": "AMD_SEMANTIC_BASELINE",
-  "canonical": true,
-  "historical_only": false
+  "canonical": false,
+  "historical_only": true,
+  "campaign_status": "invalidated_after_human_review",
+  "failed_quality_gate": "visible_periodic_lattice"
 }

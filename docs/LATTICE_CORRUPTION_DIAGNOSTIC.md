@@ -451,3 +451,33 @@ Gaussian resolve → neural reconstruction → FP16 temporal history/recurrent
 composition. The rgba8 source-display image is retained for presentation and
 control uses and is not sampled for the production prepass current-color
 resolve.
+
+### P0 reopened and resolved after human review (2026-09-04)
+
+Human review reopened this P0 because the prior production-semantic
+qualification used the old 2×2 checker score, which is not a sufficient lattice
+detector. The canonical campaign is explicitly historical/invalidated
+(`canonical=false`, `historical_only=true`, `failed_quality_gate=visible_periodic_lattice`);
+its automated qualification PASS and human-review FAIL are preserved.
+
+The exact semantic reproducer was rerun with history/recurrent state enabled:
+
+| arm | result |
+| --- | --- |
+| 1280×720 → 960×540 GPU prefilter → 1920×1080 | A/B clean; final lattice present |
+| same path with libswscale reference resize | A/B clean; final clean |
+| 640×360 → 640×360 → 1280×720 control | final clean |
+
+The reference-resize ablation changes only the source→model prefilter and
+removes the artifact. This isolates the GPU prefilter arithmetic/storage-image
+path as the first causal boundary; the normalized Stage-C dump is identical in
+bad and healthy runs and is marked `uncertain`.
+
+The smallest retained fix in `shaders/fsr4/bicubic_prefilter.comp` uses a
+linear four-sample resolve for downsampling and preserves Catmull–Rom for
+enlargement. The rebuilt exact bad case and healthy control were visually
+reviewed clean (no lattice, trails, halos, stale contamination, or color
+shifts). Evidence and classifications are retained locally under
+`benchmarks/quality_sweeps/lattice_corruption_diagnostic/runs/20260904T-reopened-current/`;
+campaign images remain untracked and are not pushed. The machine-readable
+matrix is `benchmarks/quality_sweeps/lattice_corruption_diagnostic/prevalence_matrix.json`.

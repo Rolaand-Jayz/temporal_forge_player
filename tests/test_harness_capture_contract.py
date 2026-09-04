@@ -60,6 +60,18 @@ class HarnessCaptureContractTests(unittest.TestCase):
         self.assertIn("live capture requires a committed tracked worktree", source)
         self.assertIn('"capture_started": False', source)
 
+    def test_live_capture_requires_explicit_human_review_pass(self) -> None:
+        from benchmarks.quality_sweeps.run_harness_campaign import (
+            validate_qualification_review_gate,
+        )
+
+        base = {"status": "AUTOMATED QUALIFICATION: PASS", "human_review": "PENDING"}
+        with self.assertRaisesRegex(SystemExit, "human visual review must be PASS"):
+            validate_qualification_review_gate(base)
+        with self.assertRaisesRegex(SystemExit, "human visual review must be PASS"):
+            validate_qualification_review_gate({**base, "human_review": "FAIL"})
+        validate_qualification_review_gate({**base, "human_review": "PASS"})
+
     def test_nativeaa_is_one_real_scale_per_placement(self) -> None:
         supersampling = (ROOT / "benchmarks/quality_sweeps/run_fsr_supersampling.py").read_text(encoding="utf-8")
         source = RUNNER.read_text(encoding="utf-8")

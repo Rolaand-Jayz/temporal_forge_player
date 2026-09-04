@@ -119,6 +119,18 @@ def now() -> str:
     return dt.datetime.now(dt.timezone.utc).isoformat()
 
 
+def validate_qualification_review_gate(qualification_data: dict[str, object]) -> None:
+    """Require both automated qualification and an explicit human sign-off."""
+    if qualification_data.get("status") != "AUTOMATED QUALIFICATION: PASS":
+        raise SystemExit("qualification is not passing: automated status is not PASS")
+    if qualification_data.get("human_review") != "PASS":
+        review = qualification_data.get("human_review", "MISSING")
+        raise SystemExit(
+            "qualification is not launchable: human visual review must be PASS "
+            f"(got {review!r})"
+        )
+
+
 def atomic_json(path: Path, value: object) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     temporary = path.with_name(f".{path.name}.{os.getpid()}.tmp")
@@ -514,8 +526,7 @@ def main() -> int:
         qualification_data = json.loads(qualification.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as error:
         raise SystemExit(f"cannot read qualification manifest: {qualification}: {error}") from error
-    if qualification_data.get("status") != "AUTOMATED QUALIFICATION: PASS":
-        raise SystemExit(f"qualification is not passing: {qualification}")
+    validate_qualification_review_gate(qualification_data)
     expected_binary = hashlib.sha256(player.read_bytes()).hexdigest()
     expected_config = hashlib.sha256((ROOT / "benchmarks/video_corpus/benchmark_settings.json").read_bytes()).hexdigest()
     expected_head = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip()
