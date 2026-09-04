@@ -92,9 +92,14 @@ heavier real-time estimator or a confidence-threshold change. The dominant
 resolution effect is source-detail loss (the absolute SSIM falls sharply at
 240p/360p); the arm ordering itself does not reverse into a motion win.
 
-The captures preserve the raw per-frame fields and reprojection outputs needed
-for follow-up analysis. This runner invocation did not supply the optional
-assembled event-trace and temporal-metrics JSON destinations, so those two
-derived schemas are not claimed as present in this run; the runtime metadata,
-per-frame motion/validity records, reset policy, and eight-frame temporal
-metrics in each quality CSV remain the authoritative evidence collected here.
+The derived evidence pass in `.campaign_motion_derived/` supplied the optional
+event-trace destination for every key without retaining another copy of the
+large image/video payloads. It contains 288 valid
+`temporal_forge.event_trace.v1` documents (each with eight frame records), 288
+quality CSVs, and the same 48 offline-flow reports. The event records expose
+per-frame detector inputs, motion confidence, reset cause, scene-cut decision,
+and threshold provenance; the runner environment records the confidence sweep
+and reconstruction configuration. The current event schema does not emit a
+separate FSR history-gate pass/fail bit or per-pixel coverage field, so those
+remain an instrumentation gap rather than inferred results. The original
+image-rich capture tree remains unchanged for pixel inspection.
