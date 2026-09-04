@@ -104,6 +104,7 @@ def main() -> int:
                         "TFORGE_TEMPORAL_CAPTURE_TIMEOUT": str(args.timeout), "TFORGE_FSR4_FORCE_VIEWPORT": "1920x1080",
                         "TFORGE_FSR4_ENABLE_COLOR_HISTORY": "1", "TFORGE_FSR4_ENABLE_RECURRENT": "1",
                         "TFORGE_PRESERVE_IMAGE_ARTIFACTS": "1", "TFORGE_TEMPORAL_ARTIFACT_DIR": str(run_dir / "artifacts"),
+                        "TFORGE_TEMPORAL_FAILURE_ARTIFACT_DIR": str(run_dir / "failure_artifacts"),
                         "TFORGE_FSR4_DUMP_MOTION_TEXTURE": "1", "TFORGE_FSR4_DUMP_MOTION_SIDECAR": "1",
                         "TFORGE_FSR4_DUMP_REPROJECTED_COLOR": "1", "TFORGE_FSR4_DUMP_EVENT_TRACE": "1",
                         "TFORGE_TEMPORAL_CLASS": "motion_campaign", "TFORGE_TEMPORAL_SCENE": scene,
