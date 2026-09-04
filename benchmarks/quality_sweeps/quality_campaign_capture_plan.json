@@ -1,6 +1,8 @@
 {
-  "schema": "temporal_forge.quality_campaign_capture_plan.v1",
-  "campaignId": "quality-campaign-20260902",
+  "schema": "temporal_forge.quality_campaign_capture_plan.v2",
+  "campaignId": "quality-campaign-20260904-canonical-v1",
+  "campaignGeneration": "post_lattice_fix_canonical_v1",
+  "pipelineRevision": "temporal_lattice_fix_closeout",
   "status": "ready_not_started",
   "frame": 48,
   "casStrength": 0.2,

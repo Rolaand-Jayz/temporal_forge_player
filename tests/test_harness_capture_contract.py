@@ -18,6 +18,9 @@ PLAN = ROOT / "benchmarks/quality_sweeps/quality_campaign_capture_plan.json"
 class HarnessCaptureContractTests(unittest.TestCase):
     def test_capture_plan_is_exact_and_has_two_consumers(self) -> None:
         data = json.loads(PLAN.read_text(encoding="utf-8"))
+        self.assertEqual(data["schema"], "temporal_forge.quality_campaign_capture_plan.v2")
+        self.assertEqual(data["campaignGeneration"], "post_lattice_fix_canonical_v1")
+        self.assertEqual(data["pipelineRevision"], "temporal_lattice_fix_closeout")
         pairs = {(item["inputHeight"], item["outputHeight"]) for item in data["pairs"]}
         self.assertEqual(pairs, {
             (360, 480), (360, 720), (360, 1080),
@@ -104,6 +107,15 @@ class HarnessCaptureContractTests(unittest.TestCase):
         self.assertIn("source-size scale clamp", (
             ROOT / "benchmarks/quality_sweeps/run_fsr_supersampling.py"
         ).read_text(encoding="utf-8"))
+
+    def test_historical_roots_are_explicitly_noncanonical(self) -> None:
+        for relative in (
+            "benchmarks/quality_sweeps/quality_campaign_capture/HISTORICAL_ONLY.json",
+            "review_harness/HISTORICAL_ONLY.json",
+        ):
+            marker = json.loads((ROOT / relative).read_text(encoding="utf-8"))
+            self.assertFalse(marker["canonical"])
+            self.assertTrue(marker["historical_only"])
 
 
 if __name__ == "__main__":

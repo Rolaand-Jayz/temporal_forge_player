@@ -35,7 +35,7 @@ CAPTURE_PLAN_PATH = ROOT / "benchmarks/quality_sweeps/quality_campaign_capture_p
 def load_capture_plan(path: Path = CAPTURE_PLAN_PATH) -> dict[str, object]:
     """Load and fail closed on the checked-in campaign/harness contract."""
     data = json.loads(path.read_text(encoding="utf-8"))
-    if data.get("schema") != "temporal_forge.quality_campaign_capture_plan.v1":
+    if data.get("schema") != "temporal_forge.quality_campaign_capture_plan.v2":
         raise ValueError(f"unsupported capture plan schema: {path}")
     pairs = data.get("pairs")
     scenes = data.get("scenes")
@@ -71,7 +71,9 @@ def load_capture_plan(path: Path = CAPTURE_PLAN_PATH) -> dict[str, object]:
         if item.get("delivery") != expected_dimensions[output_height]:
             raise ValueError(f"delivery dimensions do not match {output_height}p")
     required_metadata = {
-        "campaignId": "quality-campaign-20260902",
+        "campaignId": "quality-campaign-20260904-canonical-v1",
+        "campaignGeneration": "post_lattice_fix_canonical_v1",
+        "pipelineRevision": "temporal_lattice_fix_closeout",
         "status": "ready_not_started",
         "frame": 48,
         "casStrength": 0.2,
@@ -209,6 +211,8 @@ def write_catalog(harness: Path, records: list[dict[str, object]]) -> None:
     temporary = catalog_js.with_name(f".{catalog_js.name}.{os.getpid()}.tmp")
     browser_plan = {
         "campaignId": CAPTURE_PLAN["campaignId"],
+        "campaignGeneration": CAPTURE_PLAN["campaignGeneration"],
+        "pipelineRevision": CAPTURE_PLAN["pipelineRevision"],
         "status": CAPTURE_PLAN["status"],
         "frame": CAPTURE_PLAN["frame"],
         "downsamplingArms": CAPTURE_PLAN["downsamplingArms"],
@@ -447,8 +451,8 @@ def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--player", type=Path, default=Path("build-fast/temporal_forge_player"))
     parser.add_argument("--artifact-root", type=Path,
-                        default=Path("benchmarks/quality_sweeps/quality_campaign_capture"))
-    parser.add_argument("--harness-root", type=Path, default=Path("review_harness"))
+                        default=Path("benchmarks/quality_sweeps/quality_campaign_capture_canonical_v1"))
+    parser.add_argument("--harness-root", type=Path, default=Path("review_harness_canonical_v1"))
     parser.add_argument("--only", action="append", metavar="INPUTxOUTPUT",
                         help="limit this invocation to selected pair(s); repeatable")
     parser.add_argument("--execute", action="store_true",
@@ -474,6 +478,8 @@ def main() -> int:
     plan_summary = {
         "schema": "temporal_forge.quality_campaign_capture_preview.v1",
         "campaign": CAPTURE_PLAN["campaignId"],
+        "campaign_generation": CAPTURE_PLAN["campaignGeneration"],
+        "pipeline_revision": CAPTURE_PLAN["pipelineRevision"],
         "mode": "execute" if args.execute else "plan_only",
         "capture_started": False,
         "pairs": [f"{pair[0]}->{pair[2]}" for pair in selected_pairs],
@@ -512,11 +518,20 @@ def main() -> int:
             qualification_data.get("config_sha256") != expected_config or
             qualification_data.get("git_head") != expected_head):
         raise SystemExit("qualification identity does not match campaign binary/config/Git HEAD")
+    if (qualification_data.get("campaign_generation") != CAPTURE_PLAN["campaignGeneration"] or
+            qualification_data.get("pipeline_revision") != CAPTURE_PLAN["pipelineRevision"]):
+        raise SystemExit("qualification identity does not match canonical campaign generation")
+    if qualification_data.get("quality_profile") != CAPTURE_PLAN["profile"]:
+        raise SystemExit("qualification quality profile does not match canonical campaign")
     # A data-only campaign retains the measurements and provenance but does
     # not retain the rendered payloads. Image-producing harness runs must opt
     # into retention explicitly through this branch.
     os.environ["TFORGE_PRESERVE_SPATIAL_IMAGES"] = "0" if args.data_only else "1"
     artifacts = args.artifact_root.resolve(); harness = args.harness_root.resolve()
+    if artifacts.exists() and any(artifacts.iterdir()) and not args.resume:
+        raise SystemExit(f"refusing to reuse non-empty canonical artifact root: {artifacts}")
+    if harness.exists() and any(harness.iterdir()) and not args.resume:
+        raise SystemExit(f"refusing to reuse non-empty canonical harness root: {harness}")
     patterns = tuple(DEFAULT_GAME_PATTERNS) + tuple(args.game_pattern)
     runner = PausingRunner(artifacts, patterns, tuple(args.allow_game), args.poll_seconds)
     campaign_manifest = artifacts / "campaign_manifest.json"

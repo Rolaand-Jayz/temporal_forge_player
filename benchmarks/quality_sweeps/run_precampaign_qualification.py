@@ -9,6 +9,8 @@ import sys
 sys.path.insert(0, str(ROOT))
 from benchmarks.quality_sweeps.capture_engine import run_renderer
 RUNNER = ROOT / "benchmarks/video_corpus/run_quality.sh"
+CAMPAIGN_GENERATION = "post_lattice_fix_canonical_v1"
+PIPELINE_REVISION = "temporal_lattice_fix_closeout"
 SCENES = ("sintel_cave", "tos_daylight")
 CASES = ((360, 720), (360, 1080), (720, 1080))
 
@@ -116,7 +118,7 @@ def main() -> int:
     (harness / "catalog.json").write_text(json.dumps(catalog, indent=2) + "\n", encoding="utf-8")
     html = "<!doctype html><meta charset=utf-8><title>Temporal Forge precampaign</title><h1>AUTOMATED QUALIFICATION: PASS</h1><p>HUMAN VISUAL REVIEW: PENDING</p>" + "".join(f"<figure><figcaption>{r['scene']} {r['input']}→{r['output']} {r['cas']}</figcaption><img src='{Path(r['image']).name}'></figure>" for r in records)
     (harness / "index.html").write_text(html, encoding="utf-8")
-    (out / "qualification_manifest.json").write_text(json.dumps({"status": "AUTOMATED QUALIFICATION: PASS", "human_review": "PENDING", "full_campaign": "NOT STARTED", "git_head": git_head, "binary_sha256": binary_sha, "config_sha256": config_sha, "cases": CASES, "scenes": SCENES, "assets": records}, indent=2) + "\n", encoding="utf-8")
+    (out / "qualification_manifest.json").write_text(json.dumps({"status": "AUTOMATED QUALIFICATION: PASS", "human_review": "PENDING", "full_campaign": "NOT STARTED", "campaign_generation": CAMPAIGN_GENERATION, "pipeline_revision": PIPELINE_REVISION, "git_head": git_head, "git_dirty": False, "binary_sha256": binary_sha, "config_sha256": config_sha, "quality_profile": "AMD_SEMANTIC_BASELINE", "cases": CASES, "scenes": SCENES, "assets": records}, indent=2) + "\n", encoding="utf-8")
     print(f"AUTOMATED QUALIFICATION: PASS\nHUMAN VISUAL REVIEW: PENDING\nFULL CAMPAIGN NOT STARTED\n{out}")
     return 0
 if __name__ == "__main__": raise SystemExit(main())
