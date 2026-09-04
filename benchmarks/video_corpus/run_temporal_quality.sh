@@ -678,7 +678,11 @@ sequence_complete() {
     return 0
 }
 
-for ((attempt = 0; attempt < 300; ++attempt)); do
+# Poll for the same budget given to the player.  Long shader/pipeline warmups
+# must not be reported as a missing sequence after the historical 30 s poll
+# window expires while the child still has a valid capture timeout.
+poll_attempts=$((capture_timeout * 10))
+for ((attempt = 0; attempt < poll_attempts; ++attempt)); do
     if sequence_complete; then
         status=0
         break
