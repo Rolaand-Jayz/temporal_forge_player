@@ -142,7 +142,7 @@ def main() -> int:
     (harness / "catalog.json").write_text(json.dumps(catalog, indent=2) + "\n", encoding="utf-8")
     html = "<!doctype html><meta charset=utf-8><title>Temporal Forge precampaign</title><h1>AUTOMATED QUALIFICATION: PASS</h1><p>HUMAN VISUAL REVIEW: PENDING</p>" + "".join(f"<figure><figcaption>{r['scene']} {r['input']}→{r['output']} {r['cas']}</figcaption><img src='{Path(r['image']).name}'></figure>" for r in records)
     (harness / "index.html").write_text(html, encoding="utf-8")
-    (out / "qualification_manifest.json").write_text(json.dumps({"status": "AUTOMATED QUALIFICATION: PASS", "human_review": "PENDING", "full_campaign": "NOT STARTED", "campaign_generation": CAMPAIGN_GENERATION, "pipeline_revision": PIPELINE_REVISION, "git_head": git_head, "git_dirty": False, "binary_sha256": binary_sha, "config_sha256": config_sha, "quality_profile": "AMD_SEMANTIC_BASELINE", "cases": CASES, "scenes": SCENES, "assets": records}, indent=2) + "\n", encoding="utf-8")
+    (out / "qualification_manifest.json").write_text(json.dumps({"status": "AUTOMATED QUALIFICATION: PASS", "human_review": "PENDING", "full_campaign": "NOT STARTED", "campaign_generation": CAMPAIGN_GENERATION, "pipeline_revision": PIPELINE_REVISION, "manifest_path": str(args.manifest.resolve()), "git_head": git_head, "git_dirty": False, "binary_sha256": binary_sha, "config_sha256": config_sha, "quality_profile": "AMD_SEMANTIC_BASELINE", "cases": CASES, "scenes": SCENES, "assets": records}, indent=2) + "\n", encoding="utf-8")
     print(f"AUTOMATED QUALIFICATION: PASS\nHUMAN VISUAL REVIEW: PENDING\nFULL CAMPAIGN NOT STARTED\n{out}")
     return 0
 if __name__ == "__main__": raise SystemExit(main())

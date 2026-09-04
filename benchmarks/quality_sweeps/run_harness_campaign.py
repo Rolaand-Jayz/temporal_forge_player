@@ -462,6 +462,9 @@ def main() -> int:
                         help="recapture campaign CSV/raw data without rewriting harness images")
     parser.add_argument("--qualification", type=Path,
                         help="passing precampaign qualification manifest required for live capture")
+    parser.add_argument("--manifest", type=Path,
+                        default=ROOT / "benchmarks/video_corpus/manifest.csv",
+                        help="capture corpus manifest; must match the qualification input")
     parser.add_argument("--allow-game", action="append", default=[], metavar="PATTERN",
                         help="exclude a matching game from provenance observations; repeatable")
     parser.add_argument("--game-pattern", action="append", default=[], metavar="PATTERN",
@@ -523,6 +526,10 @@ def main() -> int:
         raise SystemExit("qualification identity does not match canonical campaign generation")
     if qualification_data.get("quality_profile") != CAPTURE_PLAN["profile"]:
         raise SystemExit("qualification quality profile does not match canonical campaign")
+    manifest = args.manifest.resolve()
+    qualification_manifest = qualification_data.get("manifest_path")
+    if qualification_manifest and Path(qualification_manifest).resolve() != manifest:
+        raise SystemExit("qualification manifest does not match capture manifest")
     # A data-only campaign retains the measurements and provenance but does
     # not retain the rendered payloads. Image-producing harness runs must opt
     # into retention explicitly through this branch.
@@ -561,7 +568,7 @@ def main() -> int:
             csv_path = pair_root / f"fsr_{placement}.csv"
             command = [sys.executable, str(run_capture), "--player", str(args.player.resolve()),
                        "--repo", str(ROOT), "--artifact-root", str(root), "--output-csv", str(csv_path),
-                       "--reference-cache", str(pair_root / "shared_references"),
+                       "--reference-cache", str(pair_root / "shared_references"), "--manifest", str(manifest),
                        "--final", final, "--source", source, "--cas-strength", "0.20",
                        "--cas-placement", placement]
             runner.run(command, f"capture {stem}/{placement}")
@@ -574,7 +581,7 @@ def main() -> int:
             runner.wait_until_clear(f"{stem}/nativeaa_{placement}")
             command = [sys.executable, str(run_capture), "--player", str(args.player.resolve()),
                        "--repo", str(ROOT), "--artifact-root", str(native_root), "--output-csv", str(native_csv),
-                       "--reference-cache", str(pair_root / "shared_references"),
+                       "--reference-cache", str(pair_root / "shared_references"), "--manifest", str(manifest),
                        "--final", final, "--source", source, "--cas-strength", "0.20",
                        "--cas-placement", placement, "--preset", "NativeAA"]
             runner.run(command, f"capture {stem}/nativeaa_{placement}")
