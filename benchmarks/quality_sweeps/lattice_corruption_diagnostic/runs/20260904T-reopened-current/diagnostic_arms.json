@@ -1,0 +1,62 @@
+{
+  "schema": "temporal_forge.lattice_diagnostic_arms.v1",
+  "rows": [
+    {
+      "group": "fix_oracles",
+      "arm": "full_reset",
+      "source_resolution": "1280x720",
+      "model_resolution": "960x540",
+      "output_resolution": "1920x1080",
+      "history_enabled": true,
+      "recurrent_enabled": true,
+      "jitter_mode": "prepass_input_resolve",
+      "cas_enabled": false,
+      "candidate_sha256": "5c18f7a3a803b2124b9cf0dc7a0b828f68db6de41f350a39ac1c1650a2f16b9b",
+      "human_review": "PASS"
+    },
+    {
+      "group": "fix_oracles",
+      "arm": "jitter_off",
+      "source_resolution": "1280x720",
+      "model_resolution": "960x540",
+      "output_resolution": "1920x1080",
+      "history_enabled": false,
+      "recurrent_enabled": false,
+      "jitter_mode": "off",
+      "cas_enabled": false,
+      "candidate_sha256": "9e832b0128ced93c8d10471c5669469d10242dc8117fbd88c026172745b4f18d",
+      "human_review": "PASS"
+    },
+    {
+      "group": "fix_precision_order",
+      "arm": "fp16_boundary",
+      "source_resolution": "1280x720",
+      "model_resolution": "960x540",
+      "output_resolution": "1920x1080",
+      "history_enabled": true,
+      "recurrent_enabled": true,
+      "jitter_mode": "prepass_input_resolve",
+      "cas_enabled": false,
+      "candidate_sha256": "b2d720638708d23e3e5fd947af0c7206b7ea5e5fa90a6939e0779d2f7870a357",
+      "human_review": "PASS"
+    },
+    {
+      "group": "fix_precision_order",
+      "arm": "reference_resize",
+      "source_resolution": "1280x720",
+      "model_resolution": "960x540",
+      "output_resolution": "1920x1080",
+      "history_enabled": true,
+      "recurrent_enabled": true,
+      "jitter_mode": "prepass_input_resolve",
+      "cas_enabled": false,
+      "candidate_sha256": "b17f18d95d8225c2296b45f1ffe47d384522a2e922cee0f6b55b7ba823bac42c",
+      "human_review": "PASS"
+    }
+  ],
+  "notes": {
+    "precision": "FP16_FP8 boundary arm retained as evidence; model-color carrier remains RGB10/A2",
+    "transform_order": "production pretransformed-before-resolve path compared with reference resize; no lossy RGBA8 source tap used",
+    "coordinate_geometry": "traces record source/model/output grids and source_to_motion scales"
+  }
+}

@@ -1,0 +1,55 @@
+{
+  "schema": "temporal_forge.lattice_temporal_matrix.v1",
+  "case": "sintel_cave_1280x720_to_1920x1080_frame48",
+  "rows": [
+    {
+      "arm": "A_off_off",
+      "source_resolution": "1280x720",
+      "model_resolution": "960x540",
+      "output_resolution": "1920x1080",
+      "history_enabled": false,
+      "recurrent_enabled": false,
+      "jitter_mode": "prepass_input_resolve",
+      "cas_enabled": false,
+      "candidate_sha256": "b17883736294b5940b3b9b7db7ae261c0fa5e267e27e056719cd5078758326a7",
+      "human_review": "PASS"
+    },
+    {
+      "arm": "B_on_off",
+      "source_resolution": "1280x720",
+      "model_resolution": "960x540",
+      "output_resolution": "1920x1080",
+      "history_enabled": true,
+      "recurrent_enabled": false,
+      "jitter_mode": "prepass_input_resolve",
+      "cas_enabled": false,
+      "candidate_sha256": "cc1a5e24f192d070188d636e07fd3ef807e07a8822094bfb3be9bc7b4f8263e2",
+      "human_review": "PASS"
+    },
+    {
+      "arm": "C_off_on",
+      "source_resolution": "1280x720",
+      "model_resolution": "960x540",
+      "output_resolution": "1920x1080",
+      "history_enabled": false,
+      "recurrent_enabled": true,
+      "jitter_mode": "prepass_input_resolve",
+      "cas_enabled": false,
+      "candidate_sha256": "0ce96c727fcd81c563624306c855e748b3a3367a85baa3edb8af03d308a1c126",
+      "human_review": "PASS"
+    },
+    {
+      "arm": "D_on_on",
+      "source_resolution": "1280x720",
+      "model_resolution": "960x540",
+      "output_resolution": "1920x1080",
+      "history_enabled": true,
+      "recurrent_enabled": true,
+      "jitter_mode": "prepass_input_resolve",
+      "cas_enabled": false,
+      "candidate_sha256": "17a2cd086e52d08c907ed4c89d494f31a8120e8408bf1f4058c7d21243240da5",
+      "human_review": "PASS"
+    }
+  ],
+  "oracle": "full_reset not rerun; existing reset policy retained in traces"
+}

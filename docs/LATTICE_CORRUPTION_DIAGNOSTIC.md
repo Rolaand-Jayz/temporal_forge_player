@@ -481,3 +481,12 @@ shifts). Evidence and classifications are retained locally under
 `benchmarks/quality_sweeps/lattice_corruption_diagnostic/runs/20260904T-reopened-current/`;
 campaign images remain untracked and are not pushed. The machine-readable
 matrix is `benchmarks/quality_sweeps/lattice_corruption_diagnostic/prevalence_matrix.json`.
+
+The fixed semantic temporal matrix is recorded in
+`runs/20260904T-reopened-current/fix_temporal_matrix_v3/matrix.json`; all four
+history/recurrent combinations were visually reviewed clean. Required 360→1080
+and 720→1080 frame-47/48/49 runs are recorded in
+`fix_required_routes/routes.json` pending the final visual-review annotation.
+The capture runner’s `--history` and `--recurrent` switches validate the
+effective runtime trace, so temporal-off results cannot be mistaken for a
+production-on qualification.

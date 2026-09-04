@@ -137,7 +137,9 @@ def validate_runtime_trace(path: Path, *, run_id: str, source: str,
                            cas_enabled: bool, binary_sha256: str,
                            git_head: str, git_dirty: bool,
                            profile: str, config_sha256: str,
-                           expected_cas_strength: float | None = None) -> dict[str, object]:
+                           expected_cas_strength: float | None = None,
+                           expected_history: bool = True,
+                           expected_recurrent: bool = True) -> dict[str, object]:
     """Require the player to prove the effective state of this arm."""
     if not path.is_file():
         raise RuntimeError(f"Temporal Forge did not emit runtime trace: {path}")
@@ -199,8 +201,8 @@ def validate_runtime_trace(path: Path, *, run_id: str, source: str,
         )
     if profile == "AMD_SEMANTIC_BASELINE":
         required_baseline_state = {
-            "history_enabled": True,
-            "recurrent_enabled": True,
+            "history_enabled": expected_history,
+            "recurrent_enabled": expected_recurrent,
             "prepass_resolve_source": "model_color",
             "prepass_resolve_stage": "prepass_input_resolve",
             "prepass_resolve_resolution": output,
@@ -300,6 +302,10 @@ def main() -> int:
                         help="explicit semantic profile; diagnostics never become baseline evidence")
     parser.add_argument("--scale", type=float, action="append", choices=SCALES,
                         help="limit the run to selected reconstruction scales")
+    parser.add_argument("--history", choices=("on", "off"), default="on",
+                        help="diagnostic temporal color-history admission")
+    parser.add_argument("--recurrent", choices=("on", "off"), default="on",
+                        help="diagnostic recurrent admission")
     args = parser.parse_args()
     final_w, final_h = (int(x) for x in args.final.split("x"))
     root = args.repo.resolve()
@@ -388,6 +394,15 @@ def main() -> int:
                 })
             else:
                 env["TFORGE_QUALITY_PROFILE"] = args.profile
+            # These switches are intentionally applied after the semantic
+            # profile so the exact production path can be tested with the
+            # temporal inputs independently disabled.
+            if args.history == "off":
+                env.pop("TFORGE_FSR4_ENABLE_COLOR_HISTORY", None)
+                env.pop("TFORGE_FSR4_INTEGRATED_BEST_FINDINGS", None)
+                env.pop("TFORGE_FSR4_INTEGRATED_BEST_FINDINGS_JITTER", None)
+            if args.recurrent == "off":
+                env.pop("TFORGE_FSR4_ENABLE_RECURRENT", None)
             if args.cas_placement in ("post", "none"):
                 env["TFORGE_FSR4_DISABLE_CAS"] = "1"
                 env["TFORGE_REVIEW_FSR_CAS"] = ""
@@ -413,6 +428,8 @@ def main() -> int:
                     git_dirty=git_dirty,
                     profile=args.profile,
                     config_sha256=config_sha256,
+                    expected_history=args.history == "on",
+                    expected_recurrent=args.recurrent == "on",
                 )
             except Exception as error:
                 # Persist rejected-arm provenance before propagating the

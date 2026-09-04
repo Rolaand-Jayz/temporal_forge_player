@@ -20,12 +20,17 @@ from PIL import Image
 from scipy.ndimage import gaussian_filter
 
 PERIODS = tuple(range(2, 33))
+# Calibrated on the retained native 720→1080 and 360→1080 contaminated
+# outputs against their matched bicubic controls; conventional residuals stay
+# below this level.
+RESIDUAL_LATTICE_THRESHOLD = 5.0e-7
 ORIENTATIONS = ((1, 0), (0, 1), (1, 1), (1, -1))
 CAMPAIGN_ID = "quality-campaign-20260904-canonical-v1"
 
 
 def _luma(path: Path, size: tuple[int, int] = (256, 144)) -> np.ndarray:
-    image = Image.open(path).convert("RGB").resize(size, Image.Resampling.BILINEAR)
+    with Image.open(path) as source:
+        image = source.convert("RGB").resize(size, Image.Resampling.BILINEAR)
     rgb = np.asarray(image, dtype=np.float32) / 255.0
     return 0.2126 * rgb[..., 0] + 0.7152 * rgb[..., 1] + 0.0722 * rgb[..., 2]
 
@@ -76,13 +81,33 @@ def _peak_metrics(image: np.ndarray) -> tuple[list[dict[str, float]], float]:
     return peaks[:8], float(max(lag_scores))
 
 
+def _residual_metrics(image: np.ndarray) -> tuple[list[dict[str, float]], float]:
+    """Measure coherent periodic residual energy in normalized luma units.
+
+    Unlike correlation divided by residual variance, this retains amplitude:
+    a low-amplitude ordinary resize difference must not look like a strong
+    lattice merely because its variance is small.
+    """
+    peaks, _ = _peak_metrics(image)
+    residual = image - gaussian_filter(image, sigma=2.0, mode="reflect")
+    residual -= residual.mean()
+    energy = []
+    for lag in PERIODS:
+        horizontal = float(np.mean(residual[:, lag:] * residual[:, :-lag]))
+        vertical = float(np.mean(residual[lag:, :] * residual[:-lag, :]))
+        energy.append(max(abs(horizontal), abs(vertical)))
+    return peaks, float(max(energy))
+
+
 def analyze(path: Path, controls: Iterable[Path] = ()) -> dict[str, object]:
     peaks, autocorrelation = _peak_metrics(_luma(path))
+    with Image.open(path) as image:
+        width, height = image.size
     result: dict[str, object] = {
         "path": str(path),
         "sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
-        "width": Image.open(path).size[0],
-        "height": Image.open(path).size[1],
+        "width": width,
+        "height": height,
         "dominant_peaks": peaks,
         "max_abs_autocorrelation": autocorrelation,
         "detector_score": float(math.log1p(peaks[0]["prominence"]) * (1.0 + autocorrelation)) if peaks else 0.0,
@@ -92,16 +117,27 @@ def analyze(path: Path, controls: Iterable[Path] = ()) -> dict[str, object]:
     # suppresses that confounder and is the value used for triage.
     control_rows = []
     for control in controls:
-        if control.exists() and Image.open(control).size == Image.open(path).size:
+        if not control.exists():
+            continue
+        with Image.open(path) as source_image, Image.open(control) as control_image:
+            same_size = control_image.size == source_image.size
+        if same_size:
             cpeaks, cac = _peak_metrics(_luma(path) - _luma(control))
+            _, residual_energy = _residual_metrics(_luma(path) - _luma(control))
             control_rows.append({
                 "path": str(control),
                 "max_abs_autocorrelation": cac,
                 "dominant_peaks": cpeaks,
                 "residual_score": float(math.log1p(cpeaks[0]["prominence"]) * (1.0 + cac)) if cpeaks else 0.0,
+                "residual_autocorrelation_energy": residual_energy,
             })
     result["matched_control_residuals"] = control_rows
-    result["classification"] = "uncertain"
+    result["classification"] = (
+        "lattice_present"
+        if any(float(row["residual_autocorrelation_energy"]) >= RESIDUAL_LATTICE_THRESHOLD
+               for row in control_rows)
+        else "lattice_absent" if control_rows else "uncertain"
+    )
     return result
 
 

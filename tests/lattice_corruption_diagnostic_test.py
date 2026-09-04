@@ -8,6 +8,7 @@ engine = (ROOT / "src/core/PlaybackEngine.cpp").read_text()
 shader = (ROOT / "shaders/fsr4/bicubic_prefilter.comp").read_text()
 runner = (ROOT / "benchmarks/quality_sweeps/lattice_corruption_diagnostic/run_lattice_diagnostic.sh").read_text()
 precamp = (ROOT / "benchmarks/quality_sweeps/run_precampaign_qualification.py").read_text()
+supersampling = (ROOT / "benchmarks/quality_sweeps/run_fsr_supersampling.py").read_text()
 engine_capture = (ROOT / "benchmarks/quality_sweeps/capture_engine.py").read_text()
 campaign = (ROOT / "benchmarks/quality_sweeps/run_harness_campaign.py").read_text()
 
@@ -36,4 +37,7 @@ assert 'run_case bad_gpu 1280x720 1920x1080' in runner
 assert 'run_case healthy_gpu 640x360 1280x720' in runner
 assert 'run_case bad_reference 1280x720 1920x1080 1' in runner
 assert '540' not in runner
+assert '--history' in supersampling and '--recurrent' in supersampling
+assert 'expected_history=args.history == "on"' in supersampling
+assert 'expected_recurrent=args.recurrent == "on"' in supersampling
 print('lattice corruption diagnostic contract: PASS')
