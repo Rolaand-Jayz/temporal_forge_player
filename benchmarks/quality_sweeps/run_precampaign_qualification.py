@@ -75,6 +75,7 @@ def main() -> int:
                     "TFORGE_FSR4_CAS_STRENGTH": cas_strength, "TFORGE_FSR4_DISABLE_CAS": "1" if cas_name == "no_cas" else "0",
                     "TFORGE_QUALITY_PROFILE": "AMD_SEMANTIC_BASELINE", "TFORGE_FSR4_INTEGRATED_BEST_FINDINGS": "1",
                     "TFORGE_FSR4_DUMP_OUTPUT": "1", "TFORGE_FSR4_DUMP_RAW": "1",
+                    "TFORGE_RUNTIME_TRACE_PATH": str(case / "runtime_pipeline.json"),
                     "TFORGE_GIT_HEAD": subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip(),
                     "TFORGE_GIT_DIRTY": "0",
                 })
@@ -84,6 +85,24 @@ def main() -> int:
                 rows = list(csv.DictReader(csv_path.open(newline="", encoding="utf-8")))
                 if len(rows) != 1: raise SystemExit(f"expected one result row: {csv_path}")
                 row = rows[0]
+                trace_path = case / "runtime_pipeline.json"
+                if not trace_path.is_file():
+                    raise SystemExit(f"missing runtime semantic trace: {trace_path}")
+                trace = json.loads(trace_path.read_text(encoding="utf-8"))
+                semantic = {
+                    "prepass_resolve_source": "model_color",
+                    "prepass_resolve_stage": "prepass_input_resolve",
+                    "model_color_transfer": "eotf_mulaw_pretransformed",
+                    "model_color_format": "rgb10_a2",
+                    "mulaw_application_stage": "yuv_to_model_color",
+                    "mulaw_sampling_semantics": "pretransformed_before_resolve",
+                    "jitter_stage": "prepass_input_resolve",
+                    "jitter_sequence": "halton23",
+                    "source_display_format": "rgba8",
+                    "source_display_used_for_current_resolve": False,
+                }
+                if any(trace.get(key) != value for key, value in semantic.items()):
+                    raise SystemExit(f"runtime semantic provenance mismatch: {trace_path}")
                 image = Path(row["output_path"])
                 if not image.is_file() or image.stat().st_size == 0: raise SystemExit(f"missing output: {image}")
                 expected = (int(viewport.split("x")[0]), int(viewport.split("x")[1]))
