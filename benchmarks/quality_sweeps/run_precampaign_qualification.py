@@ -74,8 +74,12 @@ def main() -> int:
                     "TFORGE_FSR4_FORCE_VIEWPORT": viewport, "TFORGE_FSR4_FORCE_SCALE": "2.00",
                     "TFORGE_FSR4_CAS_STRENGTH": cas_strength, "TFORGE_FSR4_DISABLE_CAS": "1" if cas_name == "no_cas" else "0",
                     "TFORGE_QUALITY_PROFILE": "AMD_SEMANTIC_BASELINE", "TFORGE_FSR4_INTEGRATED_BEST_FINDINGS": "1",
+                    "TFORGE_FSR4_ENABLE_RECURRENT": "1", "TFORGE_FSR4_EXPERIMENTAL_PREPASS_JITTER_ORDERING": "1",
+                    "TFORGE_FSR4_EXPERIMENTAL_SOURCE_TAP_MULAW": "1", "TFORGE_FSR4_JITTER_SEQUENCE": "halton23",
                     "TFORGE_FSR4_DUMP_OUTPUT": "1", "TFORGE_FSR4_DUMP_RAW": "1",
                     "TFORGE_RUNTIME_TRACE_PATH": str(case / "runtime_pipeline.json"),
+                    "TFORGE_EXPERIMENT_ID": f"canonical_precamp_{inp}_{delivery}_{scene}_{cas_name}",
+                    "TFORGE_CONFIG_SHA256": config_sha,
                     "TFORGE_GIT_HEAD": subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip(),
                     "TFORGE_GIT_DIRTY": "0",
                 })
