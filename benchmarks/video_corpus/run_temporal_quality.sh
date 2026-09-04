@@ -945,7 +945,7 @@ if [[ -n "$artifact_dir" ]]; then
         cp "$sequence_dir"/temporal_forge_fsr4_*.ppm "$artifact_dir/fsr_frames/"
         cp "$tmpdir/fsr.mkv" "$tmpdir/reference.mkv" "$tmpdir/lanczos.mkv" \
             "$tmpdir/bilinear.mkv" "$artifact_dir/"
-        if [[ -n "$temporal_motion_json$temporal_metrics_output$temporal_class" ]]; then
+        if [[ -n "$temporal_metrics_output" ]]; then
             cp -R "$temporal_reference_dir" "$artifact_dir/reference_ppm"
         fi
     fi

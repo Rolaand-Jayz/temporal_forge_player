@@ -109,10 +109,7 @@ def main() -> int:
                         "TFORGE_FSR4_DUMP_REPROJECTED_COLOR": "1", "TFORGE_FSR4_DUMP_EVENT_TRACE": "1",
                         "TFORGE_TEMPORAL_CLASS": "motion_campaign", "TFORGE_TEMPORAL_SCENE": scene,
                         "TFORGE_TEMPORAL_CONFIG_ID": "motion_campaign", "TFORGE_EXPERIMENT_ID": key,
-                        "TFORGE_RUNTIME_TRACE_PATH": str(run_dir / "runtime.json"),
-                        "TFORGE_TEMPORAL_MOTION_JSON": str(run_dir / "motion.json"),
-                        "TFORGE_TEMPORAL_EVENTS_JSON": str(run_dir / "events.json"),
-                        "TFORGE_TEMPORAL_METRICS_OUTPUT": str(run_dir / "metrics.csv")})
+                        "TFORGE_RUNTIME_TRACE_PATH": str(run_dir / "runtime.json")})
             env.update(ARMS[arm])
             if arm == "offline_dense":
                 sidecar = run_dir / "offline_dense_replay.json"
