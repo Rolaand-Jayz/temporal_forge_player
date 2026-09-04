@@ -142,7 +142,7 @@ def main() -> int:
                     subprocess.run([sys.executable, str(validator), "--input", str(inp),
                                     "--output", str(run_dir / "offline_dense_report.json"),
                                     "--flow-output", str(flow), "--replay-output", str(sidecar),
-                                    "--method", "farneback", "--frames", str(args.frames)],
+                                    "--method", "farneback", "--frames", str(max(2, args.frames))],
                                    cwd=ROOT, check=True)
                 env["TFORGE_FSR4_EXPERIMENTAL_DENSE_MOTION"] = str(sidecar)
             if conf is not None:
