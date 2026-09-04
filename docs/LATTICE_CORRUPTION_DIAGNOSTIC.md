@@ -479,7 +479,8 @@ enlargement. The rebuilt exact bad case and healthy control were visually
 reviewed clean (no lattice, trails, halos, stale contamination, or color
 shifts). Evidence and classifications are retained locally under
 `benchmarks/quality_sweeps/lattice_corruption_diagnostic/runs/20260904T-reopened-current/`;
-campaign images remain untracked and are not pushed. The machine-readable
+new diagnostic captures remain local/untracked and are not pushed; previously
+tracked historical media is preserved unchanged. The machine-readable
 matrix is `benchmarks/quality_sweeps/lattice_corruption_diagnostic/prevalence_matrix.json`.
 
 The fixed semantic temporal matrix is recorded in
