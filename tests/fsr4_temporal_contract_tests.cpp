@@ -281,7 +281,7 @@ int main() {
     CHECK(prepass.find("inputPos += sourceJitter") != std::string::npos);
     CHECK(prepass.find("inputPos += slot1.zw") == std::string::npos);
     // Semantic source-tap mode owns the resolve phase, but must not consume
-    // the lossy rgba8 source-display image.  The FP16 model-color image has
+    // the lossy rgba8 source-display image.  The RGB10/A2 model-color image has
     // already applied the EOTF + Mu-law transform and is the stable resolve
     // representation under source/model geometry mismatch.
     CHECK(prepass.find("const vec4 current = sampleCurrentModel(modelPos, modelToOutputScale)") !=

@@ -84,6 +84,26 @@ class QualityRunnerContractTests(unittest.TestCase):
                                        config_sha256="config",
                                        profile="AMD_SEMANTIC_BASELINE")
 
+    def test_runtime_trace_rejects_contradictory_requested_source_tap_profile(self) -> None:
+        """A legacy request flag cannot masquerade as the effective resolve source."""
+        from benchmarks.quality_sweeps.run_fsr_supersampling import validate_runtime_trace
+
+        evidence = ROOT / "benchmarks/quality_sweeps/lattice_p0_recurrent_qualification_20260903/candidate_cave720.runtime_pipeline.json"
+        trace = json.loads(evidence.read_text(encoding="utf-8"))
+        trace["prepass_resolve_source"] = "source_display"
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "contradictory.json"
+            path.write_text(json.dumps(trace), encoding="utf-8")
+            with self.assertRaisesRegex(RuntimeError, "prepass_resolve_source"):
+                validate_runtime_trace(
+                    path,
+                    run_id=trace["run_id"], source="1280x720", output="1920x1080",
+                    scale=2.0, cas_enabled=False,
+                    binary_sha256=trace["binary_sha256"], git_head=trace["git_head"],
+                    git_dirty=trace["git_dirty"], profile="AMD_SEMANTIC_BASELINE",
+                    config_sha256=trace["config_sha256"], expected_cas_strength=0.0,
+                )
+
     def test_candidate_environment_is_declared_and_not_inherited(self) -> None:
         """Ambient quality switches must not silently change a candidate."""
         from benchmarks.quality_sweeps.run_quality_sweep import build_candidate_environment
@@ -197,6 +217,31 @@ class QualityRunnerContractTests(unittest.TestCase):
         self.assertIn('"TFORGE_FSR4_ENABLE_RECURRENT": "1"', source)
         self.assertIn('"quality_profile"', (ROOT / "src/core/PlaybackEngine.cpp").read_text(encoding="utf-8"))
         self.assertIn('"config_sha256"', (ROOT / "src/core/PlaybackEngine.cpp").read_text(encoding="utf-8"))
+
+    def test_semantic_validator_requires_effective_color_and_jitter_contract(self) -> None:
+        source = (ROOT / "benchmarks/quality_sweeps/run_fsr_supersampling.py").read_text(
+            encoding="utf-8"
+        )
+        for field in (
+            '"prepass_resolve_source": "model_color"',
+            '"prepass_resolve_stage": "prepass_input_resolve"',
+            '"model_color_transfer": "eotf_mulaw_pretransformed"',
+            '"model_color_format": "rgb10_a2"',
+            '"mulaw_application_stage": "yuv_to_model_color"',
+            '"source_display_used_for_current_resolve": False',
+            '"jitter_stage": "prepass_input_resolve"',
+        ):
+            self.assertIn(field, source)
+
+        playback = (ROOT / "src/core/PlaybackEngine.cpp").read_text(encoding="utf-8")
+        for field in (
+            'trace["prepass_resolve_source"]',
+            'trace["model_color_format"]',
+            'trace["mulaw_application_stage"]',
+            'trace["source_display_used_for_current_resolve"]',
+            'trace["requested_source_tap_mulaw_profile"]',
+        ):
+            self.assertIn(field, playback)
 
     def test_runtime_rejection_persists_failed_arm_provenance(self) -> None:
         source = (ROOT / "benchmarks/quality_sweeps/run_fsr_supersampling.py").read_text(

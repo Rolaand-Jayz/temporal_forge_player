@@ -199,9 +199,21 @@ def validate_runtime_trace(path: Path, *, run_id: str, source: str,
         )
     if profile == "AMD_SEMANTIC_BASELINE":
         required_baseline_state = {
-            "prepass_source_tap_mulaw": True,
             "history_enabled": True,
             "recurrent_enabled": True,
+            "prepass_resolve_source": "model_color",
+            "prepass_resolve_stage": "prepass_input_resolve",
+            "prepass_resolve_resolution": output,
+            "model_color_transfer": "eotf_mulaw_pretransformed",
+            "model_color_format": "rgb10_a2",
+            "model_color_resolution": f"{expected_model_w}x{expected_model_h}",
+            "mulaw_application_stage": "yuv_to_model_color",
+            "mulaw_sampling_semantics": "pretransformed_before_resolve",
+            "source_display_format": "rgba8",
+            "source_display_resolution": source,
+            "source_display_used_for_current_resolve": False,
+            "requested_source_tap_mulaw_profile": True,
+            "jitter_stage": "prepass_input_resolve",
             "motion_lookup": "unjittered_source_coordinates",
             "motion_validity_enabled": True,
         }

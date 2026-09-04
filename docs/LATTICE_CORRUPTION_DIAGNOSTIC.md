@@ -406,7 +406,8 @@ history-publication change is being claimed from this failed qualification.
 
 The source-tap ablation isolated the defect to applying EOTF + Mu-law after
 sampling the lossy rgba8 `u_sourceDisplay`. The retained fix keeps the semantic
-prepass phase but resolves from the already-transformed FP16 `u_color` image.
+prepass phase but resolves from the already-transformed RGB10/A2 `u_color`
+image (the downstream history/reprojection resources remain FP16).
 This removes the second quantization boundary without changing CAS, motion,
 recurrent admission, or reset policy.
 

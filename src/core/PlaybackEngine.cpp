@@ -287,8 +287,29 @@ void writeRuntimePipelineTrace(uint32_t decodedW, uint32_t decodedH,
           ? std::getenv("TFORGE_FSR4_JITTER_SEQUENCE")
           : "halton23");
   trace["jitter_phase_source"] = "per_frame_event_trace";
-  trace["prepass_source_tap_mulaw"] =
+  // The legacy source-tap switch is a requested/profile-selection value.  It
+  // must not be reported as though the prepass applies Mu-law to rgba8 taps:
+  // the production resolve samples the transformed model-color image, and
+  // the transform is performed upstream by yuv_to_fsr_input.
+  trace["requested_source_tap_mulaw_profile"] =
       std::getenv("TFORGE_FSR4_EXPERIMENTAL_SOURCE_TAP_MULAW") != nullptr;
+  trace["prepass_resolve_source"] = "model_color";
+  trace["prepass_resolve_stage"] = "prepass_input_resolve";
+  trace["prepass_resolve_resolution"] =
+      QStringLiteral("%1x%2").arg(outputW).arg(outputH);
+  trace["model_color_transfer"] = "eotf_mulaw_pretransformed";
+  trace["model_color_format"] = "rgb10_a2";
+  trace["model_color_resolution"] =
+      QStringLiteral("%1x%2").arg(modelW).arg(modelH);
+  trace["mulaw_application_stage"] = "yuv_to_model_color";
+  trace["mulaw_sampling_semantics"] = "pretransformed_before_resolve";
+  trace["jitter_stage"] = !jitterOff && prepassJitter
+                              ? "prepass_input_resolve"
+                              : (jitterOff ? "none" : "upload");
+  trace["source_display_format"] = "rgba8";
+  trace["source_display_resolution"] =
+      QStringLiteral("%1x%2").arg(decodedW).arg(decodedH);
+  trace["source_display_used_for_current_resolve"] = false;
   trace["requested_force_viewport"] = QString::fromUtf8(
       std::getenv("TFORGE_FSR4_FORCE_VIEWPORT") ? std::getenv("TFORGE_FSR4_FORCE_VIEWPORT") : "");
   trace["requested_force_scale"] = QString::fromUtf8(
