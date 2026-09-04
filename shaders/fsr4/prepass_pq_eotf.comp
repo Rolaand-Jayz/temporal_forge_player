@@ -118,9 +118,9 @@ const uint TFORGE_PREPASS_NATIVE_PHYSICAL_LANES = 4096u;
 // This opt-in bit moves synthetic jitter here from the upload shader while
 // retaining the established upload-time path as the default control.
 const uint TFORGE_PREPASS_JITTER_IN_RESOLVE = 131072u;
-// Diagnostic-only source-space resolve: apply the recovered Mu-law transform
-// to each decoded source tap before Gaussian filtering, matching the preserved
-// official ordering without changing the production RGB10 path.
+// Legacy profile bit. It remains in the control block for trace/debug
+// compatibility, but production current-color resolve is model-grid based;
+// Mu-law has already been applied by yuv_to_fsr_input before RGB10 storage.
 const uint TFORGE_PREPASS_SOURCE_TAP_MULAW = 2048u;
 float rec709Eotf(float N) {
     N = clamp(N, 0.0, 1.0);
@@ -330,13 +330,13 @@ void main() {
     if (usePrepassJitter || useSourceTapMuLaw)
         inputPos += sourceJitter;
     const vec2 modelPos = inputPos * sourceToModelScale;
-    // Resolve from the FP16 model-color image even when the semantic profile
+    // Resolve from the RGB10/A2 model-color image even when the semantic profile
     // requests source-tap Mu-law.  The raw source-display image is rgba8 and
     // applying the nonlinear transform after that quantization creates a
     // phase-locked lattice under source/model geometry mismatch.  The model
-    // image already contains the same EOTF + Mu-law transform at full
-    // precision; retaining the prepass phase here preserves ordering without
-    // introducing a second lossy representation.
+    // image already contains the same EOTF + Mu-law transform; retaining the
+    // prepass phase here preserves ordering without introducing a second
+    // lossy representation.
     const vec4 current = sampleCurrentModel(modelPos, modelToOutputScale);
     const bool fullReset = (slot0.z & 2u) != 0u;
     const bool recurrentResetOnly = (slot0.z & 1048576u) != 0u;
