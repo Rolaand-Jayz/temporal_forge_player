@@ -103,6 +103,10 @@ def main() -> int:
             env = os.environ.copy()
             env.update({"TFORGE_QUALITY_LAB_CONFIG": str(args.config), "TFORGE_QUALITY_PROFILE": "AMD_SEMANTIC_BASELINE",
                         "TFORGE_BENCHMARK_PRESET": "Quality", "TFORGE_TEMPORAL_WARMUP_FRAMES": str(args.warmup),
+                        # AMD VAAPI did not export codec vectors and stalled
+                        # during the 1080p diagnostic path. Software decode is
+                        # deterministic and keeps the codec arm legitimate.
+                        "TFORGE_DISABLE_HW_DECODE": "1",
                         "TFORGE_TEMPORAL_CAPTURE_TIMEOUT": str(args.timeout), "TFORGE_FSR4_FORCE_VIEWPORT": "1920x1080",
                         "TFORGE_FSR4_ENABLE_COLOR_HISTORY": "1", "TFORGE_FSR4_ENABLE_RECURRENT": "1",
                         "TFORGE_PRESERVE_IMAGE_ARTIFACTS": "1", "TFORGE_TEMPORAL_ARTIFACT_DIR": str(run_dir / "artifacts"),
