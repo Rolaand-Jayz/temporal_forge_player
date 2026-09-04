@@ -108,6 +108,10 @@ def main() -> int:
                         # deterministic and keeps the codec arm legitimate.
                         "TFORGE_DISABLE_HW_DECODE": "1",
                         "TFORGE_TEMPORAL_CAPTURE_TIMEOUT": str(args.timeout), "TFORGE_FSR4_FORCE_VIEWPORT": "1920x1080",
+                        # Bound the Vulkan fence wait so a bad 1080p dispatch
+                        # becomes an attributable capture failure, not a
+                        # process that occupies the GPU for ten minutes.
+                        "TFORGE_FSR4_FENCE_TIMEOUT_MS": "15000",
                         "TFORGE_FSR4_ENABLE_COLOR_HISTORY": "1", "TFORGE_FSR4_ENABLE_RECURRENT": "1",
                         "TFORGE_PRESERVE_IMAGE_ARTIFACTS": "1", "TFORGE_TEMPORAL_ARTIFACT_DIR": str(run_dir / "artifacts"),
                         "TFORGE_TEMPORAL_FAILURE_ARTIFACT_DIR": str(run_dir / "failure_artifacts"),
