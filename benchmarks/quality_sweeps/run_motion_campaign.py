@@ -73,7 +73,9 @@ def main() -> int:
     ap.add_argument("--config", type=Path, default=ROOT / "benchmarks" / "quality_sweeps" / "swarm" / "agent_recheck_current" / "config.json")
     ap.add_argument("--frames", type=int, default=8)
     ap.add_argument("--warmup", type=int, default=8)
-    ap.add_argument("--timeout", type=int, default=180)
+    # Full-resolution decode/readback can exceed three minutes on this
+    # workstation; keep the timeout a guard, not a hidden resolution filter.
+    ap.add_argument("--timeout", type=int, default=600)
     ap.add_argument("--no-confidence", dest="confidence", action="store_false", help="only run default confidence")
     ap.set_defaults(confidence=True)
     ap.add_argument("--scenes", nargs="*", choices=SCENES)
