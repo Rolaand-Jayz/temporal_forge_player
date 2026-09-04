@@ -501,11 +501,13 @@ float32 carrier with simulated RGB10 quantization, plus transform-before-
 resolve versus resolve-before-transform using a float carrier. The report is
 `precision_order_ablation.json`.
 
-RGB10 quantization produced RMSE `0.0001482` and periodic residual energy
-`8.02e-09`, with no short-period amplification. Transform ordering was
-numerically distinguishable (RMSE `0.0014204`, maximum error `0.09435`) but
-also showed no short-period residual signature. This supports retaining the
-small prefilter fix and does not support a precision or ordering root cause.
+RGB10 quantization produced RMSE `0.0001482` and maximum error `0.0004830`.
+Transform ordering was numerically distinguishable (RMSE `0.0014204`, maximum
+error `0.09435`). The report emits 2–32 px band energy and narrow-peak metrics
+for matched comparison, but these offline residuals are not sufficient to
+identify a causal precision or ordering boundary. The controlled GPU
+reference-resize A/B therefore remains the evidence supporting the retained
+prefilter fix.
 An in-process RGBA16F model-image swap and an independent GPU
 resolve-before-transform arm remain intentionally unimplemented: the current
 source/model descriptors and shader image formats are RGB10/A2, and adding
