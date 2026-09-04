@@ -1,0 +1,33 @@
+{
+  "schema": "temporal_forge.lattice_hypothesis_status.v1",
+  "status": "diagnostic_complete_for_prefilter_fix",
+  "do_not_start_full_campaign": true,
+  "findings": {
+    "gpu_prefilter_arithmetic": {
+      "status": "supported",
+      "evidence": "GPU bicubic contaminated exact 1280x720->960x540 case; same storage-image/barrier path with bilinear downsample and libswscale reference resize were clean"
+    },
+    "temporal_feedback": {
+      "status": "not_primary",
+      "evidence": "fixed exact case was clean in history/recurrent off/off, on/off, off/on, and on/on arms"
+    },
+    "geometry": {
+      "status": "covered",
+      "evidence": "fixed source==model, source>model, and source<model traces record source/model/output grids and scale factors"
+    },
+    "jitter": {
+      "status": "covered",
+      "evidence": "production prepass jitter, jitter-off, and full-reset oracle were visually clean"
+    },
+    "rgb10_vs_fp16_model_carrier": {
+      "status": "not_isolated",
+      "reason": "GpuImageUploader has no alternate RGBA16F source/model carrier; adding one would require broad descriptor/resource changes outside the smallest evidence-supported fix",
+      "nearest_evidence": "FP16_FP8 boundary diagnostic and CPU float resize reference were clean"
+    },
+    "transform_ordering": {
+      "status": "production_order_verified_only",
+      "evidence": "runtime traces prove pretransformed EOTF/Mu-law before model-grid resolve; the reference-resize ablation preserves that transformed input",
+      "not_run": "independent resolve-before-transform arm"
+    }
+  }
+}
