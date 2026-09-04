@@ -46,7 +46,55 @@ demonstrated as the dominant limiter by these captures.
 
 The resumed portion used one captured frame per key to stay within the
 workstation's temporary-storage limit; the earlier completed keys retain their
-longer sequences. Therefore the matrix, per-frame artifacts, and performance
-provenance are complete, but a final claim about temporal stability,
-occlusion/disocclusion behavior, and scene-cut handling still requires a
-multi-frame rerun of the one-frame subset with disk-backed temporary storage.
+longer sequences. A disk-backed multi-frame completion was then run with
+`--frames 8 --warmup 8`. Its manifest is
+`.campaign_motion_multiframe/manifest.jsonl`; all 288 keys are complete, with
+eight captured output frames, dense RG16F motion, R8 validity, codec-motion
+records, reprojection dumps, runtime metadata, and quality CSVs per key. The
+offline arm has 48 dense-flow validation reports (four tiers × four scenes ×
+three confidence settings), each validating seven frame pairs.
+
+The multi-frame SSIM and temporal-error means (12 captures per tier/arm,
+covering four scenes and three confidence settings) are:
+
+| source tier | arm | FSR SSIM | SSIM minimum | temporal delta absolute error |
+|---|---|---:|---:|---:|
+| 426×240 | zero | 0.754441 | 0.712234 | 0.760019 |
+| 426×240 | AutoCheap | 0.754409 | 0.712300 | 0.775360 |
+| 426×240 | codec | 0.754369 | 0.712288 | 0.774273 |
+| 426×240 | refined | 0.754410 | 0.712300 | 0.775382 |
+| 426×240 | dense+edge | 0.754390 | 0.712197 | 0.776349 |
+| 426×240 | offline dense | 0.754472 | 0.713046 | 0.800721 |
+| 640×360 | zero | 0.805643 | 0.765999 | 0.504961 |
+| 640×360 | AutoCheap | 0.805525 | 0.765988 | 0.522923 |
+| 640×360 | codec | 0.805510 | 0.765992 | 0.520861 |
+| 640×360 | refined | 0.805528 | 0.766006 | 0.522931 |
+| 640×360 | dense+edge | 0.805517 | 0.765995 | 0.523771 |
+| 640×360 | offline dense | 0.805413 | 0.766015 | 0.545965 |
+| 1280×720 | zero | 0.919968 | 0.901165 | 0.187077 |
+| 1280×720 | AutoCheap | 0.919877 | 0.901105 | 0.204155 |
+| 1280×720 | codec | 0.919876 | 0.901140 | 0.202732 |
+| 1280×720 | refined | 0.919878 | 0.901106 | 0.204152 |
+| 1280×720 | dense+edge | 0.919877 | 0.901100 | 0.205821 |
+| 1280×720 | offline dense | 0.920102 | 0.901176 | 0.250720 |
+| 1920×1080 | zero | 0.957878 | 0.954765 | 0.244372 |
+| 1920×1080 | AutoCheap | 0.957734 | 0.954568 | 0.258820 |
+| 1920×1080 | codec | 0.957741 | 0.954570 | 0.257969 |
+| 1920×1080 | refined | 0.957733 | 0.954566 | 0.258817 |
+| 1920×1080 | dense+edge | 0.957695 | 0.954515 | 0.261558 |
+| 1920×1080 | offline dense | 0.957550 | 0.954765 | 0.295964 |
+
+The result is consistent across the full matrix: zero motion is the best or
+near-best control at three tiers, while offline flow is only a small SSIM win
+at 1280×720 and has worse temporal-delta error there. Better correspondence
+therefore does not provide repeatable headroom, and the data does not justify a
+heavier real-time estimator or a confidence-threshold change. The dominant
+resolution effect is source-detail loss (the absolute SSIM falls sharply at
+240p/360p); the arm ordering itself does not reverse into a motion win.
+
+The captures preserve the raw per-frame fields and reprojection outputs needed
+for follow-up analysis. This runner invocation did not supply the optional
+assembled event-trace and temporal-metrics JSON destinations, so those two
+derived schemas are not claimed as present in this run; the runtime metadata,
+per-frame motion/validity records, reset policy, and eight-frame temporal
+metrics in each quality CSV remain the authoritative evidence collected here.
