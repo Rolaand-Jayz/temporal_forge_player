@@ -148,6 +148,17 @@ def main() -> int:
                         "TFORGE_TEMPORAL_CONFIG_ID": "motion_campaign", "TFORGE_EXPERIMENT_ID": key,
                         "TFORGE_RUNTIME_TRACE_PATH": str(run_dir / "runtime.json")})
             env.update(ARMS[arm])
+            if os.environ.get("TFORGE_MOTION_CAMPAIGN_MINIMAL_TRACE") == "1":
+                # Gate-trace passes need only the dispatch-uniform log and
+                # event records. Suppress multi-megabyte motion/reprojection
+                # readbacks while retaining the normal per-key log artifact.
+                env.update({
+                    "TFORGE_FSR4_DUMP_MOTION_TEXTURE": "",
+                    "TFORGE_FSR4_DUMP_MOTION_SIDECAR": "",
+                    "TFORGE_FSR4_DUMP_REPROJECTED_COLOR": "",
+                    "TFORGE_PRESERVE_IMAGE_ARTIFACTS": "0",
+                    "TFORGE_FSR4_DISPATCH_TRACE": "1",
+                })
             if arm == "offline_dense":
                 sidecar = run_dir / "offline_dense_replay.json"
                 flow = run_dir / "offline_dense_flow.npz"
