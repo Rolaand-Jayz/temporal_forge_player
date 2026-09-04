@@ -164,7 +164,8 @@ FsrJitterPair computeFsrJitterPair(uint32_t decodedW, uint32_t decodedH,
   const uint32_t modelH = fsrInputH;
   pair.nativePassthrough =
       pair.neuralTargetW == decodedW && pair.neuralTargetH == decodedH &&
-      pair.displayW == decodedW && pair.displayH == decodedH;
+      pair.displayW == decodedW && pair.displayH == decodedH &&
+      modelW == decodedW && modelH == decodedH;
   pair.preEasu =
       (std::getenv("TFORGE_FSR4_PRE_EASU") != nullptr ||
        std::getenv("TFORGE_FSR4_TRUE_FSR1_EASU") != nullptr) &&

@@ -255,6 +255,17 @@ int main() {
     CHECK(sideInputUpdate != std::string::npos);
     CHECK(jitterPairInstall < sideInputUpdate);
     CHECK(playback.find("computeFsrJitterPair") != std::string::npos);
+    // A forced 1920x1080 viewport must not bypass FSR when the selected
+    // quality multiplier still reconstructs on a smaller model grid. The
+    // 1080p source tier therefore remains a real motion-input experiment.
+    const size_t passthrough = playback.find("pair.nativePassthrough =");
+    CHECK(passthrough != std::string::npos);
+    if (passthrough != std::string::npos) {
+      const size_t end = playback.find(';', passthrough);
+      const std::string condition = playback.substr(passthrough, end - passthrough);
+      CHECK(condition.find("modelW == decodedW") != std::string::npos);
+      CHECK(condition.find("modelH == decodedH") != std::string::npos);
+    }
     // The jitter-sign probe must alter the uploaded color sample and the FSR
     // metadata as one contract. A sign change in only one side would create a
     // deliberately mismatched temporal input and make the A/B result useless.
