@@ -137,3 +137,10 @@ The trace schema is now strengthened for subsequent diagnostic runs: when
 trace-only observability change; it does not change the prepass constants or
 the reconstruction path, and the completed campaign artifacts remain the
 preserved source of results.
+
+Lattice safety is cross-checked against the retained P0 qualification in
+[`LATTICE_CORRUPTION_DIAGNOSTIC.md`](../../docs/LATTICE_CORRUPTION_DIAGNOSTIC.md):
+the fixed 720→1080, 360→1080, and 360→720 controls scored 0.0232, 0.0169, and
+0.0303 respectively (all below the 0.20 fail-closed tripwire), with visual
+review reporting no periodic contamination. The motion campaign did not alter
+the protected publication, geometry, jitter, or scaling contracts.
