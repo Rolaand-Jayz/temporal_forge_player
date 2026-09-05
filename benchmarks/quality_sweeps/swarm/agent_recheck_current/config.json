@@ -4,7 +4,8 @@
     "composition": {
       "mode": "current",
       "learnedStrength": 0.55,
-      "residualStrength": 0.0
+      "residualStrength": 0.0,
+      "adaptiveLearnedStrength": true
     },
     "baseFilter": {
       "mode": "catmull_rom",

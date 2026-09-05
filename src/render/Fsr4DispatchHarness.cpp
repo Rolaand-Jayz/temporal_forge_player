@@ -3694,6 +3694,24 @@ Fsr4DispatchHarness::dispatchFrame(const FrameDispatchInput &in) {
       if (qualityLabConfig_.enabled)
         learnedStrength = std::clamp(qualityLabConfig_.learnedStrength, 0.0f,
                                      1.0f);
+      // Tier-adaptive composition: measured dose-response on the four
+      // campaign tiers (426x240 / 640x360 / 1280x720 / 1920x1080 -> 1080p)
+      // shows severe upscales need a strong neural temporal accumulator —
+      // motion-compensated history is what keeps them stable — while
+      // near-1:1 tiers are dominated by neural reconstruction flicker and
+      // want a weak one. A single flat value cannot serve both regimes.
+      // The env override above still wins for explicit A/B arms.
+      if (qualityLabConfig_.enabled &&
+          qualityLabConfig_.adaptiveLearnedStrength &&
+          learnedStrengthOverride < 0.0f) {
+        const float sourceHeight = static_cast<float>(res_.sourceHeight);
+        if (sourceHeight <= 540.0f)
+          learnedStrength = 0.35f; // 240p/360p: temporal accumulator tier
+        else if (sourceHeight <= 760.0f)
+          learnedStrength = 0.20f; // 720p: flicker-dominated tier
+        else
+          learnedStrength = 0.18f; // 1080p: nearest to reconstruction grid
+      }
       if (bestFindingsTemporal && !qualityLabConfig_.enabled &&
           learnedStrengthOverride < 0.0f)
         learnedStrength = 0.075f;

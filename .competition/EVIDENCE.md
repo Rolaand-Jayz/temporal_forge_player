@@ -98,3 +98,38 @@ Common environment for all arms: same as above unless stated.
   Next lever: strength of the temporal accumulation itself
   (`TFORGE_FSR4_HISTORY_RECTIFICATION_SCALE` dose-response), then a
   per-pixel static-gated accumulation if the dose-response is positive.
+
+## E5 — accumulation dose-response (rectification scale)
+
+- CONFIGURATION: tos_daylight 720p integrated arm, rectification 1.0 / 0.5 /
+  0.25 / 0.1 (lower current weight = stronger accumulation).
+- MEASUREMENT: derr 0.905 -> 0.873 -> 0.873 -> 0.878; SSIM 0.8689 -> 0.8678
+  -> 0.8665 -> 0.8655. Saturating, slightly negative on SSIM.
+- CONCLUSION: the prepass accumulation barely reaches the final output (the
+  learned per-pixel history blend is small); the flicker lives in the neural
+  reconstruction itself. Static-gated accumulation in the prepass would not
+  pay. Abandoned.
+
+## E6 — composition sweep + definitive motion falsification
+
+- CONFIGURATION: tos_daylight 720p; learnedStrength override 0.35 / 0.75;
+  CAS 0.35 / 0.5; motion scale x3; plus 240p CAS 0.35 and rooftop CAS 0.35.
+- MEASUREMENT:
+  - ls0.35:  SSIM 0.898530, min 0.882764, derr 0.446  (baseline 0.868871 /
+    0.905; Lanczos 0.950882 / 0.495)
+  - ls0.75:  SSIM 0.813887, derr 2.005  (catastrophic)
+  - cas0.35: 0.851570 / 1.367; cas0.5: 0.846893 / 1.587 (CAS past optimum,
+    harmful at 0.20 default already; 240p cas035 SSIM worse, rooftop worse)
+  - motion scale x3: 0.854462 / 1.160 vs codec 0.855945 / 1.123 — output
+    nearly unchanged under 3x vector exaggeration.
+- CONCLUSION: (1) the composition blend between the classical catmull-rom
+  base and the neural reconstruction is the dominant quality lever; 0.35
+  beats both the 0.55 baseline and Lanczos on temporal error while closing
+  a third of the SSIM gap. (2) The motion-field lever is definitively
+  closed: direction inversion (E1), field stabilization (E3), timescale
+  (E4), and 3x exaggeration (E6) all move final metrics by <= ~0.002.
+- MECHANISM: learnedStrength = mix(classical base, neural reconstruction)
+  in the postpass. An enabled Quality Lab config flattens the legacy
+  resolution-adaptive heuristic (0.05-0.55 by source height) to a constant.
+- NEXT ACTION: per-tier dose-response sweep (E7), then implement a
+  tier-adaptive strength as the candidate.

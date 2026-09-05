@@ -61,6 +61,12 @@ struct QualityLabConfig {
 
     QualityCompositionMode compositionMode = QualityCompositionMode::Current;
     float learnedStrength = 0.55f;
+    // When set, the flat learnedStrength value is replaced at dispatch time
+    // by a source-height-adaptive composition strength. Severe upscales need
+    // a strong neural temporal accumulator while near-1:1 tiers need a
+    // weaker neural share to avoid reconstruction flicker; a single flat
+    // value cannot serve both. Measured on the four-tier campaign corpus.
+    bool adaptiveLearnedStrength = false;
     float residualStrength = 1.0f;
 
     QualityBaseFilterMode baseFilterMode = QualityBaseFilterMode::CatmullRom;

@@ -53,6 +53,21 @@ static void test_nested_values_and_clamps() {
     CHECK(std::fabs(config.learnedStrength - 1.0f) < 1e-6f);
     CHECK(std::fabs(config.residualStrength - 0.0f) < 1e-6f);
     CHECK(config.baseFilterMode == QualityBaseFilterMode::Mitchell);
+    CHECK(config.adaptiveLearnedStrength == false);
+
+    {
+        std::ofstream adaptiveFile(path);
+        adaptiveFile << R"json({
+          "qualityLab": {
+            "enabled": true,
+            "composition": {"mode":"current", "learnedStrength":0.55,
+                              "adaptiveLearnedStrength":true}
+          }
+        })json";
+    }
+    const auto adaptiveConfig = loadQualityLabConfig(path);
+    CHECK(adaptiveConfig.adaptiveLearnedStrength == true);
+    CHECK(std::fabs(adaptiveConfig.learnedStrength - 0.55f) < 1e-6f);
     CHECK(config.baseColorSpace == QualityBaseColorSpace::Model);
     CHECK(std::fabs(config.baseB - 0.25f) < 1e-6f);
     CHECK(config.residualLowpassMode == QualityResidualLowpassMode::Gaussian3x3);

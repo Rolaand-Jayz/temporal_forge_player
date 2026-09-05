@@ -212,6 +212,9 @@ QualityLabConfig loadQualityLabConfig(const std::filesystem::path &path) {
         readName(composition, "mode", "current"));
     result.learnedStrength = finiteClamped(
         composition, "learnedStrength", result.learnedStrength, 0.0f, 1.0f);
+    result.adaptiveLearnedStrength =
+        composition.contains("adaptiveLearnedStrength") &&
+        composition.value("adaptiveLearnedStrength").toBool(false);
     result.residualStrength = finiteClamped(
         composition, "residualStrength", result.residualStrength, 0.0f, 2.0f);
 
