@@ -103,3 +103,21 @@ and reconstruction configuration. The current event schema does not emit a
 separate FSR history-gate pass/fail bit or per-pixel coverage field, so those
 remain an instrumentation gap rather than inferred results. The original
 image-rich capture tree remains unchanged for pixel inspection.
+
+### Gate-trace completion
+
+The follow-up minimal-trace pass in `.campaign_gate_trace/manifest.jsonl` is
+complete: 288/288 keys succeeded, with 288 event traces, 288 quality CSVs, and
+288 player logs containing the FSR dispatch/postpass diagnostics. It retained
+no duplicate image, motion-texture, sidecar, or reprojection payloads. The
+postpass records expose effective history confidence and the fixed
+`currentWeight=0.02000`; they do not claim a gate decision that the runtime
+does not serialize.
+
+Across all four source tiers, the logged effective-confidence distributions
+show the controlled sweep behaving as configured: the fraction below the
+selected threshold is approximately 31–35% at the default threshold, 2–3% at
+0.35, and 52–65% at 0.75. This is direct dispatch evidence, not a substitute
+for the missing explicit gate-state and per-pixel-coverage fields. The run
+consumed 4.7G and completed with approximately 37G free on the capture
+filesystem; the two earlier evidence trees were not modified.
