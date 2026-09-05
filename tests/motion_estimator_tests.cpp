@@ -263,5 +263,149 @@ int main() {
     CHECK(dense.back().dstX == trustedSeed.dstX &&
           dense.back().dstY == trustedSeed.dstY &&
           std::abs(dense.back().mvX - trustedSeed.mvX) < 1e-6f);
+
+    // Global anchor: opt-in via environment, default must stay off so the
+    // established baseline capture semantics are unchanged.
+    unsetenv("TFORGE_FSR4_MOTION_GLOBAL_ANCHOR");
+    CHECK(MotionEstimator::configFromEnvironment().globalAnchor == false);
+    setenv("TFORGE_FSR4_MOTION_GLOBAL_ANCHOR", "1", 1);
+    CHECK(MotionEstimator::configFromEnvironment().globalAnchor == true);
+    setenv("TFORGE_FSR4_MOTION_GLOBAL_ANCHOR", "0", 1);
+    CHECK(MotionEstimator::configFromEnvironment().globalAnchor == false);
+    setenv("TFORGE_FSR4_MOTION_GLOBAL_ANCHOR", "1", 1);
+    unsetenv("TFORGE_FSR4_MOTION_GLOBAL_ANCHOR_SPLIT");
+    unsetenv("TFORGE_FSR4_MOTION_GLOBAL_ANCHOR_MIN_AGREEMENT");
+
+    // A steady camera translation must collapse the whole consensus field
+    // onto one refined anchor. The gradient moves +2 source pixels, so the
+    // current->previous translation is (-2, 0); the anchor may refine around
+    // that candidate but must stay within a quarter source pixel of it.
+    {
+        const LumaBuffer anchorPrevious = gradient(128, 64, 0);
+        const LumaBuffer anchorCurrent = gradient(128, 64, 2);
+        std::vector<MvEntry> cameraSeeds;
+        for (uint32_t by = 0; by < 64; by += 16) {
+            for (uint32_t bx = 0; bx < 128; bx += 16) {
+                MvEntry seedBlock;
+                seedBlock.dstX = static_cast<int16_t>(bx);
+                seedBlock.dstY = static_cast<int16_t>(by);
+                seedBlock.w = 16;
+                seedBlock.h = 16;
+                seedBlock.mvX = -2.0f;
+                seedBlock.mvY = 0.0f;
+                seedBlock.source = -1;
+                seedBlock.confidence = 1.0f;
+                cameraSeeds.push_back(seedBlock);
+            }
+        }
+        MotionEstimatorConfig anchorConfig;
+        anchorConfig.mode = MotionEstimatorMode::CodecRefined;
+        anchorConfig.globalAnchor = true;
+        MotionEstimator anchorEstimator;
+        const auto anchored = anchorEstimator.estimate(
+            anchorConfig, anchorCurrent, anchorPrevious, cameraSeeds, 128, 64);
+        CHECK(anchorEstimator.stats().anchorApplied);
+        CHECK(anchorEstimator.stats().anchoredSeeds == cameraSeeds.size());
+        for (const MvEntry &entry : anchored) {
+            CHECK(std::fabs(entry.mvX - (-2.0f)) <= 0.26f);
+            CHECK(std::fabs(entry.mvY) <= 0.26f);
+        }
+    }
+
+    // A genuinely independent object must keep its own vector: a seed whose
+    // block photometrically supports a different translation disagrees with
+    // the camera anchor beyond the split threshold and is not flattened
+    // into the global translation.
+    {
+        LumaBuffer anchorPrevious = gradient(128, 64, 0);
+        LumaBuffer anchorCurrent = gradient(128, 64, 2);
+        // A bright square that moves +3 pixels between the frames while the
+        // gradient background moves +2. The square is the only region where
+        // a +3 translation has photometric support.
+        for (uint32_t y = 24; y < 40; ++y) {
+            for (uint32_t x = 40; x < 56; ++x)
+                anchorPrevious.data[y * 128 + x] = 1.0f;
+        }
+        for (uint32_t y = 24; y < 40; ++y) {
+            for (uint32_t x = 43; x < 59; ++x)
+                anchorCurrent.data[y * 128 + x] = 1.0f;
+        }
+        std::vector<MvEntry> mixedSeeds;
+        for (uint32_t by = 0; by < 64; by += 16) {
+            for (uint32_t bx = 0; bx < 128; bx += 16) {
+                MvEntry seedBlock;
+                seedBlock.dstX = static_cast<int16_t>(bx);
+                seedBlock.dstY = static_cast<int16_t>(by);
+                seedBlock.w = 16;
+                seedBlock.h = 16;
+                const bool object = (bx == 32 && by == 16);
+                seedBlock.mvX = object ? 3.0f : -2.0f;
+                seedBlock.mvY = 0.0f;
+                seedBlock.source = -1;
+                seedBlock.confidence = 1.0f;
+                mixedSeeds.push_back(seedBlock);
+            }
+        }
+        MotionEstimatorConfig anchorConfig;
+        anchorConfig.mode = MotionEstimatorMode::CodecRefined;
+        anchorConfig.globalAnchor = true;
+        MotionEstimator anchorEstimator;
+        const auto mixed = anchorEstimator.estimate(
+            anchorConfig, anchorCurrent, anchorPrevious, mixedSeeds, 128, 64);
+        CHECK(anchorEstimator.stats().anchorApplied);
+        CHECK(anchorEstimator.stats().anchoredSeeds ==
+              mixedSeeds.size() - 1);
+        bool objectPreserved = false;
+        for (const MvEntry &entry : mixed) {
+            if (entry.dstX == 32 && entry.dstY == 16 &&
+                entry.mvX > 1.5f)
+                objectPreserved = true;
+        }
+        CHECK(objectPreserved);
+    }
+
+    // Without majority agreement the anchor must not engage at all: a field
+    // dominated by non-camera motion keeps its per-block vectors, and the
+    // field must not be collapsed onto one translation.
+    {
+        const LumaBuffer anchorPrevious = gradient(128, 64, 0);
+        const LumaBuffer anchorCurrent = gradient(128, 64, 2);
+        std::vector<MvEntry> chaoticSeeds;
+        for (uint32_t by = 0; by < 64; by += 16) {
+            for (uint32_t bx = 0; bx < 128; bx += 16) {
+                MvEntry seedBlock;
+                seedBlock.dstX = static_cast<int16_t>(bx);
+                seedBlock.dstY = static_cast<int16_t>(by);
+                seedBlock.w = 16;
+                seedBlock.h = 16;
+                const bool camera = (bx + by) % 32 == 0;
+                seedBlock.mvX = camera ? -2.0f : 6.0f;
+                seedBlock.mvY = 0.0f;
+                seedBlock.source = -1;
+                seedBlock.confidence = 1.0f;
+                chaoticSeeds.push_back(seedBlock);
+            }
+        }
+        MotionEstimatorConfig anchorConfig;
+        anchorConfig.mode = MotionEstimatorMode::CodecRefined;
+        anchorConfig.globalAnchor = true;
+        MotionEstimator anchorEstimator;
+        const auto untouched = anchorEstimator.estimate(
+            anchorConfig, anchorCurrent, anchorPrevious, chaoticSeeds, 128,
+            64);
+        CHECK(!anchorEstimator.stats().anchorApplied);
+        CHECK(anchorEstimator.stats().anchoredSeeds == 0);
+        size_t cameraVectors = 0;
+        size_t otherVectors = 0;
+        for (const MvEntry &entry : untouched) {
+            if (std::fabs(entry.mvX - (-2.0f)) < 0.26f)
+                ++cameraVectors;
+            else if (entry.mvX > 3.0f)
+                ++otherVectors;
+        }
+        CHECK(cameraVectors > 0);
+        CHECK(otherVectors > 0);
+    }
+    unsetenv("TFORGE_FSR4_MOTION_GLOBAL_ANCHOR");
     return failures == 0 ? 0 : 1;
 }

@@ -114,6 +114,112 @@ float parseFloat(const char* value, float fallback, float minValue,
     return std::clamp(parsed, minValue, maxValue);
 }
 
+// A spatially spread set of current-frame 3x3 patches. Global translation
+// must be judged against many regions so one flat or repetitive patch cannot
+// decide the frame's correspondence.
+struct AnchorPatchSet {
+    std::vector<std::pair<int, int>> centers;
+    std::vector<std::array<float, 9>> currentPatches;
+};
+
+AnchorPatchSet buildAnchorPatches(const LumaBuffer& current,
+                                  uint32_t patchCount) {
+    AnchorPatchSet set;
+    const uint32_t usableW = current.width > 4u ? current.width - 4u : 1u;
+    const uint32_t usableH = current.height > 4u ? current.height - 4u : 1u;
+    const uint32_t columns = std::max(
+        1u, static_cast<uint32_t>(std::lround(
+                std::sqrt(static_cast<double>(patchCount) *
+                          static_cast<double>(usableW) /
+                          static_cast<double>(std::max(1u, usableH))))));
+    const uint32_t rows = std::max(1u, patchCount / columns);
+    const float stepX = static_cast<float>(usableW) / static_cast<float>(columns);
+    const float stepY = static_cast<float>(usableH) / static_cast<float>(rows);
+    for (uint32_t row = 0; row < rows; ++row) {
+        for (uint32_t column = 0; column < columns; ++column) {
+            const int x = std::clamp(static_cast<int>(std::lround(
+                (static_cast<float>(column) + 0.5f) * stepX)) + 2,
+                0, static_cast<int>(current.width) - 1);
+            const int y = std::clamp(static_cast<int>(std::lround(
+                (static_cast<float>(row) + 0.5f) * stepY)) + 2,
+                0, static_cast<int>(current.height) - 1);
+            std::array<float, 9> patch{};
+            size_t index = 0;
+            for (int oy = -1; oy <= 1; ++oy)
+                for (int ox = -1; ox <= 1; ++ox, ++index)
+                    patch[index] = sample(current, x + ox, y + oy);
+            set.centers.emplace_back(x, y);
+            set.currentPatches.push_back(patch);
+        }
+    }
+    return set;
+}
+
+float anchorSetSad(const AnchorPatchSet& set, const LumaBuffer& previous,
+                   float dx, float dy) {
+    if (set.centers.empty()) return std::numeric_limits<float>::infinity();
+    float total = 0.0f;
+    for (size_t index = 0; index < set.centers.size(); ++index) {
+        total += patchSadCachedCurrentFractional(
+            set.currentPatches[index], previous, set.centers[index].first,
+            set.centers[index].second, dx, dy);
+    }
+    return total / static_cast<float>(set.centers.size());
+}
+
+struct GlobalTranslation {
+    float dx = 0.0f;
+    float dy = 0.0f;
+    float meanError = 0.0f;
+};
+
+// Two-stage translation search around a starting candidate: an integer pass
+// followed by a quarter-pixel pass. All evaluation uses the spread patch set
+// so the result is a frame-level consensus rather than a single patch match.
+GlobalTranslation refineGlobalTranslation(const LumaBuffer& current,
+                                          const LumaBuffer& previous,
+                                          uint32_t patchCount,
+                                          float startDx, float startDy,
+                                          int coarseRadius) {
+    GlobalTranslation result;
+    const AnchorPatchSet patches = buildAnchorPatches(current, patchCount);
+    if (patches.centers.empty()) return result;
+    float bestDx = std::round(startDx);
+    float bestDy = std::round(startDy);
+    float bestError = anchorSetSad(patches, previous, bestDx, bestDy);
+    for (int oy = -coarseRadius; oy <= coarseRadius; ++oy) {
+        for (int ox = -coarseRadius; ox <= coarseRadius; ++ox) {
+            const float dx = std::round(startDx) + static_cast<float>(ox);
+            const float dy = std::round(startDy) + static_cast<float>(oy);
+            const float error = anchorSetSad(patches, previous, dx, dy);
+            if (error < bestError) {
+                bestError = error;
+                bestDx = dx;
+                bestDy = dy;
+            }
+        }
+    }
+    result.dx = bestDx;
+    result.dy = bestDy;
+    result.meanError = bestError;
+    // Quarter-pixel refinement around the integer winner. Analysis luma is
+    // reduced-resolution, so this restores sub-source-pixel precision that
+    // integer-only candidates quantize away.
+    for (int oy = -2; oy <= 2; ++oy) {
+        for (int ox = -2; ox <= 2; ++ox) {
+            const float dx = bestDx + static_cast<float>(ox) * 0.25f;
+            const float dy = bestDy + static_cast<float>(oy) * 0.25f;
+            const float error = anchorSetSad(patches, previous, dx, dy);
+            if (error < result.meanError) {
+                result.meanError = error;
+                result.dx = dx;
+                result.dy = dy;
+            }
+        }
+    }
+    return result;
+}
+
 } // namespace
 
 void MotionEstimator::beginFrame(bool sceneCut) {
@@ -221,6 +327,15 @@ MotionEstimatorConfig MotionEstimator::configFromEnvironment() {
         std::getenv("TFORGE_FSR4_MOTION_FALLBACK_AFTER_FILTERING") != nullptr;
     config.denseGridFallback =
         std::getenv("TFORGE_FSR4_MOTION_DENSE_GRID") != nullptr;
+    const char *globalAnchor = std::getenv("TFORGE_FSR4_MOTION_GLOBAL_ANCHOR");
+    config.globalAnchor = globalAnchor && std::strcmp(globalAnchor, "0") != 0;
+    config.globalAnchorSplitPixels = parseFloat(
+        std::getenv("TFORGE_FSR4_MOTION_GLOBAL_ANCHOR_SPLIT"), 2.0f, 0.0f, 16.0f);
+    config.globalAnchorMinAgreement = parseFloat(
+        std::getenv("TFORGE_FSR4_MOTION_GLOBAL_ANCHOR_MIN_AGREEMENT"), 0.5f,
+        0.0f, 1.0f);
+    config.globalAnchorPatches = static_cast<uint32_t>(parseInt(
+        std::getenv("TFORGE_FSR4_MOTION_GLOBAL_ANCHOR_PATCHES"), 64, 1, 256));
     return config;
 }
 
@@ -417,31 +532,25 @@ std::vector<MvEntry> MotionEstimator::estimate(
             (codecSeeds.empty() || config.allowFallbackAfterFiltering) &&
             previous.width == current.width &&
             previous.height == current.height) {
-            const int centerX = static_cast<int>(current.width / 2u);
-            const int centerY = static_cast<int>(current.height / 2u);
-            const int radius = std::min(16, static_cast<int>(std::min(
-                current.width, current.height) / 4u));
-            float bestError = std::numeric_limits<float>::infinity();
-            int bestDx = 0;
-            int bestDy = 0;
-            for (int dy = -radius; dy <= radius; ++dy) {
-                for (int dx = -radius; dx <= radius; ++dx) {
-                    const float error = patchSad(current, previous, centerX,
-                                                 centerY, dx, dy);
-                    if (error < bestError) {
-                        bestError = error;
-                        bestDx = dx;
-                        bestDy = dy;
-                    }
-                }
-            }
+            // Judge the fallback against the same spread patch set as the
+            // camera anchor instead of one center patch: a single 3x3 patch
+            // cannot distinguish translation from unrelated texture, and a
+            // flat center would tie every candidate.
+            const GlobalTranslation fallback = refineGlobalTranslation(
+                current, previous,
+                std::max<uint32_t>(config.globalAnchorPatches, 64u), 0.0f,
+                0.0f,
+                std::min(16, static_cast<int>(std::min(current.width,
+                                                       current.height) /
+                                              4u)));
+            const float bestError = fallback.meanError;
             const float scaleX = static_cast<float>(current.width) /
                                  static_cast<float>(sourceWidth);
             const float scaleY = static_cast<float>(current.height) /
                                  static_cast<float>(sourceHeight);
-            const float globalMvX = static_cast<float>(bestDx) /
+            const float globalMvX = fallback.dx /
                                     std::max(scaleX, 1.0e-6f);
-            const float globalMvY = static_cast<float>(bestDy) /
+            const float globalMvY = fallback.dy /
                                     std::max(scaleY, 1.0e-6f);
             // This vector is estimated from the immediately previous decoded
             // luma frame, not copied from a codec reference-picture entry.
@@ -511,6 +620,51 @@ std::vector<MvEntry> MotionEstimator::estimate(
     const float scaleY = static_cast<float>(current.height) /
                          static_cast<float>(sourceHeight);
     const int radius = std::clamp(config.searchRadius, 0, 4);
+    // Camera-translation consensus: refine the median seed into a sub-pixel
+    // frame-level translation and replace agreeing seeds with it. Block-level
+    // vectors wobble frame-to-frame even during a steady camera move, and
+    // that wobble transfers directly into reprojection flicker. Seeds that
+    // disagree with the anchor beyond the split threshold keep their own
+    // vector so independently moving objects are not flattened into the
+    // camera model.
+    std::vector<bool> anchored(output.size(), false);
+    if (config.globalAnchor) {
+        const GlobalTranslation refinedAnchor = refineGlobalTranslation(
+            current, previous, config.globalAnchorPatches,
+            stats_.dominantMotionX * scaleX, stats_.dominantMotionY * scaleY,
+            1);
+        const float anchorMvX =
+            refinedAnchor.dx / std::max(scaleX, 1.0e-6f);
+        const float anchorMvY =
+            refinedAnchor.dy / std::max(scaleY, 1.0e-6f);
+        size_t agreeingSeeds = 0;
+        for (const MvEntry& entry : output) {
+            if (std::hypot(entry.mvX - anchorMvX, entry.mvY - anchorMvY) <=
+                config.globalAnchorSplitPixels)
+                ++agreeingSeeds;
+        }
+        const float agreementFraction =
+            static_cast<float>(agreeingSeeds) /
+            static_cast<float>(output.size());
+        if (agreementFraction >= config.globalAnchorMinAgreement) {
+            for (size_t entryIndex = 0; entryIndex < output.size();
+                 ++entryIndex) {
+                MvEntry& entry = output[entryIndex];
+                if (std::hypot(entry.mvX - anchorMvX,
+                               entry.mvY - anchorMvY) <=
+                    config.globalAnchorSplitPixels) {
+                    entry.mvX = anchorMvX;
+                    entry.mvY = anchorMvY;
+                    anchored[entryIndex] = true;
+                    ++stats_.anchoredSeeds;
+                }
+            }
+            stats_.anchorApplied = true;
+            stats_.anchorX = anchorMvX;
+            stats_.anchorY = anchorMvY;
+            stats_.anchorMeanResidual = refinedAnchor.meanError;
+        }
+    }
     const uint32_t maxRefinedSeeds = std::max(1u, config.maxRefinedSeeds);
     // Codec exports can contain tens of thousands of small blocks at 1080p.
     // Spread a bounded number of searches through that list rather than
@@ -541,6 +695,27 @@ std::vector<MvEntry> MotionEstimator::estimate(
         for (int oy = -1; oy <= 1; ++oy)
             for (int ox = -1; ox <= 1; ++ox, ++patchIndex)
                 currentPatch[patchIndex] = sample(current, x + ox, y + oy);
+        if (anchored[entryIndex]) {
+            // Anchored seeds share the frame-level consensus translation, so
+            // the per-seed local search is skipped: reintroducing independent
+            // integer corrections here would rebuild the very field wobble
+            // the anchor removed. Confidence still comes from this block's
+            // own photometric evidence at the anchored position, evaluated
+            // with fractional sampling because the anchor is sub-pixel.
+            const float anchoredError = patchSadCachedCurrentFractional(
+                currentPatch, previous, x, y,
+                entry.mvX * scaleX, entry.mvY * scaleY);
+            const float anchoredConfidence = std::clamp(
+                std::exp(-anchoredError /
+                         std::max(0.001f, config.confidenceErrorScale)),
+                0.0f, 1.0f);
+            entry.confidence = std::min(entry.confidence, anchoredConfidence);
+            residualSum += anchoredError;
+            confidenceSum += entry.confidence;
+            if (entry.confidence < config.confidenceThreshold)
+                ++stats_.lowConfidenceSeeds;
+            continue;
+        }
         const float seedError = patchSadCachedCurrent(
             currentPatch, previous, x, y, seedDx, seedDy);
         float bestError = seedError;

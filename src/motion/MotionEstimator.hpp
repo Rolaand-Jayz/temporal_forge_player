@@ -58,6 +58,18 @@ struct MotionEstimatorConfig {
     // aware GPU resolve is an explicit diagnostic opt-in until it has a
     // scene-diverse quality win.
     bool edgeAwareUpscale = false;
+    // Replace consensus camera-translation seeds with one robust, sub-pixel
+    // refined global vector. Codec block fields wobble frame-to-frame even
+    // when the underlying motion is a steady camera move; that wobble makes
+    // the reprojection flicker without improving alignment. A seed is
+    // replaced only when it agrees with the refined anchor within
+    // globalAnchorSplitPixels, so genuinely independent object motion is
+    // preserved. The prepass photometric gate remains the per-pixel safety
+    // net when an anchor is wrong.
+    bool globalAnchor = false;
+    float globalAnchorSplitPixels = 2.0f;
+    float globalAnchorMinAgreement = 0.5f;
+    uint32_t globalAnchorPatches = 64;
 };
 
 struct MotionEstimatorStats {
@@ -71,6 +83,13 @@ struct MotionEstimatorStats {
     float meanConfidence = 0.0f;
     double cpuMilliseconds = 0.0;
     bool sceneCut = false;
+    // Global-anchor provenance for capture traces: the refined translation
+    // in source pixels and how much of the field accepted it.
+    bool anchorApplied = false;
+    float anchorX = 0.0f;
+    float anchorY = 0.0f;
+    float anchorMeanResidual = 0.0f;
+    uint32_t anchoredSeeds = 0;
 };
 
 class MotionEstimator {
