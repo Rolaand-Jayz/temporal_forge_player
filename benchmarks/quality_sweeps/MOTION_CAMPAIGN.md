@@ -130,3 +130,10 @@ prepass shader applies; it is intentionally labeled derived because the
 runtime log does not emit a boolean. The captured R8 validity planes remain
 the authoritative per-pixel coverage evidence (2,284 planes in the
 image-bearing run), while no new payloads were created for this summary.
+
+The trace schema is now strengthened for subsequent diagnostic runs: when
+`TFORGE_FSR4_DISPATCH_TRACE` is enabled, the temporal dispatch line also emits
+`historyGateEnabled`, `historyGatePass`, and `threshold`. This is a
+trace-only observability change; it does not change the prepass constants or
+the reconstruction path, and the completed campaign artifacts remain the
+preserved source of results.

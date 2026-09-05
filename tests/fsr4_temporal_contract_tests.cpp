@@ -380,6 +380,9 @@ int main() {
     CHECK(harness.find("dispatch trace: prepass {}") != std::string::npos);
     CHECK(harness.find("prepassDisabled") != std::string::npos);
     CHECK(harness.find("dispatch trace: temporal flags") != std::string::npos);
+    CHECK(harness.find("historyGateEnabled") != std::string::npos);
+    CHECK(harness.find("historyGatePass") != std::string::npos);
+    CHECK(harness.find("threshold={}") != std::string::npos);
     CHECK(harness.find("dispatch trace: {} graph complete") != std::string::npos);
     CHECK(harness.find("dispatch trace: queue submitted") != std::string::npos);
 

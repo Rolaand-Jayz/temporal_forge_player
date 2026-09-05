@@ -2754,11 +2754,17 @@ void Fsr4DispatchHarness::recordPrepass(VkCommandBuffer cmd,
   // which history/recurrent/reset bits were actually written into the
   // prepass constants for that dispatch. It is trace-only and cannot alter
   // the command buffer or the default image path.
-  if (dispatchTrace)
+  if (dispatchTrace) {
+    const bool historyGateEnabled = (cbData.s0z & 1073741824u) != 0u;
+    const bool historyGatePass =
+        !historyGateEnabled || cbData.s2x >= cbData.s2y;
     logInfo("Fsr4Harness dispatch trace: temporal flags s0z={} reset={} "
-            "colorHistory={} recurrent={} confidence={}",
+            "colorHistory={} recurrent={} confidence={} "
+            "historyGateEnabled={} historyGatePass={} threshold={}",
             cbData.s0z, in.reset, (cbData.s0z & 8u) == 0u,
-            (cbData.s0z & 4u) == 0u, cbData.s2x);
+            (cbData.s0z & 4u) == 0u, cbData.s2x, historyGateEnabled,
+            historyGatePass, cbData.s2y);
+  }
   if (cbRingMapped_)
     std::memcpy(static_cast<char *>(cbRingMapped_) + cbOffset, &cbData,
                 sizeof(cbData));
