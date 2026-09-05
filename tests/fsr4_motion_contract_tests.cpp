@@ -62,8 +62,18 @@ int main() {
     CHECK(playback.find("rejectBFrameMotion") != std::string::npos);
     CHECK(playback.find("TFORGE_FSR4_MOTION_ALLOW_B_FRAMES") !=
           std::string::npos);
-    CHECK(playback.find("pastReferenceMotion(\n          df.motionVectors,") !=
+    CHECK(playback.find("pastReferenceMotion(\n          causalSeeds,") !=
           std::string::npos);
+    // Timescale normalization: the causal seed copy must come straight from
+    // the decoded frame, and a P-picture group distance must reach the
+    // rescale so IBBP vectors estimate the same per-display-frame
+    // correspondence as B-picture back vectors.
+    CHECK(playback.find("std::vector<MvEntry> causalSeeds = df.motionVectors;") !=
+          std::string::npos);
+    CHECK(playback.find("TFORGE_FSR4_MOTION_TIMESCALE_NORMALIZE") !=
+          std::string::npos);
+    CHECK(decoderHeader.find("mvReferenceDistance") != std::string::npos);
+    CHECK(decoder.find("mvReferenceDistance") != std::string::npos);
     // A requested codec/refined estimator needs FFmpeg side data, which the
     // VAAPI frame handoff does not preserve. The decoder must therefore make
     // that selection truthful instead of silently running with zero seeds.

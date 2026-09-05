@@ -61,6 +61,14 @@ struct DecodedVideoFrame {
     // prove that the picture is the immediately previous displayed frame.
     // PlaybackEngine uses this marker for the integrated causal-history guard.
     bool bFrame = false;
+    // Estimated display-frame distance between this frame and the past
+    // reference its exported vectors point at. B-picture back references
+    // target the nearest previous displayed frame (distance 1); P-picture
+    // vectors span the whole IBBP group (distance 3 in I B B P), so their
+    // magnitudes are per-group rather than per-frame. Consumers that need a
+    // current->previous-displayed-frame displacement divide by this value
+    // when TFORGE_FSR4_MOTION_TIMESCALE_NORMALIZE is set.
+    uint8_t mvReferenceDistance = 1;
     int hwFrameFormat = -1;     // AVPixelFormat for the hardware frame, if any
     // Retains mapped DRM PRIME descriptors and their DMA-BUF file descriptors
     // until the Vulkan uploader has imported the frame.
@@ -178,6 +186,9 @@ private:
     uint64_t frameCounter_ = 0;
     bool hwaccelEnabled_ = false;
     bool motionMetadataRequested_ = false;
+    // Display frames output since the last P/I frame. Used to estimate how
+    // many display frames a P-picture's exported vectors span.
+    int displayFramesSinceRef_ = 0;
 };
 
 } // namespace temporal_forge

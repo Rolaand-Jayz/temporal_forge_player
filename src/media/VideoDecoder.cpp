@@ -298,6 +298,28 @@ bool VideoDecoder::receiveFrame(DecodedVideoFrame& out) {
     // but a B-picture may still refer to an older displayed picture rather
     // than the immediately previous frame owned by Temporal Forge.
     out.bFrame = sourceFrame->pict_type == AV_PICTURE_TYPE_B;
+    // Estimate how many display frames one exported vector spans. B-picture
+    // back references land on the nearest previous displayed frame, while a
+    // P-picture's reference is the previous P/I frame, which in an I B B P
+    // display group sits three display frames back. The history reprojection
+    // contract needs current->previous-displayed-frame displacement, so the
+    // per-group P magnitudes must be divided by this distance before use.
+    switch (sourceFrame->pict_type) {
+        case AV_PICTURE_TYPE_B:
+            out.mvReferenceDistance = 1;
+            ++displayFramesSinceRef_;
+            break;
+        case AV_PICTURE_TYPE_P:
+            out.mvReferenceDistance = static_cast<uint8_t>(
+                std::clamp(displayFramesSinceRef_ + 1, 1, 255));
+            displayFramesSinceRef_ = 0;
+            break;
+        default:
+            // I-frames export no motion vectors; restart the group count.
+            out.mvReferenceDistance = 1;
+            displayFramesSinceRef_ = 0;
+            break;
+    }
     out.hwFrameFormat = out.hwFrame ? AV_PIX_FMT_DRM_PRIME : -1;
     out.drmObjects = 0;
     out.keyframe = (sourceFrame->flags & AV_FRAME_FLAG_KEY) != 0;
@@ -455,6 +477,7 @@ bool VideoDecoder::gpuFriendlyFormat() const {
 void VideoDecoder::flush() {
     if (codec_) avcodec_flush_buffers(codec_);
     frameCounter_ = 0;
+    displayFramesSinceRef_ = 0;
 }
 
 } // namespace temporal_forge

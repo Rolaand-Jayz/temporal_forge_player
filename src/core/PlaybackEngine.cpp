@@ -2464,6 +2464,15 @@ void PlaybackEngine::videoDecodeLoop() {
   static const bool rejectBFrameMotion =
       std::getenv("TFORGE_FSR4_MOTION_ALLOW_B_FRAMES") == nullptr &&
       std::getenv("TFORGE_FSR4_MOTION_REJECT_B_FRAMES") != nullptr;
+  // Rescale exported codec vectors from their reference-group timescale to
+  // per-display-frame displacement. In an I B B P stream a P-picture's
+  // vectors span three display frames while B-picture back vectors span one,
+  // so the raw seed mixture alternates between two incompatible timescales
+  // and the motion field cannot be stable frame-to-frame. Normalization
+  // keeps the current->previous-displayed-frame contract while giving every
+  // seed the same timescale.
+  static const bool normalizeMotionTimescale =
+      std::getenv("TFORGE_FSR4_MOTION_TIMESCALE_NORMALIZE") != nullptr;
   static const char *jitterModeEnv = std::getenv("TFORGE_FSR4_JITTER_MODE");
   // Future-frame probes need one decoded lookahead frame. The ordinary path
   // remains packet-for-packet causal and does not drain another video packet.
@@ -2976,8 +2985,21 @@ void PlaybackEngine::videoDecodeLoop() {
           effectiveMotionConfig.sceneCutThreshold);
       const LumaBuffer analysisLuma = makeAnalysisLuma(
           df, effectiveMotionConfig.mode != MotionEstimatorMode::Off);
+      // Timescale normalization must precede validation: a P-picture vector
+      // is a legitimate per-group displacement, and dividing by the group
+      // distance before the absurd-displacement rejection keeps valid slow
+      // motion from being discarded while still bounding real outliers.
+      std::vector<MvEntry> causalSeeds = df.motionVectors;
+      if (normalizeMotionTimescale && df.mvReferenceDistance > 1) {
+        const float inverseDistance =
+            1.0f / static_cast<float>(df.mvReferenceDistance);
+        for (MvEntry &seed : causalSeeds) {
+          seed.mvX *= inverseDistance;
+          seed.mvY *= inverseDistance;
+        }
+      }
       std::vector<MvEntry> pastMotion = pastReferenceMotion(
-          df.motionVectors, rejectBFrameMotion, df.bFrame);
+          causalSeeds, rejectBFrameMotion, df.bFrame);
       // Optional standalone estimator boundary. It consumes the original
       // unjittered luma pair and normalized causal codec seeds, then returns
       // the same source-pixel vectors already understood by the existing GPU
