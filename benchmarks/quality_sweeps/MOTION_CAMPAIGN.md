@@ -121,3 +121,12 @@ selected threshold is approximately 31–35% at the default threshold, 2–3% at
 for the missing explicit gate-state and per-pixel-coverage fields. The run
 consumed 4.7G and completed with approximately 37G free on the capture
 filesystem; the two earlier evidence trees were not modified.
+
+For offline analysis, the frame-level admission state is reproducibly derived
+from each dispatch record as `historyConfidence >= threshold` (with the
+threshold taken from the manifest's confidence selector and the default
+profile's documented 0.55). This reconstructs the scalar decision that the
+prepass shader applies; it is intentionally labeled derived because the
+runtime log does not emit a boolean. The captured R8 validity planes remain
+the authoritative per-pixel coverage evidence (2,284 planes in the
+image-bearing run), while no new payloads were created for this summary.
