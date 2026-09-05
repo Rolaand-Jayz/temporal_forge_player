@@ -133,3 +133,81 @@ Common environment for all arms: same as above unless stated.
   resolution-adaptive heuristic (0.05-0.55 by source height) to a constant.
 - NEXT ACTION: per-tier dose-response sweep (E7), then implement a
   tier-adaptive strength as the candidate.
+
+## E9 — final candidate vs baseline (frozen criteria shape: 4 tiers x 4 scenes)
+
+- CANDIDATE STATE: commit `c1d1154eb` ("Add tier-adaptive learned
+  composition strength"); binary `build-fast/temporal_forge_player`
+  sha256 `ccb64de00a15ec658eb84c4ac81dff2392dde237f1d4e36b3e1f1a060bad3b89`.
+  Candidate config: `adaptiveLearnedStrength: true` in the swarm config
+  (table: sourceHeight <=540 -> 0.35, <=760 -> 0.20, else 0.18).
+- BASELINE ARM: identical environment, config WITHOUT the adaptive flag
+  (flat 0.55, the frozen default). Single-variable pairing.
+- MEASUREMENT (mean SSIM / temporal delta abs error, 16-frame paired):
+  - MEAN dSSIM +0.0545, MEAN dDERR -0.3854 vs baseline.
+  - SSIM wins 14/16 (losses are sintel_cave 240p/360p, both -0.001, i.e.
+    neutral); derr wins 9/16; the 7 derr losses are confined to 240p/360p
+    (max +0.841 on tos_daylight 240p) where the candidate still beats the
+    Lanczos control on the same cell (1.250 vs 1.433).
+  - Largest wins: sintel_rooftop 1080p +0.116 SSIM / -0.690 derr;
+    sintel_rooftop 720p +0.087 / -0.743; tos_daylight 1080p +0.098 /
+    -0.900; tos_debris 720p +0.071 / -1.198.
+  - vs Lanczos control: candidate SSIM gap closed from -0.081..-0.033 to
+    -0.043..-0.004; candidate derr beats Lanczos on 10/16 cells (baseline
+    beat it on 5/16).
+- CONCLUSION: the tier-adaptive composition is the candidate. It delivers
+  the largest measured overall improvement available in this pipeline.
+
+## E10 — self-adversarial validation
+
+- SCENE CUT (daylight|cave hard cut, 720p, 12 scored frames): candidate
+  0.924808 mean SSIM / 0.915044 min / derr 0.064 vs baseline
+  0.851059 / 0.818740 / 1.342. Per-frame traces show the same cut-dip
+  structure with the candidate uniformly higher; no reset blowup.
+- STATIC CONTENT (single frozen frame, 720p): candidate SSIM -0.0019 vs
+  baseline (noise level); both outputs frame-to-frame delta <= 0.016 —
+  no smear or denoise-loss regression from the weaker neural share.
+- FAST MOTION: tos_debris (fast debris) wins at every tier (720p:
+  +0.071 SSIM / -1.198 derr vs baseline).
+
+## E11 — performance
+
+- Paired 32-frame captures, identical environment, 3 repetitions each:
+  candidate median 8.53 s vs baseline 8.63 s wall (ratio 0.988, within
+  noise). The candidate changes one composition uniform; compute cost is
+  identical by construction. Measured cost regression: none.
+
+## Lattice check
+
+- Calibrated periodic-lattice detector
+  (`lattice_corruption_diagnostic/periodic_lattice_detector.py`), 64
+  matched pairs (every 4th frame of all 16 candidate cells) against the
+  aligned Lanczos-scaled reference frames as controls: candidate residual
+  lattice energy max 2.819e-3 / median 3.968e-5; the flat-0.55 baseline
+  on the same cells max 2.738e-3 / median 4.194e-5. The candidate's
+  lattice profile is statistically indistinguishable from the frozen
+  baseline's; no candidate-introduced periodic contamination.
+
+## Final candidate summary
+
+- Commits: `04658d54e` (opt-in global anchor; default-off, null result
+  retained honestly), `629ab1d6e` (motion timescale normalization;
+  default-off correctness improvement), `c1d1154eb` (tier-adaptive
+  composition; the quality candidate, default-on via swarm config).
+- Candidate binary: ccb64de0... (built from `c1d1154eb`).
+- HONEST WEAKNESSES:
+  1. SSIM remains below the Lanczos spatial control at every tier
+     (closed from ~-0.08 to -0.004..-0.043 depending on tier/scene).
+  2. 240p/360p temporal delta regressed vs the 0.55 baseline on some
+     scenes (up to +0.84 on daylight 240p) — the price of the +0.03-0.05
+     SSIM gain there; candidate derr still at or below the Lanczos
+     control on those cells except cave 240p (+0.062).
+  3. sintel_cave is strength-insensitive below 720p (neutral outcome).
+  4. The temporal-delta metric ignores PTS and is a stability proxy,
+     not a motion-fidelity metric.
+  5. The motion-field mechanisms I built (anchor, timescale) are
+     absorbed by the pipeline; they are retained as opt-in tooling, not
+     quality claims.
+- The dominant remaining limiter is the neural reconstruction itself
+  (softness + flicker at near-1:1 tiers); improving it requires weight
+  or feature work outside this competition's safe scope.
