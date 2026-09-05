@@ -160,7 +160,12 @@ float MotionEstimator::aggregateConfidence(const std::vector<MvEntry>& mvs,
         weightedMagnitudeSq += area * magnitude * magnitude;
         weightedConfidence += area * std::clamp(mv.confidence, 0.0f, 1.0f);
     }
-    if (covered <= 0.0) return 0.25f;
+    // A nonempty list can still contain only out-of-frame or malformed
+    // entries. Treat that the same as an empty field and preserve the caller's
+    // explicit fallback policy; a hard-coded value here silently bypasses the
+    // empty-motion confidence experiment and makes invalid metadata look
+    // more trustworthy (or less trustworthy) than configured.
+    if (covered <= 0.0) return empty;
 
     const double coverage = std::clamp(covered / frameArea, 0.0, 1.0);
     const double mean = weightedMagnitude / covered;
