@@ -27,6 +27,21 @@ an explicit fallback of `0.8` must return `0.8`.
 - Capture metrics: FSR SSIM mean `0.825759`, minimum `0.815313`, temporal
   delta absolute error `1.129259`; these match the valid-motion control.
 
+The committed binary was also run through the four-tier matrix with the same
+current temporal configuration and a forced 1920×1080 output:
+
+| Input | FSR SSIM mean | FSR SSIM min | Temporal delta absolute error |
+| --- | ---: | ---: | ---: |
+| 426×240 | 0.762697 | 0.750557 | 1.428889 |
+| 640×360 | 0.825759 | 0.815314 | 1.129256 |
+| 1280×720 | 0.946578 | 0.938178 | 0.342594 |
+| 1920×1080 | 0.916524 | 0.907679 | 0.413226 |
+
+The corresponding retained artifacts are under
+`.candidate_capture/final_matrix/`; each tier records the executable hash,
+input/reference hashes, commit, resolved configuration, and forwarded player
+environment.
+
 The unchanged valid-motion result is intentional: this correction is a
 fail-safe for invalid metadata and is not claimed as a spatial-quality win.
 It preserves the configured policy for the malformed-input case while avoiding
