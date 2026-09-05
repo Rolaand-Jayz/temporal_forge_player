@@ -1,6 +1,6 @@
 # Motion confidence fallback correction
 
-Date: 2026-09-05  
+Date: 2026-09-05
 Branch: `quality-lab-vibecoder`
 
 ## Change
