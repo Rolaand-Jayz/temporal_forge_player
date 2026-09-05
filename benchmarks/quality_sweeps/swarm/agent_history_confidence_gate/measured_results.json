@@ -1,0 +1,47 @@
+{
+  "candidateId": "history-confidence-gate",
+  "status": "rejected-not-promoted",
+  "configuration": {
+    "decode": "software",
+    "colorHistory": true,
+    "learnedStrength": 0.15,
+    "warmupFrames": 8,
+    "scoredFrames": 12,
+    "output": "1920x1080"
+  },
+  "results": {
+    "tos_debris": {
+      "reference": {
+        "lanczosSsim": 0.937092,
+        "lanczosTemporalAbsError": 0.009803
+      },
+      "threshold055": {
+        "fsrSsim": 0.938188,
+        "fsrTemporalAbsError": 0.025428
+      },
+      "threshold100": {
+        "fsrSsim": 0.938209,
+        "fsrTemporalAbsError": 0.021264
+      }
+    },
+    "sintel_cave": {
+      "reference": {
+        "lanczosSsim": 0.948854,
+        "lanczosTemporalAbsError": 0.446685
+      },
+      "threshold055": {
+        "fsrSsim": 0.950623,
+        "fsrTemporalAbsError": 0.489334
+      },
+      "threshold075": {
+        "fsrSsim": 0.950623,
+        "fsrTemporalAbsError": 0.489338
+      },
+      "threshold100": {
+        "fsrSsim": 0.950612,
+        "fsrTemporalAbsError": 0.488111
+      }
+    }
+  },
+  "decision": "Do not change the default. Keep the threshold opt-in only for future investigation."
+}

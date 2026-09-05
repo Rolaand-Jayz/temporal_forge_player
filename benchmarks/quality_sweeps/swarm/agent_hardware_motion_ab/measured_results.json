@@ -1,0 +1,59 @@
+{
+  "candidateId": "hardware-vs-software-motion",
+  "status": "diagnostic-not-promoted",
+  "configuration": {
+    "scene": "tos_daylight",
+    "input": "426x240",
+    "output": "1920x1080",
+    "colorHistory": true,
+    "warmupFrames": 8,
+    "scoredFrames": 12
+  },
+  "hardwareDecode": {
+    "motionAvailable": false,
+    "ssim": 0.858844,
+    "temporalAbsError": 1.457350
+  },
+  "softwareDecode": {
+    "motionAvailable": true,
+    "ssim": 0.858969,
+    "temporalAbsError": 1.444618
+  },
+  "performanceCheck": {
+    "hardwareDecode1080p": {
+      "decodeCpuMs": 0.0059,
+      "uploadCpuMs": 0.125,
+      "pipelineCpuMs": 0.158,
+      "recordCpuMs": 0.0311,
+      "waitGpuCpuMs": 0.002,
+      "gpuMs": 5.7931
+    },
+    "softwareDecode1080p": {
+      "decodeCpuMs": 0.1717,
+      "uploadCpuMs": 0.1688,
+      "pipelineCpuMs": 0.2047,
+      "recordCpuMs": 0.0338,
+      "waitGpuCpuMs": 0.0024,
+      "gpuMs": 5.6858
+    },
+    "hardwareWholeProcessCpuPercent": 7.0,
+    "note": "Measured on the AMD Ryzen 7 7800X3D/Radeon RX 7900 GRE host with one 1920x1080 clip. FSR dispatch recording is not the CPU bottleneck."
+  },
+  "freshQualitySanity": {
+    "scene": "tos_daylight",
+    "input": "426x240",
+    "output": "1920x1080",
+    "warmupFrames": 8,
+    "scoredFrames": 12,
+    "hardwareDecode": {
+      "ssim": 0.859146,
+      "temporalAbsError": 1.409493
+    },
+    "softwareDecode": {
+      "ssim": 0.859371,
+      "temporalAbsError": 1.323908
+    },
+    "interpretation": "Software motion remains promising for this scene, but this single-scene sanity check does not justify changing the global default."
+  },
+  "decision": "Do not change the default yet. Validate a software-motion quality mode across the full real corpus and measure CPU cost before choosing a policy."
+}

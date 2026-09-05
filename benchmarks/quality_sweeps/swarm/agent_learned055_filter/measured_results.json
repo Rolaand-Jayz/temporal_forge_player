@@ -1,0 +1,22 @@
+{
+  "schema": "temporal_forge.quality_sweep_results.v1",
+  "campaignId": "agent-learned055-filter-20260824",
+  "status": "captured-review-blocked",
+  "captureCount": 48,
+  "baseline": "current_default",
+  "aggregate": {
+    "learned_055_default": {"meanSsimDelta": 0.000196750, "meanTemporalErrorDelta": -0.105437500, "badPairs": 0, "improvedPairs": 5},
+    "learned_055_bilinear": {"meanSsimDelta": 0.002333125, "meanTemporalErrorDelta": 0.026947750, "badPairs": 6, "improvedPairs": 2},
+    "learned_055_mitchell": {"meanSsimDelta": 0.002233750, "meanTemporalErrorDelta": 0.003629000, "badPairs": 6, "improvedPairs": 2},
+    "learned_055_catmull_rom": {"meanSsimDelta": 0.000196500, "meanTemporalErrorDelta": -0.105439750, "badPairs": 0, "improvedPairs": 5},
+    "learned_055_lanczos2": {"meanSsimDelta": 0.000118125, "meanTemporalErrorDelta": -0.106949625, "badPairs": 2, "improvedPairs": 2}
+  },
+  "decision": {
+    "promoted": null,
+    "numericallyEligible": ["learned_055_default", "learned_055_catmull_rom"],
+    "reason": "Bilinear and Mitchell trade spatial gain for six paired temporal regressions; Lanczos2 fails two paired gates. The Catmull/default learned candidate passes numeric gates but remains blocked pending human review because matched stills show softer facial and hair texture.",
+    "sourceChanged": false,
+    "benchmarkImagesChanged": false
+  },
+  "captureRoot": "captures/"
+}

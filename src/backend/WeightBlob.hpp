@@ -6,7 +6,8 @@
 // blob currently parses per spec/blob-format.json:
 //
 //   offset 0..1024   FP16 encoder input weight
-//   offset 1024..    per-tensor FP32 biases interleaved with FP8 weights;
+//   offset 1024..    per-tensor FP32 biases interleaved with FP8-like/codebook
+//                    weight bytes decoded for the active INT8 path;
 //                   each tensor boundary is aligned to 128 bytes
 //   offset 130,976   zero padding to 128 KiB
 //   total           131,072 B = 128 KiB exactly

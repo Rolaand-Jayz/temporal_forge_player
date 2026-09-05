@@ -1,0 +1,69 @@
+{
+  "schema": "temporal_forge.quality_sweep_matrix.legacy_rcas.v1",
+  "campaignId": "agent-sharpen-audit-legacy-rcas-20260824",
+  "status": "captured-not-promoted",
+  "purpose": "Matched full-temporal comparison of the existing current-path legacy RCAS strength.",
+  "control": {
+    "name": "legacy_current_path_rcas_strength",
+    "environment": "TFORGE_FSR4_LEGACY_RCAS_STRENGTH",
+    "defaultValue": 0.08,
+    "range": [0.0, 1.0],
+    "consumer": "applyLegacyEdgeAwareRcas",
+    "postpassSlot": "slot4.w",
+    "composition": "current",
+    "qualityLabConfig": null,
+    "casStrength": 0.0
+  },
+  "levels": [
+    {"id": "rcas_000", "value": 0.0, "environment": {"TFORGE_FSR4_LEGACY_RCAS_STRENGTH": "0.00"}},
+    {"id": "rcas_004", "value": 0.04, "environment": {"TFORGE_FSR4_LEGACY_RCAS_STRENGTH": "0.04"}},
+    {"id": "rcas_008", "value": 0.08, "environment": null, "usesDefault": true},
+    {"id": "rcas_012", "value": 0.12, "environment": {"TFORGE_FSR4_LEGACY_RCAS_STRENGTH": "0.12"}},
+    {"id": "rcas_016", "value": 0.16, "environment": {"TFORGE_FSR4_LEGACY_RCAS_STRENGTH": "0.16"}}
+  ],
+  "scenes": ["tos_daylight", "tos_debris", "sintel_rooftop", "sintel_cave"],
+  "inputResolutions": ["426x240", "1280x720"],
+  "outputDimensionsByInput": {
+    "426x240": "1920x1080",
+    "1280x720": "3840x2160"
+  },
+  "framePolicy": {
+    "warmupFrames": 36,
+    "scoredFrames": 24
+  },
+  "captureCount": 40,
+  "decisionGate": {
+    "baseline": "rcas_008",
+    "perPairSsimFloorDelta": -0.0005,
+    "perPairTemporalErrorMaxRelativeIncrease": 0.02,
+    "minimumImprovedPairs": 3,
+    "meanSsimDeltaAtLeast": 0.0,
+    "meanTemporalErrorDeltaAtMost": 0.0,
+    "gpuTimeIncreaseMsAtMost": 0.25,
+    "aggregateOnly": false,
+    "earlyRejectAllowed": true
+  },
+  "excludedControls": [
+    "qualityLabComposition",
+    "qualityLabAdaptiveSharpen",
+    "baseFilter",
+    "postpassCAS",
+    "history",
+    "recurrent",
+    "learnedStrength",
+    "learnedConfidenceBlend",
+    "jitter",
+    "colorInterpretation",
+    "tone",
+    "presentationFilter"
+  ],
+  "executedCaptureCount": 40,
+  "result": "measured_results.json",
+  "evidence": [
+    "README.md",
+    "src/render/Fsr4DispatchHarness.cpp",
+    "shaders/fsr4/postpass_composite.comp",
+    "benchmarks/video_corpus/run_temporal_quality.sh",
+    "benchmarks/quality_sweeps/swarm/agent_next_audit/README.md"
+  ]
+}

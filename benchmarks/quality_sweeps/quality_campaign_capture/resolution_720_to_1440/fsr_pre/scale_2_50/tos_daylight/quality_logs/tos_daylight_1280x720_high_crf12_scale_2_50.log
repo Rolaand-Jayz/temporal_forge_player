@@ -1,0 +1,63 @@
+lsfg-vk: Placing default configuration file at /tmp/tforge-quality-config.oYtrvz/lsfg-vk/conf.toml
+[2026-09-02 23:48:56] INFO  ?:0: Vulkan: using Qt shared instance
+[2026-09-02 23:48:56] DEBUG ?:0: Vulkan: candidate 'AMD Radeon RX 7900 GRE (RADV NAVI31)' vendor=0x1002 type=2 vram=16368MiB [AMD/RADV]
+[2026-09-02 23:48:56] DEBUG ?:0: Vulkan: candidate 'AMD Ryzen 7 7800X3D 8-Core Processor (RADV RAPHAEL_MENDOCINO)' vendor=0x1002 type=1 vram=10748MiB [AMD/RADV]
+[2026-09-02 23:48:56] INFO  ?:0: Vulkan: shaderStorageImageExtendedFormats=true
+[2026-09-02 23:48:56] INFO  ?:0: Vulkan: graphics queue family 0, FSR compute queue family 1
+[2026-09-02 23:48:56] INFO  ?:0: Vulkan: device 'AMD Radeon RX 7900 GRE (RADV NAVI31)' selected, queue family 0
+[2026-09-02 23:48:56] INFO  ?:0: Settings: loaded (path: /tmp/tforge-quality-config.oYtrvz/temporal-forge-player/settings.json)
+[2026-09-02 23:48:56] INFO  ?:0: QualityLab: /home/rolaandjayz/ZCodeProject/temporal_forge_player/config/quality_lab.json enabled=true composition=base_only base=bilinear colorSpace=model sharpen=none toneEV=-0.015
+[2026-09-02 23:48:56] WARN  ?:0: Unknown benchmark preset 'saved'; using saved preset
+[2026-09-02 23:48:56] INFO  ?:0: GpuCapabilityProbe: AMD Radeon RX 7900 GRE (RADV NAVI31) (radv) -> INT8 DOT4 (RDNA3 cooperative matrix, SINT8->SINT32) [tile 16x16, SINT8->SINT32 accum] + FP16 fallback available
+[2026-09-02 23:48:56] INFO  ?:0: PlaybackEngine: Vulkan handles set; FSR4 will be initialized on first frame
+[2026-09-02 23:48:56] INFO  ?:0: PlaybackEngine: FSR4 upscaling enabled
+[2026-09-02 23:48:56] INFO  ?:0: Auto-opening playlist with 1 item(s)
+[2026-09-02 23:48:56] INFO  ?:0: PlaybackEngine: openUrl('file:///home/rolaandjayz/ZCodeProject/temporal_forge_player/benchmarks/video_corpus/clips/tos_daylight_1280x720_high_crf12.mp4')
+[2026-09-02 23:48:56] INFO  ?:0: PlaybackEngine: close() stopThreads
+[2026-09-02 23:48:56] INFO  ?:0: PlaybackEngine: close() audio.stop
+[2026-09-02 23:48:56] INFO  ?:0: PlaybackEngine: FSR4 path torn down
+[2026-09-02 23:48:56] INFO  ?:0: PlaybackEngine: close() fully done
+[2026-09-02 23:48:56] INFO  ?:0: PlaybackEngine: close() done, opening demuxer
+[2026-09-02 23:48:56] INFO  ?:0: PlaybackEngine: demux->open('/home/rolaandjayz/ZCodeProject/temporal_forge_player/benchmarks/video_corpus/clips/tos_daylight_1280x720_high_crf12.mp4')
+[2026-09-02 23:48:56] INFO  ?:0: Demuxer: opened '/home/rolaandjayz/ZCodeProject/temporal_forge_player/benchmarks/video_corpus/clips/tos_daylight_1280x720_high_crf12.mp4' [mov,mp4,m4a,3gp,3g2,mj2] duration=10.000s streams=1 video=0 audio=-1381258232 sub=-1381258232
+[2026-09-02 23:48:56] DEBUG ?:0: Demuxer: video 1280x720 24 fps
+[2026-09-02 23:48:56] INFO  ?:0: PlaybackEngine: demux opened ok
+[2026-09-02 23:48:56] INFO  ?:0: VideoDecoder: hardware decode disabled because codec motion metadata was requested
+[2026-09-02 23:48:56] INFO  ?:0: VideoDecoder: opened codec 'h264' 1280x720 pix_fmt=yuv420p
+[2026-09-02 23:48:56] INFO  ?:0: PlaybackEngine: starting decode threads
+[2026-09-02 23:48:56] INFO  ?:0: PlaybackEngine: opened '/home/rolaandjayz/ZCodeProject/temporal_forge_player/benchmarks/video_corpus/clips/tos_daylight_1280x720_high_crf12.mp4', playing=true
+[2026-09-02 23:48:56] INFO  ?:0: Temporal Forge Player: ready
+[h264 @ 0x5623d1ceadc0] A hardware frames or device context is required for hardware accelerated decoding.
+[h264 @ 0x5623d1ceadc0] Failed setup for format vaapi: hwaccel initialisation returned error.
+[2026-09-02 23:48:56] INFO  ?:0: PlaybackEngine: FSR4 pass decoded 1280x720 -> model 1280x720 -> 3200x1800
+[2026-09-02 23:48:56] INFO  ?:0: Fsr4Harness: generic pipeline cache loaded (1110664 bytes)
+[2026-09-02 23:48:56] INFO  ?:0: Fsr4Harness: prepass pipeline created (8647 words SPIR-V)
+[2026-09-02 23:48:56] INFO  ?:0: Fsr4Harness: conv pipelines created (dw 6297 words, pw scalar 3443 words, pw coop 5899 words, fp16 coop 3858 words, pw direct 2968 words, spatial direct 3346 words, upscale coop 3273 words, downscale coop 2614 words)
+[2026-09-02 23:48:56] INFO  ?:0: Fsr4Harness: scatter pipeline created (799 words)
+[2026-09-02 23:48:56] INFO  ?:0: Fsr4Harness: postpass pipeline created (21697 words)
+[2026-09-02 23:48:56] INFO  ?:0: Fsr4Harness: SPD pipeline created (954 words)
+[2026-09-02 23:48:56] INFO  ?:0: Fsr4Harness: native INT8 pipeline cache loaded (2314916 bytes)
+[2026-09-02 23:48:56] INFO  ?:0: Fsr4Harness: initialized on AMD Radeon RX 7900 GRE (RADV NAVI31) (all 6 pipelines: prepass+conv+scatter+postpass+spd)
+[2026-09-02 23:48:56] INFO  ?:0: Fsr4Harness: resources allocated src=1280x720 out=3200x1800 (scratch=181024KB accum=180000KB feat=270000KB)
+[2026-09-02 23:48:56] INFO  ?:0: WeightBlob: loaded Quality (131072 B, 255 unique uint8, drs=false)
+[2026-09-02 23:48:56] INFO  ?:0: PlaybackEngine: FSR4 multiplier Performance uses standard blob Quality (quality.bin, 131072 bytes)
+[2026-09-02 23:48:56] INFO  ?:0: Fsr4Harness: uploaded 131072 B raw model + prepacked INT8/scales and FP16 cooperative weights
+[2026-09-02 23:48:56] INFO  ?:0: GpuImageUploader: EASU RGBA8 format features optimal=0x1dd83
+[2026-09-02 23:48:56] INFO  ?:0: GpuImageUploader: allocated source 1280x720 -> model 1280x720 -> output 3200x1800
+[2026-09-02 23:48:56] INFO  ?:0: PlaybackEngine: FSR4 pass decoded 1280x720 -> model 1280x720 -> 3200x1800
+[2026-09-02 23:48:56] INFO  ?:0: Fsr4Harness: generic pipeline cache loaded (1110664 bytes)
+[2026-09-02 23:48:56] INFO  ?:0: Fsr4Harness: prepass pipeline created (8647 words SPIR-V)
+[2026-09-02 23:48:56] INFO  ?:0: Fsr4Harness: conv pipelines created (dw 6297 words, pw scalar 3443 words, pw coop 5899 words, fp16 coop 3858 words, pw direct 2968 words, spatial direct 3346 words, upscale coop 3273 words, downscale coop 2614 words)
+[2026-09-02 23:48:56] INFO  ?:0: Fsr4Harness: scatter pipeline created (799 words)
+[2026-09-02 23:48:56] INFO  ?:0: Fsr4Harness: postpass pipeline created (21697 words)
+[2026-09-02 23:48:56] INFO  ?:0: Fsr4Harness: SPD pipeline created (954 words)
+[2026-09-02 23:48:56] INFO  ?:0: Fsr4Harness: native INT8 pipeline cache loaded (2314916 bytes)
+[2026-09-02 23:48:56] INFO  ?:0: Fsr4Harness: initialized on AMD Radeon RX 7900 GRE (RADV NAVI31) (all 6 pipelines: prepass+conv+scatter+postpass+spd)
+[2026-09-02 23:48:56] INFO  ?:0: Fsr4Harness: resources allocated src=1280x720 out=3200x1800 (scratch=181024KB accum=180000KB feat=270000KB)
+[2026-09-02 23:48:56] INFO  ?:0: Fsr4Harness: uploaded 131072 B raw model + prepacked INT8/scales and FP16 cooperative weights
+[2026-09-02 23:48:56] INFO  ?:0: GpuImageUploader: EASU RGBA8 format features optimal=0x1dd83
+[2026-09-02 23:48:56] INFO  ?:0: GpuImageUploader: allocated source 1280x720 -> model 1280x720 -> output 3200x1800
+[2026-09-02 23:48:56] INFO  ?:0: PlaybackEngine: FSR4 path ready decoded 1280x720 -> model 1280x720 -> 3200x1800
+[2026-09-02 23:48:56] INFO  ?:0: PlaybackEngine: FSR4 progressive chain passes=1
+[2026-09-02 23:48:57] INFO  ?:0: PlaybackEngine: dumped native FSR4 output frame=48 3200x1800 to /home/rolaandjayz/ZCodeProject/temporal_forge_player/benchmarks/quality_sweeps/quality_campaign_capture/resolution_720_to_1440/fsr_pre/scale_2_50/tos_daylight/quality_frames/tos_daylight_1280x720_high_crf12_f48_scale_2_50.ppm
+[2026-09-02 23:48:57] INFO  ?:0: PlaybackEngine: dumped raw decoded image frame=48 1280x720 to /home/rolaandjayz/ZCodeProject/temporal_forge_player/benchmarks/quality_sweeps/quality_campaign_capture/resolution_720_to_1440/fsr_pre/scale_2_50/tos_daylight/quality_frames/tos_daylight_1280x720_high_crf12_f48_scale_2_50_gpu_raw.ppm

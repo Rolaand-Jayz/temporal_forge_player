@@ -1,0 +1,9 @@
+{
+  "schema":"temporal_forge.quality_sweep_results.v1",
+  "campaignId":"agent-learned055-residual-20260824",
+  "status":"early-rejected-smoke",
+  "captureCount":5,
+  "baseline":"current_default",
+  "smoke":{"learned_055_current":{"meanSsimDelta":-0.000227000,"meanTemporalErrorDelta":-0.469602000,"badPairs":1},"residual_002":{"meanSsimDelta":-0.003297000,"meanTemporalErrorDelta":-0.238406000,"badPairs":1},"residual_005":{"meanSsimDelta":-0.003387000,"meanTemporalErrorDelta":-0.232238000,"badPairs":1},"residual_010":{"meanSsimDelta":-0.003580000,"meanTemporalErrorDelta":-0.220353000,"badPairs":1}},
+  "decision":{"promoted":null,"reason":"All detail-residual smoke candidates violate the per-pair SSIM floor by more than 0.0005; remaining captures were not run.","sourceChanged":false,"benchmarkImagesChanged":false}
+}

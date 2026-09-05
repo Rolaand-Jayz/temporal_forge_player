@@ -1,0 +1,16 @@
+{
+  "name": "stage-e2-e3-contrast-gamma-screen",
+  "preset": "Quality",
+  "dimensions": "426x240",
+  "frame": 48,
+  "quality": "high",
+  "clipRegex": "^(tos_daylight|sintel_rooftop|synthetic_edges_text)$",
+  "experiments": [
+    {"id": "contrast_m010", "baseConfig": "stage_e/tone_template.json", "overrides": {"qualityLab": {"tone": {"exposureEV": 0.0, "contrast": -0.10}}}},
+    {"id": "contrast_000", "baseConfig": "stage_e/tone_template.json", "overrides": {"qualityLab": {"tone": {"exposureEV": 0.0, "contrast": 0.00}}}},
+    {"id": "contrast_p010", "baseConfig": "stage_e/tone_template.json", "overrides": {"qualityLab": {"tone": {"exposureEV": 0.0, "contrast": 0.10}}}},
+    {"id": "gamma_090", "baseConfig": "stage_e/tone_template.json", "overrides": {"qualityLab": {"tone": {"exposureEV": 0.0, "gamma": 0.90}}}},
+    {"id": "gamma_100", "baseConfig": "stage_e/tone_template.json", "overrides": {"qualityLab": {"tone": {"exposureEV": 0.0, "gamma": 1.00}}}},
+    {"id": "gamma_110", "baseConfig": "stage_e/tone_template.json", "overrides": {"qualityLab": {"tone": {"exposureEV": 0.0, "gamma": 1.10}}}}
+  ]
+}

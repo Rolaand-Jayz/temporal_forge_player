@@ -1,0 +1,19 @@
+{
+  "name": "stage-a-isolation",
+  "preset": "Quality",
+  "dimensions": "426x240",
+  "frame": 48,
+  "quality": "high",
+  "clipRegex": "^(tos_daylight|tos_debris|sintel_rooftop|sintel_cave|synthetic_edges_text|synthetic_motion|synthetic_dark)$",
+  "experiments": [
+    {"id": "current", "config": "stage_a/current.json"},
+    {"id": "base_only_bilinear", "config": "stage_a/base_only_bilinear.json"},
+    {"id": "learned_only", "config": "stage_a/learned_only.json"},
+    {"id": "direct_blend_000", "config": "stage_a/direct_blend_000.json"},
+    {"id": "direct_blend_010", "config": "stage_a/direct_blend_010.json"},
+    {"id": "direct_blend_025", "config": "stage_a/direct_blend_025.json"},
+    {"id": "direct_blend_050", "config": "stage_a/direct_blend_050.json"},
+    {"id": "direct_blend_075", "config": "stage_a/direct_blend_075.json"},
+    {"id": "direct_blend_100", "config": "stage_a/direct_blend_100.json"}
+  ]
+}

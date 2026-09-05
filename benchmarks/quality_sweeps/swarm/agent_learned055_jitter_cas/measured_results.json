@@ -1,0 +1,15 @@
+{
+  "schema":"temporal_forge.quality_sweep_results.v1",
+  "campaignId":"agent-learned055-jitter1-cas-20260824",
+  "status":"captured-not-promoted",
+  "captureCount":32,
+  "baseline":"current_default_jitter1",
+  "aggregateAgainstCurrentDefaultJitter1":{
+    "learned055_jitter1_cas000":{"meanSsimDelta":0.000196625,"meanTemporalErrorDelta":-0.105443125,"badPairs":0,"improvedPairs":4,"minSsimDelta":-0.000227000,"maxTemporalRelativeIncrease":0.01141},
+    "learned055_jitter1_cas002":{"meanSsimDelta":0.000174500,"meanTemporalErrorDelta":-0.106885750,"badPairs":2,"improvedPairs":6,"minSsimDelta":-0.000245000,"maxTemporalRelativeIncrease":0.48334},
+    "learned055_jitter1_cas004":{"meanSsimDelta":0.000151875,"meanTemporalErrorDelta":-0.108589625,"badPairs":2,"improvedPairs":6,"minSsimDelta":-0.000264000,"maxTemporalRelativeIncrease":1.29281},
+    "learned055_jitter1_cas008":{"meanSsimDelta":0.000102375,"meanTemporalErrorDelta":-0.112177625,"badPairs":2,"improvedPairs":6,"minSsimDelta":-0.000301000,"maxTemporalRelativeIncrease":3.12449}
+  },
+  "decision":{"promoted":null,"reason":"CAS 0 is the already visual-blocked soft candidate. Every nonzero CAS level fails two high-resolution temporal pairs; stronger CAS makes the temporal regression worse.","sourceChanged":false,"shaderChanged":false,"benchmarkImagesChanged":false},
+  "captureRoot":"captures/"
+}

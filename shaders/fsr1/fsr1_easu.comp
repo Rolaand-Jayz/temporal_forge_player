@@ -1,0 +1,67 @@
+// fsr1/easu.comp — AMD FidelityFX FSR1 EASU, Vulkan compute entry point.
+//
+// This is deliberately separate from shaders/fsr4/easu.comp. The latter is
+// the player's existing spatial fallback and is not the FSR1 algorithm.
+// This entry point imports the maintained FidelityFX EASU math while keeping
+// the player-owned descriptor formats (sampled RGBA8 input and storage RGBA8
+// output). It is compiled now as an opt-in probe; the runtime handoff remains
+// disabled until its descriptors and constants are connected and captured.
+#version 450
+
+#extension GL_GOOGLE_include_directive : require
+#extension GL_EXT_samplerless_texture_functions : require
+
+#define FFX_GPU 1
+#define FFX_FSR1_OPTION_APPLY_RCAS 0
+#define FFX_FSR1_OPTION_SRGB_CONVERSIONS 0
+#define FFX_FSR1_OPTION_RCAS_PASSTHROUGH_ALPHA 0
+
+#include "ffx_core.h"
+
+// FSR1's public shader callback contract is reproduced here with the
+// player's formats. Keeping these bindings explicit makes the required host
+// descriptor transition reviewable instead of silently reusing the fallback
+// image bindings.
+layout(set = 0, binding = 0) uniform texture2D r_input_color;
+layout(set = 0, binding = 1) uniform sampler s_LinearClamp;
+layout(set = 0, binding = 2, rgba8) writeonly uniform image2D rw_upscaled_output;
+
+layout(push_constant) uniform Fsr1Constants {
+    uvec4 const0;
+    uvec4 const1;
+    uvec4 const2;
+    uvec4 const3;
+    uvec4 sample0;
+} cbFSR1;
+
+FfxUInt32x4 Const0() { return cbFSR1.const0; }
+FfxUInt32x4 Const1() { return cbFSR1.const1; }
+FfxUInt32x4 Const2() { return cbFSR1.const2; }
+FfxUInt32x4 Const3() { return cbFSR1.const3; }
+FfxUInt32x4 EASUSample() { return cbFSR1.sample0; }
+
+FfxFloat32x4 GatherEasuRed(FfxFloat32x2 p) {
+    return textureGather(sampler2D(r_input_color, s_LinearClamp), p, 0);
+}
+FfxFloat32x4 GatherEasuGreen(FfxFloat32x2 p) {
+    return textureGather(sampler2D(r_input_color, s_LinearClamp), p, 1);
+}
+FfxFloat32x4 GatherEasuBlue(FfxFloat32x2 p) {
+    return textureGather(sampler2D(r_input_color, s_LinearClamp), p, 2);
+}
+void StoreEASUOutput(FfxUInt32x2 p, FfxFloat32x3 color) {
+    imageStore(rw_upscaled_output, FfxInt32x2(p),
+               FfxFloat32x4(clamp(color, 0.0, 1.0), 1.0));
+}
+
+// The AMD EASU implementation calls these callbacks while the header is
+// parsed, so the declarations must precede the include below.
+#include "ffx_fsr1_easu.h"
+
+layout(local_size_x = 64, local_size_y = 1, local_size_z = 1) in;
+void main() {
+    // The SDK entry point owns the quad remap and emits four 8x8 tiles per
+    // workgroup, exactly as AMD's maintained pass does.
+    EASU(gl_LocalInvocationID.xyz, gl_WorkGroupID.xyz,
+         gl_GlobalInvocationID.xyz);
+}

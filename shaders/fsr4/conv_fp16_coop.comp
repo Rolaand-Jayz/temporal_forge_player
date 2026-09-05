@@ -1,3 +1,7 @@
+// conv_fp16_coop.comp — FP16 cooperative-matrix convolution for the recovered
+// FSR4 graph. It is fed by the previous pass and emits the next tensor; the
+// dispatch harness selects it from the tensor metadata without changing graph
+// order.
 #version 450 core
 #extension GL_KHR_cooperative_matrix : require
 #extension GL_KHR_memory_scope_semantics : require

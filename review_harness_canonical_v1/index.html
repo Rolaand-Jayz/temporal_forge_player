@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Temporal Forge quality campaign review harness.">
+  <title>Review Lab · Temporal Forge</title>
+  <link rel="icon" href="favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <header class="site-header">
+    <a class="brand" href="#top" aria-label="Temporal Forge review lab home">
+      <span class="brand-mark" aria-hidden="true"><i></i><i></i><i></i></span>
+      <span><b>Temporal Forge</b><small>Review Lab</small></span>
+    </a>
+    <nav aria-label="Harness sections"><a href="#viewer">Viewer</a><a href="#matrix">Capture matrix</a><a href="#evidence">Evidence</a></nav>
+    <span class="campaign-state"><i></i>Quality campaign active</span>
+  </header>
+
+  <main id="top">
+    <section class="hero" aria-labelledby="hero-title">
+      <div class="hero-copy">
+        <p class="eyebrow">FSR 4 / 4.1 video reconstruction</p>
+        <h1 id="hero-title">Inspect the pixels.<br><em>Keep the evidence.</em></h1>
+        <p class="hero-intro">A focused review surface for aligned Temporal Forge captures. Compare reconstruction paths at delivery resolution, inspect the reconstruction-grid result, and keep every visible asset tied to campaign provenance.</p>
+      </div>
+      <dl class="hero-stats" aria-label="Campaign scope"><div><dt>04</dt><dd>real scenes</dd></div><div><dt>11</dt><dd>upscale routes</dd></div><div><dt>23</dt><dd>method IDs</dd></div></dl>
+    </section>
+
+    <section id="viewer" class="lab-section" aria-labelledby="viewer-title">
+      <header class="section-heading">
+        <div><p class="eyebrow">01 / Reconstruction viewer</p><h2 id="viewer-title">One frame. Two paths. No hidden treatment.</h2></div>
+        <div id="asset-count" class="catalog-status" role="status">Reading campaign catalog…</div>
+      </header>
+      <div class="cas-arm-contract" role="list" aria-label="Independent downsampling test arms">
+        <article role="listitem"><span>Arm 01</span><b>CAS 0.20 before downsampling</b><small>Sharpen the reconstruction, then reduce to delivery.</small></article>
+        <article role="listitem"><span>Arm 02</span><b>CAS 0.20 after downsampling</b><small>Reduce the unsharpened reconstruction, then sharpen delivery.</small></article>
+        <article role="listitem"><span>Arm 03</span><b>No CAS sharpening</b><small>Neither reconstruction nor delivery receives CAS.</small></article>
+      </div>
+      <div class="viewer-card">
+        <div class="viewer-toolbar" aria-label="Shared inspection controls">
+          <div class="viewer-toolbar-title"><span>Aligned delivery viewport</span><small>Drag to pan · move the divider to compare</small></div>
+          <label class="zoom-control" for="zoom"><span>Zoom</span><input id="zoom" type="range" min="50" max="300" step="1" value="100"><output id="zoom-value">100%</output></label>
+          <button id="swap" class="utility-button" type="button">Swap sides</button>
+          <button id="reset" class="utility-button" type="button">Reset view</button>
+        </div>
+        <div class="comparison-frame">
+          <div id="comparison" class="comparison" style="--split:50%">
+            <div id="comparison-stage" class="comparison-stage">
+              <div class="layer left"><img id="left-image" alt="Left comparison result"></div>
+              <div class="layer right"><img id="right-image" alt="Right comparison result"></div>
+              <span id="left-viewport-label" class="viewport-label left">A · Temporal Forge</span>
+              <span id="right-viewport-label" class="viewport-label right">B · Lanczos</span>
+              <div class="sweep" aria-hidden="true"><span></span></div>
+              <input id="sweep-input" class="sweep-input" type="range" min="0" max="100" value="50" aria-label="Comparison divider">
+            </div>
+          </div>
+        </div>
+        <footer class="viewer-caption"><span>Pixel-aligned comparison</span><span>Images are presented without browser filters</span><span>Frame 0048</span></footer>
+      </div>
+      <div class="experiment-grid" aria-label="Comparison selections"><article id="left-panel" class="experiment-panel left-panel"></article><article id="right-panel" class="experiment-panel right-panel"></article></div>
+    </section>
+
+    <section id="matrix" class="matrix-section" aria-labelledby="matrix-title">
+      <header class="section-heading"><div><p class="eyebrow">02 / Capture matrix</p><h2 id="matrix-title">Only meaningful upscale routes.</h2></div><p>Same-resolution rows and downscales are outside the active campaign.</p></header>
+      <div id="route-matrix" class="route-matrix"></div>
+    </section>
+
+    <section id="evidence" class="evidence-section" aria-labelledby="evidence-title">
+      <p class="eyebrow">03 / Evidence contract</p><h2 id="evidence-title">A polished viewer is useful only when the labels stay true.</h2>
+      <div class="evidence-grid">
+        <article><span>01</span><h3>Shared capture</h3><p>Campaign measurements and harness images come from the same completed experiment. No second presentation-only capture.</p></article>
+        <article><span>02</span><h3>Fail closed</h3><p>Missing, stale, source-clamped, or mismatched assets remain visibly unavailable. A filename is not proof.</p></article>
+        <article><span>03</span><h3>Exact identity</h3><p>Binary, configuration, scene, frame, scale, CAS placement, dimensions, hashes, and runtime trace travel with each retained row.</p></article>
+      </div>
+    </section>
+  </main>
+  <footer class="site-footer"><span>Temporal Forge</span><span>Quality campaign review surface · local and portable</span></footer>
+  <script src="catalog.js"></script><script src="app.js"></script>
+</body>
+</html>

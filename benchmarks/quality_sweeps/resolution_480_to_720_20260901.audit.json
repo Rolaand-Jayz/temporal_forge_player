@@ -1,0 +1,227 @@
+{
+  "csv": "benchmarks/quality_sweeps/resolution_480_to_720_20260901.csv",
+  "rows": 20,
+  "all_labels_match": true,
+  "findings": [
+    {
+      "scene": "tos_daylight",
+      "frame": 48,
+      "source_resolution": "854x480",
+      "intermediate_resolution": "1280x720",
+      "final_resolution": "1280x720",
+      "scale": "2.00",
+      "source_frame_timestamp_seconds": 2.0,
+      "captured_asset": "benchmarks/quality_sweeps/resolution_854_to_720_20260901/scale_2_00/tos_daylight/quality_frames/tos_daylight_854x480_high_crf12_f48_scale_2_00.png",
+      "label_matches_csv": true
+    },
+    {
+      "scene": "tos_debris",
+      "frame": 48,
+      "source_resolution": "854x480",
+      "intermediate_resolution": "1280x720",
+      "final_resolution": "1280x720",
+      "scale": "2.00",
+      "source_frame_timestamp_seconds": 2.0,
+      "captured_asset": "benchmarks/quality_sweeps/resolution_854_to_720_20260901/scale_2_00/tos_debris/quality_frames/tos_debris_854x480_high_crf12_f48_scale_2_00.png",
+      "label_matches_csv": true
+    },
+    {
+      "scene": "sintel_rooftop",
+      "frame": 48,
+      "source_resolution": "854x480",
+      "intermediate_resolution": "1280x720",
+      "final_resolution": "1280x720",
+      "scale": "2.00",
+      "source_frame_timestamp_seconds": 2.0,
+      "captured_asset": "benchmarks/quality_sweeps/resolution_854_to_720_20260901/scale_2_00/sintel_rooftop/quality_frames/sintel_rooftop_854x480_high_crf12_f48_scale_2_00.png",
+      "label_matches_csv": true
+    },
+    {
+      "scene": "sintel_cave",
+      "frame": 48,
+      "source_resolution": "854x480",
+      "intermediate_resolution": "1280x720",
+      "final_resolution": "1280x720",
+      "scale": "2.00",
+      "source_frame_timestamp_seconds": 2.0,
+      "captured_asset": "benchmarks/quality_sweeps/resolution_854_to_720_20260901/scale_2_00/sintel_cave/quality_frames/sintel_cave_854x480_high_crf12_f48_scale_2_00.png",
+      "label_matches_csv": true
+    },
+    {
+      "scene": "tos_daylight",
+      "frame": 48,
+      "source_resolution": "854x480",
+      "intermediate_resolution": "1440x810",
+      "final_resolution": "1280x720",
+      "scale": "2.25",
+      "source_frame_timestamp_seconds": 2.0,
+      "captured_asset": "benchmarks/quality_sweeps/resolution_854_to_720_20260901/scale_2_25/tos_daylight/quality_frames/tos_daylight_854x480_high_crf12_f48_scale_2_25.png",
+      "label_matches_csv": true
+    },
+    {
+      "scene": "tos_debris",
+      "frame": 48,
+      "source_resolution": "854x480",
+      "intermediate_resolution": "1440x810",
+      "final_resolution": "1280x720",
+      "scale": "2.25",
+      "source_frame_timestamp_seconds": 2.0,
+      "captured_asset": "benchmarks/quality_sweeps/resolution_854_to_720_20260901/scale_2_25/tos_debris/quality_frames/tos_debris_854x480_high_crf12_f48_scale_2_25.png",
+      "label_matches_csv": true
+    },
+    {
+      "scene": "sintel_rooftop",
+      "frame": 48,
+      "source_resolution": "854x480",
+      "intermediate_resolution": "1440x810",
+      "final_resolution": "1280x720",
+      "scale": "2.25",
+      "source_frame_timestamp_seconds": 2.0,
+      "captured_asset": "benchmarks/quality_sweeps/resolution_854_to_720_20260901/scale_2_25/sintel_rooftop/quality_frames/sintel_rooftop_854x480_high_crf12_f48_scale_2_25.png",
+      "label_matches_csv": true
+    },
+    {
+      "scene": "sintel_cave",
+      "frame": 48,
+      "source_resolution": "854x480",
+      "intermediate_resolution": "1440x810",
+      "final_resolution": "1280x720",
+      "scale": "2.25",
+      "source_frame_timestamp_seconds": 2.0,
+      "captured_asset": "benchmarks/quality_sweeps/resolution_854_to_720_20260901/scale_2_25/sintel_cave/quality_frames/sintel_cave_854x480_high_crf12_f48_scale_2_25.png",
+      "label_matches_csv": true
+    },
+    {
+      "scene": "tos_daylight",
+      "frame": 48,
+      "source_resolution": "854x480",
+      "intermediate_resolution": "1600x900",
+      "final_resolution": "1280x720",
+      "scale": "2.50",
+      "source_frame_timestamp_seconds": 2.0,
+      "captured_asset": "benchmarks/quality_sweeps/resolution_854_to_720_20260901/scale_2_50/tos_daylight/quality_frames/tos_daylight_854x480_high_crf12_f48_scale_2_50.png",
+      "label_matches_csv": true
+    },
+    {
+      "scene": "tos_debris",
+      "frame": 48,
+      "source_resolution": "854x480",
+      "intermediate_resolution": "1600x900",
+      "final_resolution": "1280x720",
+      "scale": "2.50",
+      "source_frame_timestamp_seconds": 2.0,
+      "captured_asset": "benchmarks/quality_sweeps/resolution_854_to_720_20260901/scale_2_50/tos_debris/quality_frames/tos_debris_854x480_high_crf12_f48_scale_2_50.png",
+      "label_matches_csv": true
+    },
+    {
+      "scene": "sintel_rooftop",
+      "frame": 48,
+      "source_resolution": "854x480",
+      "intermediate_resolution": "1600x900",
+      "final_resolution": "1280x720",
+      "scale": "2.50",
+      "source_frame_timestamp_seconds": 2.0,
+      "captured_asset": "benchmarks/quality_sweeps/resolution_854_to_720_20260901/scale_2_50/sintel_rooftop/quality_frames/sintel_rooftop_854x480_high_crf12_f48_scale_2_50.png",
+      "label_matches_csv": true
+    },
+    {
+      "scene": "sintel_cave",
+      "frame": 48,
+      "source_resolution": "854x480",
+      "intermediate_resolution": "1600x900",
+      "final_resolution": "1280x720",
+      "scale": "2.50",
+      "source_frame_timestamp_seconds": 2.0,
+      "captured_asset": "benchmarks/quality_sweeps/resolution_854_to_720_20260901/scale_2_50/sintel_cave/quality_frames/sintel_cave_854x480_high_crf12_f48_scale_2_50.png",
+      "label_matches_csv": true
+    },
+    {
+      "scene": "tos_daylight",
+      "frame": 48,
+      "source_resolution": "854x480",
+      "intermediate_resolution": "1760x990",
+      "final_resolution": "1280x720",
+      "scale": "2.75",
+      "source_frame_timestamp_seconds": 2.0,
+      "captured_asset": "benchmarks/quality_sweeps/resolution_854_to_720_20260901/scale_2_75/tos_daylight/quality_frames/tos_daylight_854x480_high_crf12_f48_scale_2_75.png",
+      "label_matches_csv": true
+    },
+    {
+      "scene": "tos_debris",
+      "frame": 48,
+      "source_resolution": "854x480",
+      "intermediate_resolution": "1760x990",
+      "final_resolution": "1280x720",
+      "scale": "2.75",
+      "source_frame_timestamp_seconds": 2.0,
+      "captured_asset": "benchmarks/quality_sweeps/resolution_854_to_720_20260901/scale_2_75/tos_debris/quality_frames/tos_debris_854x480_high_crf12_f48_scale_2_75.png",
+      "label_matches_csv": true
+    },
+    {
+      "scene": "sintel_rooftop",
+      "frame": 48,
+      "source_resolution": "854x480",
+      "intermediate_resolution": "1760x990",
+      "final_resolution": "1280x720",
+      "scale": "2.75",
+      "source_frame_timestamp_seconds": 2.0,
+      "captured_asset": "benchmarks/quality_sweeps/resolution_854_to_720_20260901/scale_2_75/sintel_rooftop/quality_frames/sintel_rooftop_854x480_high_crf12_f48_scale_2_75.png",
+      "label_matches_csv": true
+    },
+    {
+      "scene": "sintel_cave",
+      "frame": 48,
+      "source_resolution": "854x480",
+      "intermediate_resolution": "1760x990",
+      "final_resolution": "1280x720",
+      "scale": "2.75",
+      "source_frame_timestamp_seconds": 2.0,
+      "captured_asset": "benchmarks/quality_sweeps/resolution_854_to_720_20260901/scale_2_75/sintel_cave/quality_frames/sintel_cave_854x480_high_crf12_f48_scale_2_75.png",
+      "label_matches_csv": true
+    },
+    {
+      "scene": "tos_daylight",
+      "frame": 48,
+      "source_resolution": "854x480",
+      "intermediate_resolution": "1920x1080",
+      "final_resolution": "1280x720",
+      "scale": "3.00",
+      "source_frame_timestamp_seconds": 2.0,
+      "captured_asset": "benchmarks/quality_sweeps/resolution_854_to_720_20260901/scale_3_00/tos_daylight/quality_frames/tos_daylight_854x480_high_crf12_f48_scale_3_00.png",
+      "label_matches_csv": true
+    },
+    {
+      "scene": "tos_debris",
+      "frame": 48,
+      "source_resolution": "854x480",
+      "intermediate_resolution": "1920x1080",
+      "final_resolution": "1280x720",
+      "scale": "3.00",
+      "source_frame_timestamp_seconds": 2.0,
+      "captured_asset": "benchmarks/quality_sweeps/resolution_854_to_720_20260901/scale_3_00/tos_debris/quality_frames/tos_debris_854x480_high_crf12_f48_scale_3_00.png",
+      "label_matches_csv": true
+    },
+    {
+      "scene": "sintel_rooftop",
+      "frame": 48,
+      "source_resolution": "854x480",
+      "intermediate_resolution": "1920x1080",
+      "final_resolution": "1280x720",
+      "scale": "3.00",
+      "source_frame_timestamp_seconds": 2.0,
+      "captured_asset": "benchmarks/quality_sweeps/resolution_854_to_720_20260901/scale_3_00/sintel_rooftop/quality_frames/sintel_rooftop_854x480_high_crf12_f48_scale_3_00.png",
+      "label_matches_csv": true
+    },
+    {
+      "scene": "sintel_cave",
+      "frame": 48,
+      "source_resolution": "854x480",
+      "intermediate_resolution": "1920x1080",
+      "final_resolution": "1280x720",
+      "scale": "3.00",
+      "source_frame_timestamp_seconds": 2.0,
+      "captured_asset": "benchmarks/quality_sweeps/resolution_854_to_720_20260901/scale_3_00/sintel_cave/quality_frames/sintel_cave_854x480_high_crf12_f48_scale_3_00.png",
+      "label_matches_csv": true
+    }
+  ]
+}

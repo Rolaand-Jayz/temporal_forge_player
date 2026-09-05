@@ -1,16 +1,43 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-if (( $# != 3 )); then
-    printf 'usage: %s PASSES_HLSL INITIALIZERS_BIN OUTPUT_DIR\n' "$0" >&2
+if (( $# != 3 && $# != 5 )); then
+    printf 'usage: %s PASSES_HLSL INITIALIZERS_BIN OUTPUT_DIR [TARGET_WIDTH TARGET_HEIGHT]\n' "$0" >&2
     exit 2
 fi
 
 source_hlsl="$(realpath "$1")"
 initializer="$(realpath "$2")"
 output_dir="$3"
-runtime_dir="$(dirname "$(dirname "$(dirname "$(dirname "$source_hlsl")")")")/dx12"
+source_dir="$(dirname "$source_hlsl")"
+# Generated packs in this repository keep the ML2Code runtime beside the
+# generated HLSL under .build/dx12. Retain the older repository-level lookup
+# for source trees that use the original layout.
+if [[ -n "${TFORGE_ML2CODE_RUNTIME_DIR:-}" ]]; then
+    runtime_dir="$(realpath "$TFORGE_ML2CODE_RUNTIME_DIR")"
+elif [[ -d "$source_dir/dx12/ml2code_runtime" ]]; then
+    runtime_dir="$source_dir/dx12"
+else
+    runtime_dir="$(dirname "$(dirname "$(dirname "$(dirname "$source_hlsl")")")")/dx12"
+fi
 workgroup_overrides="$output_dir/workgroup_overrides.txt"
+
+if (( $# == 5 )); then
+    target_width="$4"
+    target_height="$5"
+    [[ "$target_width" =~ ^[1-9][0-9]*$ && "$target_height" =~ ^[1-9][0-9]*$ ]] || {
+        printf 'target dimensions must be positive integers\n' >&2
+        exit 2
+    }
+    # A generated HLSL source must actually contain the requested base tensor
+    # shape. This prevents fixed 16:9 binaries from being relabeled as 4:3
+    # packs; callers must provide a source generated for the requested shape.
+    if ! grep -Eq "uint3\\(${target_width},[[:space:]]*${target_height}," "$source_hlsl"; then
+        printf 'source has no tensor shape %sx%s; refusing to relabel a different aspect ratio\n' \
+            "$target_width" "$target_height" >&2
+        exit 1
+    fi
+fi
 
 for tool in dxc spirv-dis spirv-as spirv-val; do
     command -v "$tool" >/dev/null || {
@@ -26,6 +53,31 @@ fi
 if [[ "$(stat -c %s "$initializer")" != 89216 ]]; then
     printf 'unexpected initializer size: %s\n' "$initializer" >&2
     exit 1
+fi
+
+mkdir -p "$output_dir"
+cache_key_file="$output_dir/pack.sha256"
+cache_key="$(
+    {
+        sha256sum "$source_hlsl" "$initializer" "$0"
+        if [[ -f "$workgroup_overrides" ]]; then
+            sha256sum "$workgroup_overrides"
+        fi
+        if (( $# == 5 )); then
+            printf 'target=%sx%s\n' "$target_width" "$target_height"
+        fi
+    } | sha256sum | cut -d' ' -f1
+)"
+if [[ -s "$cache_key_file" && "$(<"$cache_key_file")" == "$cache_key" &&
+      -s "$output_dir/initializers.bin" ]]; then
+    complete=1
+    for pass in {0..13}; do
+        [[ -s "$output_dir/pass${pass}.spv" ]] || complete=0
+    done
+    if (( complete )); then
+        printf 'native INT8 pack cache hit: %s\n' "$output_dir"
+        exit 0
+    fi
 fi
 
 mkdir -p "$output_dir/.build"
@@ -90,4 +142,5 @@ for pass in {0..13}; do
 done
 
 cp "$initializer" "$output_dir/initializers.bin"
+printf '%s\n' "$cache_key" > "$cache_key_file"
 printf 'native INT8 pack ready: %s\n' "$output_dir"

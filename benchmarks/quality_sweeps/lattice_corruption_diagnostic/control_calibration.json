@@ -1,0 +1,34 @@
+{
+  "schema": "temporal_forge.periodic_lattice_control_calibration.v1",
+  "threshold": 5e-07,
+  "rows": [
+    {
+      "scene": "sintel_cave",
+      "bicubic": "benchmarks/quality_sweeps/quality_campaign_capture_canonical_v1/resolution_720_to_1080/fsr_none/scale_2_00/sintel_cave/quality_frames/sintel_cave_1280x720_high_crf12_f48_scale_2_00_bicubic.png",
+      "lanczos": "benchmarks/quality_sweeps/quality_campaign_capture_canonical_v1/resolution_720_to_1080/fsr_none/scale_2_00/sintel_cave/quality_frames/sintel_cave_1280x720_high_crf12_f48_scale_2_00_lanczos.png",
+      "residual_autocorrelation_energy": 1.0143152096020458e-08,
+      "classification": "lattice_absent"
+    },
+    {
+      "scene": "sintel_rooftop",
+      "bicubic": "benchmarks/quality_sweeps/quality_campaign_capture_canonical_v1/resolution_720_to_1080/fsr_none/scale_2_00/sintel_rooftop/quality_frames/sintel_rooftop_1280x720_high_crf12_f48_scale_2_00_bicubic.png",
+      "lanczos": "benchmarks/quality_sweeps/quality_campaign_capture_canonical_v1/resolution_720_to_1080/fsr_none/scale_2_00/sintel_rooftop/quality_frames/sintel_rooftop_1280x720_high_crf12_f48_scale_2_00_lanczos.png",
+      "residual_autocorrelation_energy": 1.9732265599259335e-08,
+      "classification": "lattice_absent"
+    },
+    {
+      "scene": "tos_daylight",
+      "bicubic": "benchmarks/quality_sweeps/quality_campaign_capture_canonical_v1/resolution_720_to_1080/fsr_none/scale_2_00/tos_daylight/quality_frames/tos_daylight_1280x720_high_crf12_f48_scale_2_00_bicubic.png",
+      "lanczos": "benchmarks/quality_sweeps/quality_campaign_capture_canonical_v1/resolution_720_to_1080/fsr_none/scale_2_00/tos_daylight/quality_frames/tos_daylight_1280x720_high_crf12_f48_scale_2_00_lanczos.png",
+      "residual_autocorrelation_energy": 1.9865135314489635e-08,
+      "classification": "lattice_absent"
+    },
+    {
+      "scene": "tos_debris",
+      "bicubic": "benchmarks/quality_sweeps/quality_campaign_capture_canonical_v1/resolution_720_to_1080/fsr_none/scale_2_00/tos_debris/quality_frames/tos_debris_1280x720_high_crf12_f48_scale_2_00_bicubic.png",
+      "lanczos": "benchmarks/quality_sweeps/quality_campaign_capture_canonical_v1/resolution_720_to_1080/fsr_none/scale_2_00/tos_debris/quality_frames/tos_debris_1280x720_high_crf12_f48_scale_2_00_lanczos.png",
+      "residual_autocorrelation_energy": 1.7269803365138614e-08,
+      "classification": "lattice_absent"
+    }
+  ]
+}

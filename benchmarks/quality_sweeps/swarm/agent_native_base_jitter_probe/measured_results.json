@@ -1,0 +1,35 @@
+{
+  "candidate": "native-current-base-jittered",
+  "baseline": "native-current-base-unjittered-default",
+  "scope": {
+    "scenes": ["tos_daylight", "sintel_cave"],
+    "input": "426x240",
+    "output": "1920x1080",
+    "graph": "native-int8",
+    "warmup_frames": 12,
+    "scored_frames": 12
+  },
+  "pairs": [
+    {
+      "scene": "tos_daylight",
+      "default_ssim": 0.855339,
+      "jittered_ssim": 0.851710,
+      "ssim_delta": -0.003629,
+      "default_temporal_error": 1.523412,
+      "jittered_temporal_error": 0.579907,
+      "temporal_error_delta": -0.943505
+    },
+    {
+      "scene": "sintel_cave",
+      "default_ssim": 0.935429,
+      "jittered_ssim": 0.936365,
+      "ssim_delta": 0.000936,
+      "default_temporal_error": 0.661522,
+      "jittered_temporal_error": 0.461448,
+      "temporal_error_delta": -0.200074
+    }
+  ],
+  "decision": "reject-for-promotion",
+  "default_changed": false,
+  "note": "The daylight pair is a clear spatial regression despite the temporal-error improvement; the candidate is not corpus-safe."
+}

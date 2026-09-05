@@ -1,0 +1,14 @@
+{
+  "schema":"temporal_forge.quality_sweep_results.v1",
+  "campaignId":"agent-learned055-jitter1-rcas-20260824",
+  "status":"captured-not-promoted",
+  "captureCount":24,
+  "baseline":"current_default_jitter1",
+  "aggregateAgainstMatchedLearnedJitterControl":{
+    "learned055_jitter1_rcas008":{"meanSsimDelta":0.000196750,"meanTemporalErrorDelta":-0.105449750,"badPairs":0,"improvedPairs":4,"minSsimDelta":-0.000227000,"maxTemporalRelativeIncrease":0.01141},
+    "learned055_jitter1_rcas012":{"meanSsimDelta":0.000194250,"meanTemporalErrorDelta":-0.105535375,"badPairs":1,"improvedPairs":6,"minSsimDelta":-0.000229000,"maxTemporalRelativeIncrease":0.11455},
+    "learned055_jitter1_rcas016":{"meanSsimDelta":0.000191375,"meanTemporalErrorDelta":-0.105652000,"badPairs":2,"improvedPairs":6,"minSsimDelta":-0.000231000,"maxTemporalRelativeIncrease":0.22852}
+  },
+  "decision":{"promoted":null,"reason":"RCAS .08 is the already visual-blocked learned/jitter control and adds no new sharpness. RCAS .12 and .16 fail temporal paired gates; no candidate addresses the visual softness safely.","sourceChanged":false,"shaderChanged":false,"benchmarkImagesChanged":false},
+  "captureRoot":"captures/"
+}

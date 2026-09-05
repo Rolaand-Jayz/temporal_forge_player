@@ -1,0 +1,41 @@
+{
+  "candidate": "edge-adaptive-learned",
+  "status": "rejected",
+  "settings": {
+    "edgeAdaptiveLearned": true,
+    "edgeAdaptiveStrength": 0.5,
+    "disableHardwareDecode": true,
+    "enableColorHistory": true,
+    "learnedStrength": 0.35,
+    "warmupFrames": 8,
+    "scoredFrames": 12,
+    "input": "426x240",
+    "output": "1920x1080"
+  },
+  "comparisons": [
+    {
+      "scene": "tos_daylight",
+      "fixed": {"ssim": 0.858907, "temporalAbsError": 0.928607},
+      "edgeAdaptive": {"ssim": 0.859157, "temporalAbsError": 1.097709},
+      "deltaCandidateMinusFixed": {"ssim": 0.000250, "temporalAbsError": 0.169102}
+    },
+    {
+      "scene": "tos_debris",
+      "fixed": {"ssim": 0.937723, "temporalAbsError": 0.014699},
+      "edgeAdaptive": {"ssim": 0.937964, "temporalAbsError": 0.044228},
+      "deltaCandidateMinusFixed": {"ssim": 0.000241, "temporalAbsError": 0.029529}
+    },
+    {
+      "scene": "sintel_cave",
+      "fixed": {"ssim": 0.950748, "temporalAbsError": 0.444868},
+      "edgeAdaptive": {"ssim": 0.950754, "temporalAbsError": 0.449597},
+      "deltaCandidateMinusFixed": {"ssim": 0.000006, "temporalAbsError": 0.004729}
+    },
+    {
+      "scene": "sintel_rooftop",
+      "fixed": {"ssim": 0.782993, "temporalAbsError": 0.718573},
+      "edgeAdaptive": {"ssim": 0.783004, "temporalAbsError": 0.728773},
+      "deltaCandidateMinusFixed": {"ssim": 0.000011, "temporalAbsError": 0.010200}
+    }
+  ]
+}

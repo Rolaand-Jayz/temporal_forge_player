@@ -1,3 +1,8 @@
+# tests/CMakeLists.txt — declare the focused contract tests for the player.
+# Upstream: the real src library and small test fixtures. Downstream: ctest
+# executables that validate math, configuration, media lifetime, backend
+# contracts, and optional GPU diagnostics without changing runtime code.
+#
 # tests/CMakeLists.txt
 # Headless unit tests. Run with: ctest --output-on-failure
 #
@@ -19,14 +24,31 @@ tforge_add_test(preset_math_tests
     SOURCES preset_math_tests.cpp
             ../src/backend/UpscaleTypes.cpp)
 
+tforge_add_test(quality_lab_config_tests
+    SOURCES quality_lab_config_tests.cpp
+            ../src/config/QualityLabConfig.cpp)
+target_link_libraries(quality_lab_config_tests PRIVATE Qt6::Core)
+
 tforge_add_test(jitter_tests
     SOURCES jitter_tests.cpp)
+
+# Synthetic-jitter sampling/reporting boundary test. Native passthrough must
+# remain spatially unchanged because it has no matching FSR jitter metadata.
+tforge_add_test(synthetic_jitter_contract_audit_tests
+    SOURCES synthetic_jitter_contract_audit_tests.cpp)
+target_compile_definitions(synthetic_jitter_contract_audit_tests PRIVATE
+    TFORGE_SOURCE_ROOT="${CMAKE_SOURCE_DIR}")
+set_tests_properties(synthetic_jitter_contract_audit_tests PROPERTIES
+    WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
 
 tforge_add_test(frame_identity_tests
     SOURCES frame_identity_tests.cpp
             ../src/backend/UpscaleTypes.cpp)
 target_compile_definitions(frame_identity_tests PRIVATE
     TFORGE_SOURCE_ROOT="${CMAKE_SOURCE_DIR}")
+
+tforge_add_test(temporal_frame_continuity_tests
+    SOURCES temporal_frame_continuity_tests.cpp)
 
 tforge_add_test(backend_tests
     SOURCES backend_tests.cpp
@@ -37,6 +59,7 @@ tforge_add_test(backend_tests
             ../src/backend/Fsr4Int8Backend.cpp
             ../src/backend/Fsr3FallbackBackend.cpp
             ../src/backend/BackendSelector.cpp
+            ../src/backend/Fsr4PostpassParams.cpp
             ../src/render/Fsr4DispatchHarness.cpp
             ../src/render/fsr4/Fsr4ConvSteps.cpp
             ../src/render/fsr4/Fsr4Memory.cpp
@@ -49,6 +72,13 @@ tforge_add_test(sidebuffer_tests
     SOURCES sidebuffer_tests.cpp
             ../src/render/SideBufferSynth.cpp)
 
+# Cheap codec-seeded motion estimator tests. The estimator is intentionally
+# tested independently of Vulkan/FSR so direction, bounded search, confidence,
+# and scene-cut fail-closed behavior remain diagnosable.
+tforge_add_test(motion_estimator_tests
+    SOURCES motion_estimator_tests.cpp
+            ../src/motion/MotionEstimator.cpp)
+
 # FSR4 RE weight-blob loader test (no GPU needed; validates the RE dataset).
 tforge_add_test(fsr4_weight_tests
     SOURCES fsr4_weight_tests.cpp
@@ -57,12 +87,72 @@ tforge_add_test(fsr4_weight_tests
 set_tests_properties(fsr4_weight_tests PROPERTIES
     WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
 
+# M1 postpass contract test. This stays CPU-only: it validates the recovered
+# byte region, host decode rules, and source-level shader consumption evidence.
+tforge_add_test(fsr4_postpass_contract_tests
+    SOURCES fsr4_postpass_contract_tests.cpp
+            ../src/backend/Fsr4PostpassParams.cpp)
+set_tests_properties(fsr4_postpass_contract_tests PROPERTIES
+    WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
+
+# M2 temporal resource-graph contract test. Runtime GPU validation is a later
+# part of the milestone because the existing live harness test is disabled.
+tforge_add_test(fsr4_temporal_contract_tests
+    SOURCES fsr4_temporal_contract_tests.cpp)
+set_tests_properties(fsr4_temporal_contract_tests PROPERTIES
+    WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
+
+# FSR4 residual/skip output contract. The recovered model applies an FP8
+# CopySat boundary after each residual addition; this CPU-only test keeps the
+# Vulkan shader implementation aligned with that source evidence.
+tforge_add_test(fsr4_residual_quantization_contract_tests
+    SOURCES fsr4_residual_quantization_contract_tests.cpp)
+target_compile_definitions(fsr4_residual_quantization_contract_tests PRIVATE
+    TFORGE_SOURCE_ROOT="${CMAKE_SOURCE_DIR}")
+set_tests_properties(fsr4_residual_quantization_contract_tests PROPERTIES
+    WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
+
+# M3 causal codec-motion boundary test.
+tforge_add_test(fsr4_motion_contract_tests
+    SOURCES fsr4_motion_contract_tests.cpp)
+set_tests_properties(fsr4_motion_contract_tests PROPERTIES
+    WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
+
+# M4 decode-to-upload color contract test. It runs before implementation work
+# is accepted and keeps metadata, chroma phase, and high-bit-depth handling
+# from regressing behind a passing shader compile.
+tforge_add_test(color_metadata_contract_tests
+    SOURCES color_metadata_contract_tests.cpp
+            ../src/render/upload/YuvConstants.cpp)
+set_tests_properties(color_metadata_contract_tests PROPERTIES
+    WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
+
+# M5 decoded-video jitter policy test. This runs the public side-buffer policy
+# boundary without starting the disabled live GPU harness.
+tforge_add_test(jitter_policy_tests
+    SOURCES jitter_policy_tests.cpp
+            ../src/render/SideBufferSynth.cpp
+            ../src/util/Log.cpp)
+set_tests_properties(jitter_policy_tests PROPERTIES
+    WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
+
 # FSR4 tensor-map parser test (no GPU needed).
 tforge_add_test(fsr4_tensormap_tests
     SOURCES fsr4_tensormap_tests.cpp
             ../src/backend/Fsr4TensorMap.cpp
             ../src/util/Log.cpp)
 set_tests_properties(fsr4_tensormap_tests PROPERTIES
+    WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
+    SKIP_RETURN_CODE 77)
+
+# Live Vulkan capability handoff contract. The test is source-level because
+# constructing PlaybackEngine requires the full Qt/media runtime; it still
+# catches the failure mode where startup loses FP16/INT8 capability flags.
+tforge_add_test(gpu_capability_handoff_contract_tests
+    SOURCES gpu_capability_handoff_contract_tests.cpp)
+target_compile_definitions(gpu_capability_handoff_contract_tests PRIVATE
+    TFORGE_SOURCE_ROOT="${CMAKE_SOURCE_DIR}")
+set_tests_properties(gpu_capability_handoff_contract_tests PROPERTIES
     WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
 
 # Standalone GPU capability probe (not a ctest — run manually; needs a GPU).
@@ -84,6 +174,7 @@ set_tests_properties(cm_dump PROPERTIES DISABLED ON)
 tforge_add_test(fsr4_harness_tests
     SOURCES fsr4_harness_tests.cpp
             ../src/backend/GpuCapabilityProbe.cpp
+            ../src/backend/Fsr4PostpassParams.cpp
             ../src/backend/WeightBlob.cpp
             ../src/backend/Fsr4ProofRunner.cpp
             ../src/render/Fsr4DispatchHarness.cpp
@@ -95,6 +186,18 @@ target_include_directories(fsr4_harness_tests PRIVATE "${CMAKE_BINARY_DIR}/shade
 # Ensure the embedded SPIR-V header is generated before compiling.
 add_dependencies(fsr4_harness_tests temporal_forge_player)
 set_tests_properties(fsr4_harness_tests PROPERTIES
+    WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
+    DISABLED ON)
+
+# Real YUV-upload jitter contract probe. It is kept out of normal CTest because
+# it needs a live Vulkan device and generated shader assets; run manually on a
+# capable GPU to verify that fixed positive jitter produces a directional
+# change in the actual RGB10/A2 model-color image.
+tforge_add_test(jitter_gpu_contract_tests
+    SOURCES jitter_gpu_contract_tests.cpp)
+target_link_libraries(jitter_gpu_contract_tests PRIVATE temporal_forge_lib)
+add_dependencies(jitter_gpu_contract_tests temporal_forge_player)
+set_tests_properties(jitter_gpu_contract_tests PROPERTIES
     WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
     DISABLED ON)
 

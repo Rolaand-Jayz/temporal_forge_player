@@ -1,7 +1,7 @@
 # Contributing
 
-A short guide for working in this codebase. Read `ARCHITECTURE.md` first for the
-layered structure and the threading model.
+A short guide for working in this codebase. Read `docs/README.md` first, then
+`docs/reference/ARCHITECTURE.md` for the layered structure and threading model.
 
 ## Build & test
 
@@ -93,7 +93,7 @@ Before deleting anything, confirm it isn't referenced:
   `benchmarks/video_corpus/RESULTS.md`.
 - `tests/gpu_probe.cpp`, `tests/cm_dump.cpp` — disabled but intentional
   opt-in GPU diagnostics.
-- `docs/FSR4_RE_STATUS.md` — the current FSR4 reverse-engineering log.
+- `docs/reports/FSR4_RECONSTRUCTION_STATUS_20260709.md` — dated FSR4 reverse-engineering status.
 - `external/` headers are gitignored on purpose (re-vendored per build host).
 
 ## Refactoring safety

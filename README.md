@@ -53,7 +53,8 @@ recreates the FSR context or resets history.
 ## Backends
 
 - **FSR 2.3 SDK** — stable production path (default).
-- **FSR4-RE Experimental** — research path, opt-in only, never default.
+- **FSR4-RE Experimental** — proof-gated research path, default selection on
+  supported RDNA3 hardware, with fallback on failure.
 - **Spatial fallback** — always-available reliability path.
 
 If a backend fails, playback falls back to spatial scaling and continues
@@ -61,4 +62,5 @@ with a non-blocking warning.
 
 ## Status
 
-Phased build per `spec 06`. See the spec pack for the full design.
+Phased build per `spec 06`. See [`docs/README.md`](docs/README.md) for current
+architecture, quality work, reports, research, and archived plans.

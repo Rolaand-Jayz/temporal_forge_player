@@ -1,0 +1,32 @@
+{
+  "schema": "temporal_forge.quality_sweep_analysis.v1",
+  "campaignId": "agent-confidence-gate-quality-candidate",
+  "decision": {
+    "status": "not-promoted",
+    "humanReview": "required",
+    "promotionBlockers": ["human visual review", "broader corpus coverage", "broader spatial and temporal metrics"]
+  },
+  "comparison": {
+    "baselineId": "baseline-current-pipeline",
+    "candidateId": "candidate-confidence-gate-bypass",
+    "controls": {
+      "TFORGE_FSR4_DISABLE_LEARNED_CONFIDENCE_GATE": "1",
+      "TFORGE_FSR4_LEARNED_STRENGTH": "0.10"
+    }
+  },
+  "aggregateResults": {
+    "instructions": "Replace nulls only with measured paired results; do not infer values from a build, plan, or visual impression.",
+    "tiers": {
+      "high": {"sampleCount": null, "baseline": {"psnr": null, "ssim": null, "edgeSsim": null, "temporalStability": null}, "candidate": {"psnr": null, "ssim": null, "edgeSsim": null, "temporalStability": null}, "delta": {"psnr": null, "ssim": null, "edgeSsim": null, "temporalStability": null}},
+      "medium": {"sampleCount": null, "baseline": {"psnr": null, "ssim": null, "edgeSsim": null, "temporalStability": null}, "candidate": {"psnr": null, "ssim": null, "edgeSsim": null, "temporalStability": null}, "delta": {"psnr": null, "ssim": null, "edgeSsim": null, "temporalStability": null}},
+      "low": {"sampleCount": null, "baseline": {"psnr": null, "ssim": null, "edgeSsim": null, "temporalStability": null}, "candidate": {"psnr": null, "ssim": null, "edgeSsim": null, "temporalStability": null}, "delta": {"psnr": null, "ssim": null, "edgeSsim": null, "temporalStability": null}}
+    }
+  },
+  "perSceneTradeoffs": [
+    {"sceneId": "tos_daylight", "qualityTier": null, "measured": false, "qualityWin": null, "qualityCosts": [], "temporalRisks": [], "humanReviewNotes": ""},
+    {"sceneId": "tos_debris", "qualityTier": null, "measured": false, "qualityWin": null, "qualityCosts": [], "temporalRisks": [], "humanReviewNotes": ""},
+    {"sceneId": "sintel_rooftop", "qualityTier": null, "measured": false, "qualityWin": null, "qualityCosts": [], "temporalRisks": [], "humanReviewNotes": ""},
+    {"sceneId": "sintel_cave", "qualityTier": null, "measured": false, "qualityWin": null, "qualityCosts": [], "temporalRisks": [], "humanReviewNotes": ""}
+  ],
+  "broaderMetricsRequired": ["PSNR", "SSIM", "edge-SSIM", "low-frequency luma MAE", "flicker or temporal stability", "ghosting", "runtime", "human review across all quality tiers"]
+}

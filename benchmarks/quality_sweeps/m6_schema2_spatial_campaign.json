@@ -1,0 +1,133 @@
+{
+  "schemaVersion": 2,
+  "campaignId": "m6-6-1-real-spatial-controls-grounded-cas20-recapture",
+  "evidenceMode": "visual_and_metrics",
+  "baselineCandidateId": "base_only_bilinear",
+  "environment": {
+    "TFORGE_DISABLE_HW_DECODE": "1",
+    "TFORGE_FSR4_ENABLE_COLOR_HISTORY": "1",
+    "TFORGE_FSR4_ENABLE_RECURRENT": "1",
+    "TFORGE_FSR4_CAS_STRENGTH": "0.20",
+    "TFORGE_ALLOW_SPATIAL_TEMPORAL_CONTROL": "1",
+    "TFORGE_REVIEW_PIPELINE_CONFIG": "/dev/null"
+  },
+  "corpus": {
+    "manifestPath": "benchmarks/video_corpus/manifest.csv",
+    "selection": ["tos_daylight", "tos_debris", "sintel_rooftop", "sintel_cave"],
+    "syntheticFamiliesExcluded": true
+  },
+  "dimensions": {"source": "426x240", "output": "1920x1080"},
+  "frame": 48,
+  "quality": "high",
+  "qualityClassAnnotationsPath": "benchmarks/quality_sweeps/m6_quality_class_annotations.json",
+  "classes": [
+    "faces-hair-skin",
+    "fine-fabric-texture",
+    "high-contrast-architecture",
+    "low-light-shadow-detail"
+  ],
+  "classSelections": {
+    "tos_daylight": ["faces-hair-skin", "fine-fabric-texture"],
+    "tos_debris": [],
+    "sintel_rooftop": ["high-contrast-architecture"],
+    "sintel_cave": ["low-light-shadow-detail"]
+  },
+  "requiredMetrics": ["psnr_db", "ssim", "edge_ssim", "static_flicker", "edge_variance", "motion_compensated_error", "ghost_duration_frames", "reset_recovery_frames"],
+  "spatialEvidence": {
+    "complete": true,
+    "sourceManifest": "benchmarks/quality_sweeps/m6_6_1_real_spatial_controls.json",
+    "resultRoot": "benchmarks/video_corpus/results/quality_frames",
+    "note": "Frame-48 numeric spatial evidence is complete; rendered image payloads are optional under metrics_only."
+  },
+  "temporalEvidence": {
+    "complete": true,
+    "status": "complete",
+    "rows": [],
+    "matrixPath": "benchmarks/quality_sweeps/m6_final_matrix_20260831.json",
+    "rowCount": 20,
+    "captureRoot": "benchmarks/quality_sweeps/m6_temporal_data_only_20260831",
+    "note": "All strict candidate/scene/class rows are event-backed; no rendered image payloads are required."
+  },
+  "executionProvenance": {
+    "plannedBinary": "/home/rolaandjayz/ZCodeProject/temporal_forge_player/build-fast/temporal_forge_player",
+    "plannedBinarySha256": "c37a509f1c04e07a0846c4177c3cd5ab891c2c02ec1136cd95e3bd37cb6ef8b9",
+    "currentGitHead": "7fdf43ce09015626940e37f9baea48c0210def0c",
+    "gitCommit": null,
+    "gitCommitStatus": "unrecorded",
+    "gitCommitAuthoritative": false,
+    "note": "Executed data-only campaign artifacts retain the exact binary/config hashes, result paths, timing, and temporal provenance; image payloads are intentionally omitted."
+  },
+  "candidates": [
+    {
+      "id": "current",
+      "configPath": "benchmarks/quality_sweeps/stage_a/current.json",
+      "configSha256": "762d8f39d8c329d096718a878ca1756620d2eda40a8b3cb7dd13cf23b6dd81c9",
+      "binarySha256": "c37a509f1c04e07a0846c4177c3cd5ab891c2c02ec1136cd95e3bd37cb6ef8b9",
+      "environment": {"TFORGE_FSR4_LEARNED_STRENGTH": "0.25"},
+      "gitCommit": null,
+      "dimensions": {"source": "426x240", "output": "1920x1080"},
+      "reviewAssets": [
+        {"scene": "tos_daylight", "frame": 48, "path": "benchmarks/video_corpus/results/quality_frames/tos_daylight_426x240_high_crf12_f48_m6-6-1-cas-fixed-escalated-20260823T042444Z-01-current.png", "width": 1920, "height": 1080},
+        {"scene": "tos_debris", "frame": 48, "path": "benchmarks/video_corpus/results/quality_frames/tos_debris_426x240_high_crf12_f48_m6-6-1-cas-fixed-escalated-20260823T042444Z-01-current.png", "width": 1920, "height": 1080},
+        {"scene": "sintel_rooftop", "frame": 48, "path": "benchmarks/video_corpus/results/quality_frames/sintel_rooftop_426x240_high_crf12_f48_m6-6-1-cas-fixed-escalated-20260823T042444Z-01-current.png", "width": 1920, "height": 1080},
+        {"scene": "sintel_cave", "frame": 48, "path": "benchmarks/video_corpus/results/quality_frames/sintel_cave_426x240_high_crf12_f48_m6-6-1-cas-fixed-escalated-20260823T042444Z-01-current.png", "width": 1920, "height": 1080}
+      ]
+    },
+    {
+      "id": "base_only_bilinear",
+      "configPath": "benchmarks/quality_sweeps/stage_a/base_only_bilinear.json",
+      "configSha256": "91800f566018a55bea418d840d4e6ddfcab7d96d7cf9862e789e1cb6e7ebed8c",
+      "binarySha256": "c37a509f1c04e07a0846c4177c3cd5ab891c2c02ec1136cd95e3bd37cb6ef8b9",
+      "gitCommit": null,
+      "dimensions": {"source": "426x240", "output": "1920x1080"},
+      "reviewAssets": [
+        {"scene": "tos_daylight", "frame": 48, "path": "benchmarks/video_corpus/results/quality_frames/tos_daylight_426x240_high_crf12_f48_m6-6-1-cas-fixed-escalated-20260823T042444Z-02-base_only_bilinear.png", "width": 1920, "height": 1080},
+        {"scene": "tos_debris", "frame": 48, "path": "benchmarks/video_corpus/results/quality_frames/tos_debris_426x240_high_crf12_f48_m6-6-1-cas-fixed-escalated-20260823T042444Z-02-base_only_bilinear.png", "width": 1920, "height": 1080},
+        {"scene": "sintel_rooftop", "frame": 48, "path": "benchmarks/video_corpus/results/quality_frames/sintel_rooftop_426x240_high_crf12_f48_m6-6-1-cas-fixed-escalated-20260823T042444Z-02-base_only_bilinear.png", "width": 1920, "height": 1080},
+        {"scene": "sintel_cave", "frame": 48, "path": "benchmarks/video_corpus/results/quality_frames/sintel_cave_426x240_high_crf12_f48_m6-6-1-cas-fixed-escalated-20260823T042444Z-02-base_only_bilinear.png", "width": 1920, "height": 1080}
+      ]
+    },
+    {
+      "id": "base_only_mitchell",
+      "configPath": "benchmarks/quality_sweeps/stage_b/base_only_mitchell.json",
+      "configSha256": "afe42b2090307bbb5c6f6a23c4a91417369f8ec3b3b4b16f875a80bfcf1bbb81",
+      "binarySha256": "c37a509f1c04e07a0846c4177c3cd5ab891c2c02ec1136cd95e3bd37cb6ef8b9",
+      "gitCommit": null,
+      "dimensions": {"source": "426x240", "output": "1920x1080"},
+      "reviewAssets": [
+        {"scene": "tos_daylight", "frame": 48, "path": "benchmarks/video_corpus/results/quality_frames/tos_daylight_426x240_high_crf12_f48_m6-6-1-cas-fixed-escalated-20260823T042444Z-03-base_only_mitchell.png", "width": 1920, "height": 1080},
+        {"scene": "tos_debris", "frame": 48, "path": "benchmarks/video_corpus/results/quality_frames/tos_debris_426x240_high_crf12_f48_m6-6-1-cas-fixed-escalated-20260823T042444Z-03-base_only_mitchell.png", "width": 1920, "height": 1080},
+        {"scene": "sintel_rooftop", "frame": 48, "path": "benchmarks/video_corpus/results/quality_frames/sintel_rooftop_426x240_high_crf12_f48_m6-6-1-cas-fixed-escalated-20260823T042444Z-03-base_only_mitchell.png", "width": 1920, "height": 1080},
+        {"scene": "sintel_cave", "frame": 48, "path": "benchmarks/video_corpus/results/quality_frames/sintel_cave_426x240_high_crf12_f48_m6-6-1-cas-fixed-escalated-20260823T042444Z-03-base_only_mitchell.png", "width": 1920, "height": 1080}
+      ]
+    },
+    {
+      "id": "base_only_catmull_rom",
+      "configPath": "benchmarks/quality_sweeps/stage_b/base_only_catmull_rom.json",
+      "configSha256": "445d522bdc9eaccf4d8ed463f33bc475a5986cda76e343cebd36bff36cc58035",
+      "binarySha256": "c37a509f1c04e07a0846c4177c3cd5ab891c2c02ec1136cd95e3bd37cb6ef8b9",
+      "gitCommit": null,
+      "dimensions": {"source": "426x240", "output": "1920x1080"},
+      "reviewAssets": [
+        {"scene": "tos_daylight", "frame": 48, "path": "benchmarks/video_corpus/results/quality_frames/tos_daylight_426x240_high_crf12_f48_m6-6-1-cas-fixed-escalated-20260823T042444Z-04-base_only_catmull_rom.png", "width": 1920, "height": 1080},
+        {"scene": "tos_debris", "frame": 48, "path": "benchmarks/video_corpus/results/quality_frames/tos_debris_426x240_high_crf12_f48_m6-6-1-cas-fixed-escalated-20260823T042444Z-04-base_only_catmull_rom.png", "width": 1920, "height": 1080},
+        {"scene": "sintel_rooftop", "frame": 48, "path": "benchmarks/video_corpus/results/quality_frames/sintel_rooftop_426x240_high_crf12_f48_m6-6-1-cas-fixed-escalated-20260823T042444Z-04-base_only_catmull_rom.png", "width": 1920, "height": 1080},
+        {"scene": "sintel_cave", "frame": 48, "path": "benchmarks/video_corpus/results/quality_frames/sintel_cave_426x240_high_crf12_f48_m6-6-1-cas-fixed-escalated-20260823T042444Z-04-base_only_catmull_rom.png", "width": 1920, "height": 1080}
+      ]
+    },
+    {
+      "id": "base_only_lanczos2",
+      "configPath": "benchmarks/quality_sweeps/stage_b/base_only_lanczos2.json",
+      "configSha256": "7de7e8df1bff8a15924ce0e9efda341633af52c3954c3a460f2508f4d6354cc6",
+      "binarySha256": "c37a509f1c04e07a0846c4177c3cd5ab891c2c02ec1136cd95e3bd37cb6ef8b9",
+      "gitCommit": null,
+      "dimensions": {"source": "426x240", "output": "1920x1080"},
+      "reviewAssets": [
+        {"scene": "tos_daylight", "frame": 48, "path": "benchmarks/video_corpus/results/quality_frames/tos_daylight_426x240_high_crf12_f48_m6-6-1-cas-fixed-escalated-20260823T042444Z-05-base_only_lanczos2.png", "width": 1920, "height": 1080},
+        {"scene": "tos_debris", "frame": 48, "path": "benchmarks/video_corpus/results/quality_frames/tos_debris_426x240_high_crf12_f48_m6-6-1-cas-fixed-escalated-20260823T042444Z-05-base_only_lanczos2.png", "width": 1920, "height": 1080},
+        {"scene": "sintel_rooftop", "frame": 48, "path": "benchmarks/video_corpus/results/quality_frames/sintel_rooftop_426x240_high_crf12_f48_m6-6-1-cas-fixed-escalated-20260823T042444Z-05-base_only_lanczos2.png", "width": 1920, "height": 1080},
+        {"scene": "sintel_cave", "frame": 48, "path": "benchmarks/video_corpus/results/quality_frames/sintel_cave_426x240_high_crf12_f48_m6-6-1-cas-fixed-escalated-20260823T042444Z-05-base_only_lanczos2.png", "width": 1920, "height": 1080}
+      ]
+    }
+  ]
+}

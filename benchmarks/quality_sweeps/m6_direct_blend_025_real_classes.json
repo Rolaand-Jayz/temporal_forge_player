@@ -1,0 +1,26 @@
+{
+  "name": "m6-direct-blend-025-real-classes",
+  "corpusManifest": "../video_corpus/manifest.csv",
+  "dimensions": "426x240",
+  "outputDimensions": "1920x1080",
+  "frame": 48,
+  "quality": "high",
+  "clipRegex": "^(tos_daylight|tos_debris|sintel_rooftop|sintel_cave)$",
+  "qualityClassAnnotationsPath": "benchmarks/quality_sweeps/m6_quality_class_annotations.json",
+  "classSelections": {
+    "tos_daylight": ["faces-hair-skin", "fine-fabric-texture"],
+    "tos_debris": [],
+    "sintel_rooftop": ["high-contrast-architecture"],
+    "sintel_cave": ["low-light-shadow-detail"]
+  },
+  "jitter": {
+    "mode": "current",
+    "controlledStrength": 1.0
+  },
+  "experiments": [
+    {
+      "id": "direct_blend_025_full_temporal_no_cas",
+      "config": "stage_a/direct_blend_025.json"
+    }
+  ]
+}

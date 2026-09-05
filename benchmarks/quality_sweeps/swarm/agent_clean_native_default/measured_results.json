@@ -1,0 +1,35 @@
+{
+  "status": "clean_baseline_recorded",
+  "graph": "native_int8",
+  "input": "426x240",
+  "output": "1920x1080",
+  "frames": 8,
+  "decode": "software",
+  "quality_lab": "isolated_current_defaults",
+  "scenes": {
+    "tos_daylight": {
+      "fsr_ssim": 0.855350,
+      "lanczos_ssim": 0.853780,
+      "fsr_temporal_error": 1.460254,
+      "lanczos_temporal_error": 1.475034
+    },
+    "tos_debris": {
+      "fsr_ssim": 0.937575,
+      "lanczos_ssim": 0.936707,
+      "fsr_temporal_error": 4.714316,
+      "lanczos_temporal_error": 4.713200
+    },
+    "sintel_rooftop": {
+      "fsr_ssim": 0.800829,
+      "lanczos_ssim": 0.798489,
+      "fsr_temporal_error": 17.626157,
+      "lanczos_temporal_error": 17.816086
+    },
+    "sintel_cave": {
+      "fsr_ssim": 0.989665,
+      "lanczos_ssim": 0.989304,
+      "fsr_temporal_error": 0.013208,
+      "lanczos_temporal_error": 0.001919
+    }
+  }
+}

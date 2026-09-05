@@ -1,0 +1,9 @@
+scene,scale,filter,final_resolution,psnr_db,ssim
+tos_daylight,3.00,bicubic,2560x1440,48.085855,0.994099
+tos_daylight,3.00,lanczos,2560x1440,48.292487,0.994352
+tos_debris,3.00,bicubic,2560x1440,48.782213,0.992678
+tos_debris,3.00,lanczos,2560x1440,48.775310,0.993034
+sintel_rooftop,3.00,bicubic,2560x1440,46.607413,0.992186
+sintel_rooftop,3.00,lanczos,2560x1440,46.705407,0.992034
+sintel_cave,3.00,bicubic,2560x1440,48.624725,0.890802
+sintel_cave,3.00,lanczos,2560x1440,48.808056,0.889734

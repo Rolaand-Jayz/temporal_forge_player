@@ -1,0 +1,50 @@
+{
+  "qualityLab": {
+    "enabled": true,
+    "composition": {
+      "mode": "current",
+      "learnedStrength": 0.075,
+      "residualStrength": 1.0
+    },
+    "baseFilter": {
+      "mode": "bilinear",
+      "colorSpace": "model",
+      "b": 0.3333333333,
+      "c": 0.3333333333
+    },
+    "residual": {
+      "lowpassMode": "box3x3",
+      "radius": 1.0,
+      "sigma": 0.85
+    },
+    "sharpen": {
+      "mode": "none",
+      "strength": 0.0,
+      "limit": 0.25,
+      "threshold": 0.05
+    },
+    "tone": {
+      "exposureEV": -0.015,
+      "contrast": 0.0,
+      "contrastPivot": 0.5,
+      "gamma": 1.0
+    },
+    "presentation": {
+      "filter": "bicubic"
+    },
+    "motion": {
+      "mode": "codec",
+      "refinementScale": 4,
+      "searchRadius": 2,
+      "maxCorrectionPixels": 4.0,
+      "minErrorImprovement": 0.0,
+      "minErrorMargin": 0.0,
+      "maxRefinedSeeds": 65536,
+      "confidenceErrorScale": 0.08,
+      "confidenceThreshold": 0.15,
+      "sceneCutThreshold": 0.35,
+      "edgeAwareUpscale": false,
+      "allowFallbackAfterFiltering": false
+    }
+  }
+}

@@ -9,7 +9,7 @@
 //     enters the region it lives in (or anywhere, in fullscreen). This is
 //     the standard player behavior the user asked for.
 //
-// Keyboard shortcuts (spec 05 + new): Space, F, Esc, O, M, C, H, Ctrl+,,
+// Keyboard shortcuts (spec 05 + new): Space, F, Esc, O, P, M, C, H, Ctrl+,,
 // Ctrl+F, Ctrl+I, Left/Right (seek 10s), Up/Down (volume), , and . (frame
 // step), [ and ] (playback speed).
 import QtQuick
@@ -38,9 +38,107 @@ ApplicationWindow {
     // --- open-file dialog ---
     FileDialog {
         id: openDialog
-        title: "Open video"
+        title: "Open videos"
+        fileMode: FileDialog.OpenFiles
         nameFilters: ["Video files (*.mp4 *.mkv *.mov *.webm *.avi *.ts *.m2ts)", "All files (*)"]
-        onAccepted: playback.openUrl(currentFile)
+        onAccepted: playback.openPlaylist(urlsToEntries(selectedFiles))
+    }
+
+    FileDialog {
+        id: addDialog
+        title: "Add videos to playlist"
+        fileMode: FileDialog.OpenFiles
+        nameFilters: ["Video files (*.mp4 *.mkv *.mov *.webm *.avi *.ts *.m2ts)", "All files (*)"]
+        onAccepted: playback.appendPlaylist(urlsToEntries(selectedFiles))
+    }
+
+    function urlsToEntries(urls) {
+        const entries = []
+        for (let i = 0; i < urls.length; ++i)
+            entries.push(String(urls[i]))
+        return entries
+    }
+
+    // A compact playlist drawer. The engine owns ordering and end-of-media
+    // advancement; this view only selects an existing item or adds files.
+    Popup {
+        id: playlistPopup
+        width: Math.min(460, Math.max(320, window.width - 24))
+        height: Math.min(520, Math.max(260, window.height - 120))
+        x: Math.max(12, window.width - width - 12)
+        y: 12
+        padding: 12
+        modal: false
+        focus: true
+        closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
+
+        background: Rectangle {
+            color: "#15151a"
+            radius: 8
+            border.color: "#3a3a44"
+            border.width: 1
+        }
+
+        contentItem: ColumnLayout {
+            spacing: 8
+
+            RowLayout {
+                Layout.fillWidth: true
+                Label {
+                    text: "Playlist (" + playback.playlistCount + ")"
+                    color: "#f2f2f4"
+                    font.bold: true
+                    Layout.fillWidth: true
+                }
+                Button {
+                    text: "Add…"
+                    onClicked: addDialog.open()
+                }
+                Button {
+                    text: "Clear"
+                    enabled: playback.playlistCount > 0
+                    onClicked: {
+                        playback.clearPlaylist()
+                        playlistPopup.close()
+                    }
+                }
+            }
+
+            Label {
+                visible: playback.playlistCount === 0
+                text: "No videos in the playlist"
+                color: "#898994"
+                Layout.fillWidth: true
+                horizontalAlignment: Text.AlignHCenter
+            }
+
+            ListView {
+                id: playlistView
+                visible: playback.playlistCount > 0
+                Layout.fillWidth: true
+                Layout.fillHeight: true
+                clip: true
+                spacing: 2
+                model: playback.playlist
+
+                delegate: ItemDelegate {
+                    width: playlistView.width
+                    highlighted: index === playback.playlistIndex
+                    text: {
+                        const value = String(modelData)
+                        const slash = Math.max(value.lastIndexOf("/"), value.lastIndexOf("\\"))
+                        return slash >= 0 ? value.substring(slash + 1) : value
+                    }
+                    onClicked: {
+                        playback.selectPlaylist(index)
+                        playlistPopup.close()
+                    }
+                    ToolTip.visible: hovered
+                    ToolTip.text: String(modelData)
+                    ToolTip.delay: 500
+                }
+            }
+        }
     }
 
     // --- FSR4 INT8 experimental warning ---
@@ -196,7 +294,7 @@ ApplicationWindow {
         Label {
             anchors.centerIn: parent
             visible: !playback.hasMedia
-            text: "Press O to open a video file"
+            text: "Press O to open videos, or P to show the playlist"
             color: "#6a6a75"
             font.pixelSize: 18
         }
@@ -247,6 +345,7 @@ ApplicationWindow {
     VideoContextMenu {
         id: contextMenu
         videoSurface: videoSurface
+        playlistPopup: playlistPopup
     }
 
     // --- auto-hide timer ---
@@ -260,6 +359,7 @@ ApplicationWindow {
         onTriggered: {
             if (!controlsHovered && !overlaysHovered &&
                 !openDialog.visible && !settingsDialog.visible &&
+                !addDialog.visible && !playlistPopup.visible &&
                 !experimentalWarning.visible)
                 chromeVisible = false
         }
@@ -404,8 +504,18 @@ ApplicationWindow {
                 // Open file.
                 IconButton {
                     glyph: "📁"
-                    tooltip: "Open file (O)"
+                    tooltip: "Open videos (O)"
                     onClicked: openDialog.open()
+                    Layout.preferredWidth: 36
+                }
+
+                // Previous playlist item, or restart the current item when
+                // playback is more than three seconds in.
+                IconButton {
+                    glyph: "⏮"
+                    tooltip: "Previous item (or restart)"
+                    enabled: playback.hasMedia
+                    onClicked: playback.previous()
                     Layout.preferredWidth: 36
                 }
 
@@ -455,6 +565,15 @@ ApplicationWindow {
                     Layout.preferredWidth: 36
                 }
 
+                // Advance to the next playlist item without waiting for EOF.
+                IconButton {
+                    glyph: "⏭"
+                    tooltip: "Next item"
+                    enabled: playback.hasNext
+                    onClicked: playback.next()
+                    Layout.preferredWidth: 36
+                }
+
                 // Volume mute toggle.
                 IconButton {
                     glyph: playback.muted || playback.volume === 0 ? "🔇"
@@ -481,6 +600,14 @@ ApplicationWindow {
                             radius: 2
                         }
                     }
+                }
+
+                IconButton {
+                    glyph: "☷ " + playback.playlistCount
+                    tooltip: "Playlist (P)"
+                    showLabel: true
+                    onClicked: playlistPopup.open()
+                    Layout.preferredWidth: 68
                 }
 
                 Item { Layout.fillWidth: true }
@@ -547,6 +674,7 @@ ApplicationWindow {
     // --- keyboard shortcuts (spec 05 + new transport keys) ---
     Shortcut { sequence: "Space"; onActivated: playback.togglePlay() }
     Shortcut { sequence: "O";     onActivated: openDialog.open() }
+    Shortcut { sequence: "P";     onActivated: playlistPopup.open() }
     Shortcut {
         sequence: "F"
         onActivated: window.visibility === Window.FullScreen

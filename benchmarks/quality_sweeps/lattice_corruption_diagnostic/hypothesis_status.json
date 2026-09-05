@@ -1,0 +1,34 @@
+{
+  "schema": "temporal_forge.lattice_hypothesis_status.v1",
+  "status": "diagnostic_complete_for_prefilter_fix",
+  "do_not_start_full_campaign": true,
+  "findings": {
+    "gpu_prefilter_arithmetic": {
+      "status": "supported",
+      "evidence": "GPU bicubic contaminated exact 1280x720->960x540 case; same storage-image/barrier path with bilinear downsample and libswscale reference resize were clean"
+    },
+    "temporal_feedback": {
+      "status": "not_primary",
+      "evidence": "fixed exact case was clean in history/recurrent off/off, on/off, off/on, and on/on arms"
+    },
+    "geometry": {
+      "status": "covered",
+      "evidence": "fixed source==model, source>model, and source<model traces record source/model/output grids and scale factors"
+    },
+    "jitter": {
+      "status": "covered",
+      "evidence": "production prepass jitter, jitter-off, and full-reset oracle were visually clean"
+    },
+    "rgb10_vs_fp16_model_carrier": {
+      "status": "offline_ablation_not_causal",
+      "reason": "The production source/model descriptors are RGB10/A2 and an in-process RGBA16F carrier swap would require broad descriptor/resource changes outside the smallest fix. The captured native stage-A data was nevertheless re-evaluated with float32 and simulated RGB10 quantization; the carrier residual had RMSE 0.0001482 and max error 0.0004830. Its 2–32px band metrics are reported for matched comparison but are not treated as causal evidence without a GPU carrier A/B.",
+      "evidence": "precision_order_ablation.json; FP16_FP8 boundary diagnostic and CPU float resize reference were clean",
+      "limitation": "This is a deterministic numerical ablation, not a GPU RGBA16F resource substitution."
+    },
+    "transform_ordering": {
+      "status": "offline_ablation_not_causal",
+      "evidence": "precision_order_ablation.json compares transform-before-resolve with resolve-before-transform using a high-precision float carrier derived from the native stage-A readback; ordering is numerically distinguishable (RMSE 0.0014204, max error 0.09435). The 2–32px band metrics are emitted for comparison but are not sufficient to identify the causal boundary.",
+      "limitation": "An independent GPU resolve-before-transform arm remains outside the current descriptor contract; the production trace still verifies transform-before-resolve."
+    }
+  }
+}

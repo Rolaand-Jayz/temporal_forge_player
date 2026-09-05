@@ -1,0 +1,6 @@
+{
+  "campaign_generation": "pre_lattice_fix",
+  "canonical": false,
+  "historical_only": true,
+  "note": "Preserved pre-fix campaign evidence. Never use for canonical rankings, aggregation, promotion, or resume state."
+}

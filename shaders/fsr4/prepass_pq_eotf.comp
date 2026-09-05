@@ -32,14 +32,24 @@ layout(local_size_x = 32, local_size_y = 8, local_size_z = 1) in;
 layout(set = 0, binding = 0) uniform PrepassCB {
     uvec4 slot0; // (dispatchW, dispatchH, flags, _)
     vec4  slot1; // (scaleX, scaleY, offsetX, offsetY) coordinate transform
+    vec4  slot2; // (history confidence, gate threshold, jitter delta x/y)
+    uvec4 slot3; // diagnostic-only prepass controls; kept separate from shared flags
 };
 
 // Source-resolution color is preconverted to FSR model space by the uploader.
 layout(set = 0, binding = 1, rgb10_a2) readonly uniform image2D u_color;
 layout(set = 0, binding = 2, rg16f)   readonly uniform image2D u_motion;
 layout(set = 0, binding = 3, r32f)    readonly uniform image2D u_depth;
-layout(set = 0, binding = 7, rgb10_a2) readonly uniform image2D u_history;
+// Codec expansion writes this separately from motion so covered static blocks
+// (valid zero motion) remain distinct from uncovered pixels (zero fallback).
+layout(set = 0, binding = 6, r8)      readonly uniform image2D u_motionValidity;
+layout(set = 0, binding = 7, rgba16f) readonly uniform image2D u_history;
 layout(set = 0, binding = 8, rgba16f) readonly uniform image2D u_recurrent;
+layout(set = 0, binding = 9, rgba16f) writeonly uniform image2D u_reprojectedColor;
+// Source-guided diagnostic input. The preserved AMD path applies its color
+// transform to each source tap before the Gaussian resolve; the normal path
+// remains on u_color, which is already in model space.
+layout(set = 0, binding = 10, rgba8) readonly uniform image2D u_sourceDisplay;
 
 // encoder1 DownscaleStridedConv2x2 weight [2,2,8,16] HNWC, FP16, 1024 bytes.
 layout(set = 0, binding = 4) readonly buffer WeightBlob { uint weightWords[]; };
@@ -79,6 +89,39 @@ float pqEotf(float N) {
 // downstream conv chain sees comparable magnitudes regardless of EOTF.
 const float SDR_GAMMA = 2.4;
 const float SDR_OUT_SCALE = 1.0; // full linear range; PQ scale was too small for SDR
+const uint TFORGE_PREPASS_FIXED_HISTORY_WEIGHT = 4194304u;
+// Opt-in Phase 3 gate: derive a confidence value at each target pixel from
+// current-versus-reprojected-history luma agreement. This is intentionally
+// separate from the block-level motion-validity score so the experiment can
+// reject disocclusions and mismatched history without changing defaults.
+const uint TFORGE_PREPASS_PHOTOMETRIC_HISTORY_GATE = 536870912u;
+// Opt-in Phase 2 motion diagnostic: motion vectors are defined in an
+// unjittered coordinate space, while the current color sample carries the
+// render jitter. Sampling the vector texture at the unjittered coordinate
+// tests that contract without changing the normal path.
+const uint TFORGE_PREPASS_UNJITTERED_MOTION_SAMPLE = 268435456u;
+// Diagnostic-only violation arm: add the current color jitter to motion
+// lookup coordinates. The default remains unjittered motion, as required by
+// the video integration contract.
+const uint TFORGE_PREPASS_JITTERED_MOTION_SAMPLE = 67108864u;
+// The reference path publishes zero history when correspondence is rejected
+// or off-screen, allowing the network to recognize disocclusion. This bit is
+// reserved for the compatibility diagnostic that restores the former
+// current-as-history fallback.
+const uint TFORGE_PREPASS_CURRENT_INVALID_HISTORY = 2147483648u;
+// Native INT8 packs consume eight physical FP16 lanes per pixel, while the
+// split reconstructed graph consumes the seven logical channels contiguously.
+// The host sets this bit only for the native graph so one prepass shader keeps
+// both graph contracts explicit at the handoff boundary.
+const uint TFORGE_PREPASS_NATIVE_PHYSICAL_LANES = 4096u;
+// Official FSR resolves the jittered 2x2 input neighborhood in this prepass.
+// This opt-in bit moves synthetic jitter here from the upload shader while
+// retaining the established upload-time path as the default control.
+const uint TFORGE_PREPASS_JITTER_IN_RESOLVE = 131072u;
+// Legacy profile bit. It remains in the control block for trace/debug
+// compatibility, but production current-color resolve is model-grid based;
+// Mu-law has already been applied by yuv_to_fsr_input before RGB10 storage.
+const uint TFORGE_PREPASS_SOURCE_TAP_MULAW = 2048u;
 float rec709Eotf(float N) {
     N = clamp(N, 0.0, 1.0);
     return max(pow(N, SDR_GAMMA) * SDR_OUT_SCALE, 0.0);
@@ -96,18 +139,23 @@ float filterWeightGaussian(float distance, float scale) {
     return exp(x * x * exponentFactor);
 }
 
-vec4 sampleCurrentModel(vec2 sourcePos) {
+vec4 sampleCurrentModel(vec2 modelPos, vec2 modelToOutputScale) {
     const ivec2 sourceSize = imageSize(u_color);
-    const vec2 inputPos = clamp(sourcePos, vec2(0.0), vec2(sourceSize - ivec2(1)));
+    const vec2 inputPos = clamp(modelPos, vec2(0.0),
+                                vec2(sourceSize - ivec2(1)));
     const ivec2 base = ivec2(floor(inputPos));
     const ivec2 tl = clamp(base, ivec2(0), sourceSize - ivec2(1));
     const ivec2 tr = clamp(base + ivec2(1, 0), ivec2(0), sourceSize - ivec2(1));
     const ivec2 bl = clamp(base + ivec2(0, 1), ivec2(0), sourceSize - ivec2(1));
     const ivec2 br = clamp(base + ivec2(1, 1), ivec2(0), sourceSize - ivec2(1));
-    const float x1 = filterWeightGaussian(abs(float(tl.x) - inputPos.x), slot1.x);
-    const float x2 = filterWeightGaussian(abs(float(tr.x) - inputPos.x), slot1.x);
-    const float y1 = filterWeightGaussian(abs(float(tl.y) - inputPos.y), slot1.y);
-    const float y2 = filterWeightGaussian(abs(float(bl.y) - inputPos.y), slot1.y);
+    const float x1 = filterWeightGaussian(abs(float(tl.x) - inputPos.x),
+                                          modelToOutputScale.x);
+    const float x2 = filterWeightGaussian(abs(float(tr.x) - inputPos.x),
+                                          modelToOutputScale.x);
+    const float y1 = filterWeightGaussian(abs(float(tl.y) - inputPos.y),
+                                          modelToOutputScale.y);
+    const float y2 = filterWeightGaussian(abs(float(bl.y) - inputPos.y),
+                                          modelToOutputScale.y);
     const float wTL = x1 * y1;
     const float wTR = x2 * y1;
     const float wBL = x1 * y2;
@@ -118,6 +166,50 @@ vec4 sampleCurrentModel(vec2 sourcePos) {
         imageLoad(u_color, tr).rgb * wTR +
         imageLoad(u_color, bl).rgb * wBL +
         imageLoad(u_color, br).rgb * wBR;
+    const float centerWeight = max(max(max(wTL, wTR), wBL), wBR);
+    return vec4(result / weightSum, centerWeight);
+}
+
+float srgbToLinearOfficial(float encoded) {
+    const float lo = encoded / 12.92;
+    const float hi = pow((encoded + 0.055) / 1.055, 2.4);
+    return encoded < 0.04045 ? lo : hi;
+}
+
+vec3 applyMuLawOfficial(vec3 encoded) {
+    const vec3 linear = vec3(srgbToLinearOfficial(encoded.r),
+                             srgbToLinearOfficial(encoded.g),
+                             srgbToLinearOfficial(encoded.b));
+    return max(0.1174 * log(1.0 + 150.0 * linear), vec3(0.0));
+}
+
+vec4 sampleCurrentOfficial(vec2 sourcePos, vec2 sourceToOutputScale) {
+    const ivec2 sourceSize = imageSize(u_sourceDisplay);
+    const vec2 inputPos = clamp(sourcePos, vec2(0.0),
+                                vec2(sourceSize - ivec2(1)));
+    const ivec2 base = ivec2(floor(inputPos));
+    const ivec2 tl = clamp(base, ivec2(0), sourceSize - ivec2(1));
+    const ivec2 tr = clamp(base + ivec2(1, 0), ivec2(0), sourceSize - ivec2(1));
+    const ivec2 bl = clamp(base + ivec2(0, 1), ivec2(0), sourceSize - ivec2(1));
+    const ivec2 br = clamp(base + ivec2(1, 1), ivec2(0), sourceSize - ivec2(1));
+    const float x1 = filterWeightGaussian(abs(float(tl.x) - inputPos.x),
+                                          sourceToOutputScale.x);
+    const float x2 = filterWeightGaussian(abs(float(tr.x) - inputPos.x),
+                                          sourceToOutputScale.x);
+    const float y1 = filterWeightGaussian(abs(float(tl.y) - inputPos.y),
+                                          sourceToOutputScale.y);
+    const float y2 = filterWeightGaussian(abs(float(bl.y) - inputPos.y),
+                                          sourceToOutputScale.y);
+    const float wTL = x1 * y1;
+    const float wTR = x2 * y1;
+    const float wBL = x1 * y2;
+    const float wBR = x2 * y2;
+    const float weightSum = max(wTL + wTR + wBL + wBR, 1e-6);
+    const vec3 result =
+        applyMuLawOfficial(imageLoad(u_sourceDisplay, tl).rgb) * wTL +
+        applyMuLawOfficial(imageLoad(u_sourceDisplay, tr).rgb) * wTR +
+        applyMuLawOfficial(imageLoad(u_sourceDisplay, bl).rgb) * wBL +
+        applyMuLawOfficial(imageLoad(u_sourceDisplay, br).rgb) * wBR;
     const float centerWeight = max(max(max(wTL, wTR), wBL), wBR);
     return vec4(result / weightSum, centerWeight);
 }
@@ -134,6 +226,25 @@ vec4 sampleRecurrentLinear(vec2 outputPos) {
     const vec4 bottom = mix(imageLoad(u_recurrent, ivec2(a.x, b.y)),
                             imageLoad(u_recurrent, b), f.x);
     return mix(top, bottom, f.y);
+}
+
+vec4 sampleHistoryLinear(vec2 outputPos) {
+    const ivec2 size = imageSize(u_history);
+    const vec2 p = clamp(outputPos, vec2(0.0), vec2(size - ivec2(1)));
+    const ivec2 a = ivec2(floor(p));
+    const ivec2 b = clamp(a + ivec2(1), ivec2(0), size - ivec2(1));
+    const vec2 f = fract(p);
+    const vec4 top = mix(imageLoad(u_history, a),
+                         imageLoad(u_history, ivec2(b.x, a.y)), f.x);
+    const vec4 bottom = mix(imageLoad(u_history, ivec2(a.x, b.y)),
+                            imageLoad(u_history, b), f.x);
+    return mix(top, bottom, f.y);
+}
+
+vec4 sampleHistoryNearest(vec2 outputPos) {
+    const ivec2 size = imageSize(u_history);
+    const ivec2 p = clamp(ivec2(round(outputPos)), ivec2(0), size - ivec2(1));
+    return imageLoad(u_history, p);
 }
 
 float filterWeightCubic(float x) {
@@ -180,53 +291,224 @@ void main() {
     const uint dispatchH = slot0.y;
     if (dispatchW == 0u) return;
 
+    // slot1.xy is source-to-output, because history displacement lives in the
+    // output-sized history image. The uploaded current color, motion, and
+    // validity images are model-sized, so derive both remaining coordinate
+    // transforms instead of assuming model and decoded source dimensions are
+    // identical. This keeps reduced neural models spatially aligned without
+    // changing the native-resolution path.
+    const vec2 modelSize = vec2(imageSize(u_color));
+    const vec2 modelToOutputScale = vec2(dispatchW, dispatchH) /
+                                    max(modelSize, vec2(1.0));
+    const vec2 sourceToModelScale = slot1.xy /
+                                    max(modelToOutputScale, vec2(1e-6));
+    // The recovered temporal feedback resources are output-sized, while the
+    // uploaded model color/motion grids may be reduced or enlarged relative
+    // to decoded source.  The history publication contract keeps this
+    // geometry boundary stable without discarding temporal state.
+
     const uint px = gl_GlobalInvocationID.x;
     const uint py = gl_GlobalInvocationID.y;
     if (px >= dispatchW || py >= dispatchH) return;
 
     const vec2 invScale = 1.0 / max(slot1.xy, vec2(1e-6));
-    const vec2 inputPos = (-vec2(0.5) + invScale * 0.5 + vec2(px, py) * invScale) + slot1.zw;
-    const vec4 current = sampleCurrentModel(inputPos);
+    // The default path applies synthetic jitter during YUV upload. The
+    // official-ordering experiment leaves that source grid unjittered and
+    // applies the same model-pixel phase to this 2x2 resolve instead. The
+    // branch is opt-in so matched baseline captures remain reproducible.
+    const vec2 unjitteredInputPos =
+        (-vec2(0.5) + invScale * 0.5 + vec2(px, py) * invScale);
+    const bool usePrepassJitter =
+        (slot0.z & TFORGE_PREPASS_JITTER_IN_RESOLVE) != 0u;
+    const bool useSourceTapMuLaw =
+        (slot0.z & TFORGE_PREPASS_SOURCE_TAP_MULAW) != 0u;
+    // slot1.zw is expressed in model pixels. Source-tap sampling is in
+    // decoded-source pixels, so convert the phase before applying it.
+    const vec2 sourceJitter =
+        slot1.zw / max(sourceToModelScale, vec2(1e-6));
+    vec2 inputPos = unjitteredInputPos;
+    if (usePrepassJitter || useSourceTapMuLaw)
+        inputPos += sourceJitter;
+    const vec2 modelPos = inputPos * sourceToModelScale;
+    // Resolve from the RGB10/A2 model-color image even when the semantic profile
+    // requests source-tap Mu-law.  The raw source-display image is rgba8 and
+    // applying the nonlinear transform after that quantization creates a
+    // phase-locked lattice under source/model geometry mismatch.  The model
+    // image already contains the same EOTF + Mu-law transform; retaining the
+    // prepass phase here preserves ordering without introducing a second
+    // lossy representation.
+    const vec4 current = sampleCurrentModel(modelPos, modelToOutputScale);
+    const bool fullReset = (slot0.z & 2u) != 0u;
+    const bool recurrentResetOnly = (slot0.z & 1048576u) != 0u;
+    const bool resetRecurrent = fullReset || recurrentResetOnly;
 
-    // History is model-space FP16 at target resolution. Motion is supplied in
-    // source pixels and converted to target pixels here. It is always causal:
-    // this pass only reads the completed previous ping-pong image.
-    vec3 historyModel = ((slot0.z & 2u) != 0u) ? current.rgb : vec3(0.0);
+    // History is model-space FP16 at target resolution. Motion is uploaded in
+    // model pixels after PlaybackEngine's source-to-model conversion, so it
+    // must be converted from model space to output history space here. It is
+    // always causal: this pass only reads the completed previous ping-pong
+    // image.
+    vec3 historyModel = fullReset ? current.rgb : vec3(0.0);
     vec4 recurrent = vec4(0.0);
-    if ((slot0.z & 2u) == 0u) {
-        // FSR4 scales the current-frame contribution by the Gaussian resolve's
-        // center weight. This preserves the training-time confidence signal;
-        // a fixed 0.1 shifts every temporal feature supplied to the network.
-        const float temporalSampleWeight = current.a * 0.1;
+    if (!fullReset) {
         if ((slot0.z & 12u) == 12u) {
-            historyModel = temporalSampleWeight * current.rgb;
+            // No prior color or recurrent state is available. Publish the
+            // complete current resolve as the causal fallback. The postpass
+            // consumes this shared image as model-space color, so applying
+            // the feature confidence weight here would darken the learned
+            // reconstruction every time history feedback is disabled.
+            historyModel = current.rgb;
         } else {
-            const ivec2 sourceSize = imageSize(u_color);
-            const ivec2 sourceCoord = clamp(ivec2(round(inputPos)), ivec2(0),
-                                            sourceSize - ivec2(1));
-            const ivec2 motionCoord = clamp(sourceCoord, ivec2(0),
+            // Motion and color use the same unshifted output-to-model
+            // coordinate. The color texture contains the one synthetic
+            // jitter sample; the motion field remains unjittered.
+            // Motion is defined between unjittered decoded frames. Keep its
+            // lookup coordinate separate from the color resolve coordinate;
+            // otherwise the synthetic sampling phase contaminates the motion
+            // seed selected for temporal history reprojection.
+            vec2 motionSamplePos = unjitteredInputPos;
+            if ((slot0.z & TFORGE_PREPASS_JITTERED_MOTION_SAMPLE) != 0u &&
+                (slot0.z & TFORGE_PREPASS_UNJITTERED_MOTION_SAMPLE) == 0u)
+                motionSamplePos += slot1.zw;
+            if ((slot0.z & 32768u) != 0u)
+                motionSamplePos = floor(motionSamplePos);
+            else if ((slot0.z & 65536u) != 0u)
+                motionSamplePos = ceil(motionSamplePos);
+            // Motion is stored at model resolution, while motionSamplePos is
+            // in decoded source pixels. Convert the lookup coordinate once
+            // with the same source-to-model scale used for block coverage.
+            // Without this mapping, a smaller model clamps most source
+            // locations to its final row/column and feeds history the wrong
+            // correspondence.
+            const vec2 motionImagePos = motionSamplePos * sourceToModelScale;
+            const ivec2 motionCoord = clamp(ivec2(round(motionImagePos)),
+                                             ivec2(0),
                                              imageSize(u_motion) - ivec2(1));
-            const vec2 motion = imageLoad(u_motion, motionCoord).xy * slot1.xy;
+            float motionScale = 1.0;
+            if ((slot0.z & 16384u) != 0u)
+                motionScale = uintBitsToFloat(slot0.w);
+            // slot1.xy is source-to-output and is valid for source-position
+            // lookup only. Multiplying model-pixel motion by it under-scales
+            // reduced-model paths by model/source. Use the already-derived
+            // model-to-output ratio for the displacement itself.
+            vec2 motion = imageLoad(u_motion, motionCoord).xy *
+                          modelToOutputScale * motionScale;
+            if ((slot0.z & 8192u) != 0u)
+                motion = -motion;
+            const float correspondenceConfidence =
+                imageLoad(u_motionValidity, motionCoord).r;
+            const bool confidenceMap = (slot0.z & 8388608u) != 0u;
+            bool motionCovered = (slot0.z & 512u) != 0u ||
+                                 (confidenceMap ? correspondenceConfidence > 0.01
+                                                : correspondenceConfidence > 0.5);
+            // HISTORY_CONFIDENCE_GATE is opt-in. Codec motion may be
+            // structurally valid while frame-level confidence says that
+            // display-color history is not trustworthy enough to reuse.
+            const bool historyConfidenceGate = (slot0.z & 1073741824u) != 0u;
+            const float historyConfidenceThreshold = slot2.y;
+            if (historyConfidenceGate && slot2.x < historyConfidenceThreshold)
+                motionCovered = false;
+            // FSR4 scales current-frame contribution by the Gaussian resolve's
+            // center weight. In confidence-map mode, low-confidence history
+            // receives less weight without turning a whole block into a hole.
+            float temporalSampleWeight =
+                (slot0.z & TFORGE_PREPASS_FIXED_HISTORY_WEIGHT) != 0u
+                    ? 0.1
+                    : current.a * 0.1;
+            if (confidenceMap)
+                temporalSampleWeight = mix(1.0, temporalSampleWeight,
+                                           correspondenceConfidence);
             // Codec motion points from the current destination block to its
             // source position in the reference frame.
-            const vec2 historyPos = vec2(px, py) + motion;
+            // History was written using the previous frame's jittered source
+            // phase. Align it to this frame before applying current->previous
+            // motion. This is zero for reset/unchanged-jitter frames.
+            // Jitter is carried here in model pixels because PlaybackEngine
+            // converts the source-space phase before dispatch. History is
+            // output-sized, so convert the phase delta with model-to-output,
+            // not source-to-output. Using slot1.xy here would apply the model
+            // scale a second time whenever the neural model is reduced.
+            const vec2 historyJitterDelta =
+                (slot0.z & 33554432u) != 0u ? slot2.zw * modelToOutputScale
+                                            : vec2(0.0);
+            const vec2 historyPos = vec2(px, py) + motion + historyJitterDelta;
             const ivec2 historySize = imageSize(u_history);
             const bool onscreen = historyPos.x >= 0.0 && historyPos.y >= 0.0 &&
                                   historyPos.x <= float(historySize.x - 1) &&
                                   historyPos.y <= float(historySize.y - 1);
-            if (onscreen) {
-                if ((slot0.z & 8u) == 0u)
+            if (motionCovered && onscreen) {
+                if ((slot0.z & 524288u) != 0u)
+                    historyModel = sampleHistoryNearest(historyPos).rgb;
+                else if ((slot0.z & 262144u) != 0u)
+                    historyModel = sampleHistoryLinear(historyPos).rgb;
+                else if ((slot0.z & 8u) == 0u)
                     historyModel = sampleHistoryCatmullRom(historyPos).rgb;
-                if ((slot0.z & 4u) == 0u)
-                    recurrent = sampleRecurrentLinear(historyPos);
+                if ((slot0.z & 4u) == 0u && !resetRecurrent)
+                    recurrent = sampleRecurrentLinear(
+                        (slot0.z & 16777216u) != 0u
+                            ? vec2(px, py)
+                            : historyPos);
             }
-            historyModel = max(temporalSampleWeight * current.rgb +
-                                   (1.0 - temporalSampleWeight) * historyModel,
-                               vec3(0.0));
+            const bool photometricHistoryGate =
+                (slot0.z & TFORGE_PREPASS_PHOTOMETRIC_HISTORY_GATE) != 0u;
+            // Compare the actual current target pixel with the motion-
+            // reprojected history pixel. A block-level vector can still land
+            // on an occlusion, disocclusion, or badly predicted surface, so
+            // this local agreement is the per-pixel history evidence.
+            float photometricConfidence = 1.0;
+            if (photometricHistoryGate && motionCovered && onscreen) {
+                const float currentLuma = dot(current.rgb,
+                                              vec3(0.2126, 0.7152, 0.0722));
+                const float historyLuma = dot(historyModel,
+                                              vec3(0.2126, 0.7152, 0.0722));
+                const float lumaError = abs(currentLuma - historyLuma);
+                photometricConfidence = clamp(exp(-lumaError / 0.04),
+                                              0.0, 1.0);
+                temporalSampleWeight = mix(temporalSampleWeight, 1.0,
+                                           1.0 - photometricConfidence);
+            }
+            // The benchmark-only rectification multiplier is applied after
+            // all correspondence gates. A value of 1.0 is the production
+            // behavior; other values only change how quickly an accepted
+            // history sample is corrected toward the current resolve.
+            const float historyRectificationScale =
+                clamp(uintBitsToFloat(slot3.y), 0.0, 4.0);
+            temporalSampleWeight *= historyRectificationScale;
+            temporalSampleWeight = clamp(temporalSampleWeight, 0.0, 1.0);
+            // A covered pixel has a usable correspondence. Rectify the
+            // sampled history toward the current resolve instead of treating
+            // zero motion as a reason to discard valid same-pixel history.
+            // Coverage only says that a motion block supplied a vector. If
+            // that vector reprojects outside the history image, historyModel
+            // is still the zero initializer because no sample occurred above.
+            // Do not blend that sentinel as black history; treat the sample as
+            // invalid and let the explicit invalid-history policy below win.
+            if (motionCovered && onscreen) {
+                historyModel = max(temporalSampleWeight * current.rgb +
+                                       (1.0 - temporalSampleWeight) * historyModel,
+                                   vec3(0.0));
+            } else {
+            // A rejected or uncovered correspondence is not a valid
+            // same-pixel history sample. The reference path publishes zero;
+            // current-as-history remains available only for an explicit
+            // compatibility diagnostic.
+            historyModel = (slot0.z & TFORGE_PREPASS_CURRENT_INVALID_HISTORY) != 0u
+                ? current.rgb
+                : vec3(0.0);
+            }
         }
     }
     const float inputY = dot(current.rgb, vec3(0.2126, 0.7152, 0.0722));
     const float historyY = dot(historyModel, vec3(0.2126, 0.7152, 0.0722));
+    // Diagnostic-only readback sentinel. This intentionally replaces the
+    // published history sample with the current resolve so the harness can
+    // validate the FP16 transfer path independently of history coverage and
+    // motion semantics. It is never enabled by normal playback.
+    if ((slot3.x & 1u) != 0u)
+        historyModel = current.rgb;
+    // Publish the exact causal target-grid resolve once. The conv features and
+    // postpass both consume this image, so no later stage performs a second
+    // independently-filtered history reprojection.
+    imageStore(u_reprojectedColor, ivec2(px, py), vec4(historyModel, 1.0));
     const vec2 inputChroma = vec2((current.b - inputY) / 1.8556,
                                   (current.r - inputY) / 1.5748);
     const vec2 historyChroma = vec2((historyModel.b - historyY) / 1.8556,
@@ -239,7 +521,11 @@ void main() {
     // The recovered tensor has seven logical channels but eight stored lanes
     // per NHWC element. Every convolution indexes it with the physical
     // 8-lane stride, so the padding lane must be written deterministically.
-    const uint outBase = (py * dispatchW + px) * 8u;
+    // Both the native and generic first convolution advance one pixel by
+    // eight FP16 lanes. Seven lanes carry logical features; lane seven is
+    // deterministic padding consumed only by the physical tensor stride.
+    const uint physicalLanes = 8u;
+    const uint outBase = (py * dispatchW + px) * physicalLanes;
     outFeatures[outBase + 0u] = float16_t(2.0 * inputY - 1.0);
     outFeatures[outBase + 1u] = float16_t(2.0 * historyY - 1.0);
     outFeatures[outBase + 2u] = float16_t(chromaDistance);
@@ -247,5 +533,6 @@ void main() {
     outFeatures[outBase + 4u] = float16_t(2.0 * recurrent.y - 1.0);
     outFeatures[outBase + 5u] = float16_t(2.0 * recurrent.z - 1.0);
     outFeatures[outBase + 6u] = float16_t(2.0 * recurrent.w - 1.0);
-    outFeatures[outBase + 7u] = float16_t(0.0);
+    if (physicalLanes == 8u)
+        outFeatures[outBase + 7u] = float16_t(0.0);
 }

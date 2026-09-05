@@ -1,3 +1,6 @@
+// conv_upscale_fp16_coop.comp — cooperative-matrix transpose/upscale
+// convolution at a recovered decoder scale boundary. Its output dimensions
+// must match the next tensor-table row and the harness' barrier calculations.
 #version 450 core
 #extension GL_KHR_cooperative_matrix : require
 #extension GL_KHR_memory_scope_semantics : require

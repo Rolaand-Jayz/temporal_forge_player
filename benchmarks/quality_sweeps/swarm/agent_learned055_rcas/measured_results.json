@@ -1,0 +1,25 @@
+{
+  "schema": "temporal_forge.quality_sweep_results.v1",
+  "campaignId": "agent-learned055-rcas-20260824",
+  "status": "captured-not-promoted",
+  "captureCount": 40,
+  "baseline": "current_default",
+  "aggregateAgainstCurrentDefault": {
+    "learned_055_rcas_008": {"meanSsimDelta": 0.000290875, "meanTemporalErrorDelta": -0.109614375, "badPairs": 3, "improvedPairs": 8, "minSsimDelta": -0.001337000, "maxTemporalRelativeIncrease": 0.169660},
+    "learned_055_rcas_012": {"meanSsimDelta": 0.000287875, "meanTemporalErrorDelta": -0.109722250, "badPairs": 3, "improvedPairs": 8, "minSsimDelta": -0.001336000, "maxTemporalRelativeIncrease": 0.168235},
+    "learned_055_rcas_016": {"meanSsimDelta": 0.000285375, "meanTemporalErrorDelta": -0.109816500, "badPairs": 3, "improvedPairs": 7, "minSsimDelta": -0.001335000, "maxTemporalRelativeIncrease": 0.166791},
+    "learned_055_rcas_020": {"meanSsimDelta": 0.000282875, "meanTemporalErrorDelta": -0.109939250, "badPairs": 3, "improvedPairs": 7, "minSsimDelta": -0.001334000, "maxTemporalRelativeIncrease": 0.165367}
+  },
+  "failedPairs": {
+    "allCandidates": ["tos_daylight_1280x720", "tos_debris_426x240", "sintel_cave_1280x720"],
+    "reason": "The daylight 1280x720 pair violates the SSIM floor; debris 426x240 and cave 1280x720 exceed the 2% temporal-error increase gate."
+  },
+  "decision": {
+    "promoted": null,
+    "reason": "No RCAS level passes all paired gates. Timing and human visual review were not pursued after the mandatory per-pair quality failures.",
+    "sourceChanged": false,
+    "shaderChanged": false,
+    "benchmarkImagesChanged": false
+  },
+  "captureRoot": "captures/"
+}

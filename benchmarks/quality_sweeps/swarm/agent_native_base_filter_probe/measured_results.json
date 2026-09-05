@@ -1,0 +1,30 @@
+{
+  "candidate": "native-bilinear-base-filter",
+  "baseline": "native-default-catmull-rom",
+  "scope": {
+    "corpus": [
+      "tos_daylight",
+      "tos_debris",
+      "sintel_rooftop",
+      "sintel_cave"
+    ],
+    "input": "426x240",
+    "output": "1920x1080",
+    "graph": "native-int8",
+    "warmup_frames": 12,
+    "scored_frames": 12
+  },
+  "default_vs_bilinear": [
+    {"scene":"tos_daylight", "default_ssim":0.858844, "bilinear_ssim":0.862513, "ssim_delta":0.003669, "default_temporal_error":1.457346, "bilinear_temporal_error":1.688441, "temporal_error_delta":0.231095},
+    {"scene":"tos_debris", "default_ssim":0.937875, "bilinear_ssim":0.941042, "ssim_delta":0.003167, "default_temporal_error":0.002236, "bilinear_temporal_error":0.307880, "temporal_error_delta":0.305644},
+    {"scene":"sintel_rooftop", "default_ssim":0.781385, "bilinear_ssim":0.790450, "ssim_delta":0.009065, "default_temporal_error":0.596682, "bilinear_temporal_error":1.385636, "temporal_error_delta":0.788954},
+    {"scene":"sintel_cave", "default_ssim":0.950480, "bilinear_ssim":0.953273, "ssim_delta":0.002793, "default_temporal_error":0.503385, "bilinear_temporal_error":0.548735, "temporal_error_delta":0.045350}
+  ],
+  "followups": {
+    "color_history": "does not remove the bilinear temporal penalty",
+    "learned_strength": "0.0 and 0.05 leave the penalty essentially unchanged",
+    "legacy_rcas": "strength 0.0 leaves the result essentially unchanged"
+  },
+  "decision": "reject-for-promotion",
+  "default_changed": false
+}

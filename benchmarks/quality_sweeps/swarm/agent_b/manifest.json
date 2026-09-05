@@ -1,0 +1,26 @@
+{
+  "name": "swarm-agent-b-base-only-current-tone-adaptive-sharpen",
+  "preset": "Quality",
+  "dimensions": "1280x720",
+  "outputDimensions": "1280x720",
+  "frame": 60,
+  "quality": "high",
+  "clipRegex": "^(tos_daylight|tos_debris|sintel_rooftop|sintel_cave)$",
+  "corpusManifest": "benchmarks/video_corpus/manifest.csv",
+  "jitter": { "mode": "current", "controlledStrength": 1.0 },
+  "environment": { "TFORGE_FSR4_CAS_STRENGTH": "0.0" },
+  "experiments": [
+    {"id":"exposure_m030_sharpen_s000","config":"base_only_current_exposure_m030_sharpen_s000.json"},
+    {"id":"exposure_m030_sharpen_s003","config":"base_only_current_exposure_m030_sharpen_s003.json"},
+    {"id":"exposure_m030_sharpen_s005","config":"base_only_current_exposure_m030_sharpen_s005.json"},
+    {"id":"exposure_m015_sharpen_s000","config":"base_only_current_exposure_m015_sharpen_s000.json"},
+    {"id":"exposure_m015_sharpen_s003","config":"base_only_current_exposure_m015_sharpen_s003.json"},
+    {"id":"exposure_m015_sharpen_s005","config":"base_only_current_exposure_m015_sharpen_s005.json"},
+    {"id":"exposure_000_sharpen_s000","config":"base_only_current_exposure_000_sharpen_s000.json"},
+    {"id":"exposure_000_sharpen_s003","config":"base_only_current_exposure_000_sharpen_s003.json"},
+    {"id":"exposure_000_sharpen_s005","config":"base_only_current_exposure_000_sharpen_s005.json"},
+    {"id":"exposure_p015_sharpen_s000","config":"base_only_current_exposure_p015_sharpen_s000.json"},
+    {"id":"exposure_p015_sharpen_s003","config":"base_only_current_exposure_p015_sharpen_s003.json"},
+    {"id":"exposure_p015_sharpen_s005","config":"base_only_current_exposure_p015_sharpen_s005.json"}
+  ]
+}

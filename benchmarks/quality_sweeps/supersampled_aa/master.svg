@@ -1,0 +1,57 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1920" height="1080" viewBox="0 0 1920 1080">
+  <rect width="1920" height="1080" fill="#101218"/>
+
+  <g fill="none" stroke-linecap="square">
+    <path d="M40 180 L560 40 L1080 180 L1600 40 L1880 170" stroke="#ffffff" stroke-width="1"/>
+    <path d="M40 220 L560 80 L1080 220 L1600 80 L1880 210" stroke="#ff3434" stroke-width="1"/>
+    <path d="M40 260 L560 120 L1080 260 L1600 120 L1880 250" stroke="#34d8ff" stroke-width="1"/>
+    <path d="M40 720 L430 370 L820 720 L1210 370 L1600 720 L1880 470" stroke="#ffe34a" stroke-width="1"/>
+    <path d="M40 760 L430 410 L820 760 L1210 410 L1600 760 L1880 510" stroke="#6bff70" stroke-width="1"/>
+    <path d="M40 800 L430 450 L820 800 L1210 450 L1600 800 L1880 550" stroke="#f26bff" stroke-width="1"/>
+
+    <path d="M60 320 H1860 M60 330 H1860 M60 340 H1860" stroke="#6f7890" stroke-width="1"/>
+    <path d="M240 300 V1040 M250 300 V1040 M260 300 V1040" stroke="#ffffff" stroke-width="1"/>
+    <path d="M1660 300 V1040 M1670 300 V1040 M1680 300 V1040" stroke="#ff5c5c" stroke-width="1"/>
+  </g>
+
+  <g fill="none" stroke-width="1">
+    <circle cx="410" cy="560" r="170" stroke="#ffffff"/>
+    <circle cx="410" cy="560" r="171" stroke="#49c7ff"/>
+    <circle cx="410" cy="560" r="172" stroke="#ffcf49"/>
+    <ellipse cx="960" cy="570" rx="300" ry="175" stroke="#ffffff"/>
+    <path d="M1320 560 A260 260 0 0 1 1840 560 A260 260 0 0 1 1320 560" stroke="#70ff8a"/>
+  </g>
+
+  <g fill="none" stroke-width="4">
+    <rect x="70" y="370" width="1080" height="250" stroke="#ff8c36"/>
+    <rect x="1180" y="370" width="660" height="250" stroke="#45c8ff"/>
+  </g>
+
+  <g fill="#f8f9ff" font-family="DejaVu Sans, sans-serif" font-size="48">
+    <text x="90" y="430">SUPERSAMPLED EDGES</text>
+    <text x="90" y="500">0 1 2 3 4 5 6 7 8 9</text>
+    <text x="1210" y="430">THIN TEXT</text>
+    <text x="1210" y="500">AaBbCc 012345</text>
+  </g>
+
+  <g fill="#ffdd45">
+    <rect x="1290" y="690" width="7" height="7"/>
+    <rect x="1310" y="690" width="7" height="7"/>
+    <rect x="1330" y="690" width="7" height="7"/>
+    <rect x="1350" y="690" width="7" height="7"/>
+    <rect x="1290" y="710" width="7" height="7"/>
+    <rect x="1330" y="710" width="7" height="7"/>
+    <rect x="1370" y="710" width="7" height="7"/>
+    <rect x="1290" y="730" width="7" height="7"/>
+    <rect x="1310" y="730" width="7" height="7"/>
+    <rect x="1350" y="730" width="7" height="7"/>
+    <rect x="1370" y="730" width="7" height="7"/>
+  </g>
+
+  <g fill="#1b2030" stroke="#ffffff" stroke-width="1">
+    <rect x="90" y="880" width="1740" height="120"/>
+  </g>
+  <g fill="#ffffff" font-family="DejaVu Sans, sans-serif" font-size="36">
+    <text x="120" y="955">4x vector master - diagonal slopes - circles - one-pixel-equivalent lines - text - color boundaries</text>
+  </g>
+</svg>

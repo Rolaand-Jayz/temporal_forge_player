@@ -1,0 +1,22 @@
+{
+    "programs": [
+
+    ],
+    "stream_groups": [
+
+    ],
+    "streams": [
+        {
+            "codec_name": "ffv1",
+            "codec_long_name": "FFmpeg video codec #1",
+            "width": 426,
+            "height": 240,
+            "pix_fmt": "yuv420p",
+            "color_range": "tv",
+            "field_order": "progressive",
+            "r_frame_rate": "24/1",
+            "avg_frame_rate": "24/1",
+            "time_base": "1/1000"
+        }
+    ]
+}

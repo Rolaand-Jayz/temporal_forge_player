@@ -1,0 +1,5 @@
+clip_id,width,height,quality,crf,input_mbps,frames,decode_mean_ms,decode_p50_ms,decode_p95_ms,upload_mean_ms,upload_p50_ms,upload_p95_ms,presentation_mean_ms,presentation_p50_ms,presentation_p95_ms,pipeline_mean_ms,pipeline_p50_ms,pipeline_p95_ms,dispatch_mean_ms,record_mean_ms,wait_gpu_mean_ms,gpu_mean_ms,gpu_p50_ms,gpu_p95_ms
+tos_daylight,426,240,high,12,1.310,240,0.0295,0.029,0.038,0.1804,0.035,0.044,0.0000,0.000,0.000,2.6796,2.544,2.598,2.4961,0.0303,2.4629,2.2803,2.280,2.314
+tos_debris,426,240,high,12,1.394,240,0.0292,0.030,0.039,0.1835,0.035,0.043,0.0000,0.000,0.000,2.6601,2.532,2.589,2.4733,0.0310,2.4394,2.2611,2.274,2.308
+sintel_rooftop,426,240,high,12,1.365,240,0.0295,0.030,0.038,0.1845,0.037,0.045,0.0000,0.000,0.000,2.6527,2.528,2.584,2.4648,0.0320,2.4295,2.2508,2.262,2.299
+sintel_cave,426,240,high,12,0.856,240,0.0277,0.028,0.037,0.3271,0.039,0.090,0.0000,0.000,0.000,2.8193,2.552,2.601,2.4886,0.0339,2.4513,2.2688,2.279,2.300
