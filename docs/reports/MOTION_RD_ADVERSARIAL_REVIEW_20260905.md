@@ -192,6 +192,63 @@ run. My first falsification batch fell into exactly this trap.
 **R&D CONCLUSION:** observation; a provenance hazard for all future rounds
 (recommend: fail-closed warning or tracked manifests of required assets).
 
+### F9 — Uncommitted deletion of the lattice-qualification record in Luna's worktree
+
+**OBSERVATION (2026-09-06):** `quality-lab-vibecoder`'s committed tip
+(`0425ab2e5`) is unchanged and retains the full lattice saga in
+`docs/LATTICE_CORRUPTION_DIAGNOSTIC.md`, but her *working tree* carries an
+uncommitted edit deleting 132 lines: the failed full-temporal-state
+qualification (2026-09-03; "clear lattice" under geometry mismatch with
+history+recurrent enabled — the configuration the motion campaign and this
+review ran under), the FP16-resolve candidate, the production-semantic PASS
+closeout whose scores (`0.023164/0.016783/0.030382`) are exactly the ones
+committed `MOTION_CAMPAIGN.md` cites for lattice safety, and the 2026-09-04
+human-review reopen that root-caused the GPU bicubic downsampling prefilter
+and fixed `bicubic_prefilter.comp`. The replacement text downgrades the
+record to "fresh qualification ... remains required before campaign
+approval."
+
+**COMPETING EXPLANATION:** legitimate pre-campaign restructuring (the docs
+system allows rewriting the active record before a fresh qualification
+round) versus evidence scrubbing. The committed history is intact and the
+deleted evidence trees still exist on disk
+(`lattice_p0_recurrent_qualification_20260903/`,
+`lattice_corruption_diagnostic/`), so nothing is lost yet.
+
+**WHY IT MATTERS:** (i) the motion campaign's lattice-safety cross-check
+cites a PASS section that her working tree currently deletes — the
+cross-check is dangling against her live tree; (ii) the retained fix
+(`bicubic_prefilter.comp` linear downsample resolve) is part of the baseline
+both competitors would build on, and its entire justification now lives only
+in committed history that her local edits remove; (iii) my independent
+visual pass flagged faint dot patterns (needs zoomed confirmation) in the
+same history+recurrent-enabled configuration that once failed with "clear
+lattice".
+
+**R&D CONCLUSION:** observation, no verdict on intent; but the frozen
+baseline for the next round MUST be taken from commits (`92fab588c`), never
+from either worktree, and the lattice doc must be reconciled before the
+competing round starts.
+
+## Verification pass (2026-09-06)
+
+All six decisive runs re-executed on a fresh day against the same binary;
+values reproduce within run-to-run noise (worst |Δ| 0.000043, typical
+≤0.000003):
+
+| run | verify | round-1 | Luna reference |
+|---|---:|---:|---:|
+| zero_def | 0.885052 | 0.885053 | 0.885053 |
+| codec_def | 0.884663 | 0.884663 | — |
+| codec_t000 | 0.884596 | 0.884593 | — |
+| codec_t099 | 0.885314 | 0.885315 | — |
+| singlehist | 0.885036 | 0.885079 | — |
+| spatial | 0.885966 | 0.885965 | — |
+
+Native path and gate states re-verified via dispatch trace. The findings
+(F1–F7) are deterministic properties of the binary+configuration, not
+one-shot captures. Evidence: `.devil_verify/`.
+
 ## Adjudication
 
 1. **Survived:** C1 (1080p real-FSR fix), C4 (gate behaves as configured),
@@ -239,6 +296,8 @@ run. My first falsification batch fell into exactly this trap.
     (current `motion-campaign-devil` reset point; common ancestor of both
     branches). Luna's tip `0425ab2e5` = baseline + her 12 R&D commits; my
     review additions live only on `motion-campaign-devil` after `0425ab2e5`.
+    The baseline must be taken from commits only — Luna's worktree currently
+    carries uncommitted lattice-record deletions (F9).
 
 ## Visual review
 
