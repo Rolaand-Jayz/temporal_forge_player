@@ -116,6 +116,10 @@ def main() -> int:
                 "TFORGE_DISABLE_HW_DECODE": "1",
                 "TFORGE_FSR4_PROFILE_TIMINGS": "1",
                 "TFORGE_TEMPORAL_CAPTURE_TIMEOUT": "60",
+                # This wrapper post-processes the retained fsr_frames sequence
+                # after run_temporal_quality.sh exits; the runner defaults to
+                # discarding image payloads, so request preservation here.
+                "TFORGE_PRESERVE_IMAGE_ARTIFACTS": os.environ.get("TFORGE_PRESERVE_IMAGE_ARTIFACTS", "1"),
                 "TFORGE_QUALITY_LAB_CONFIG": str(root / "benchmarks/quality_sweeps/swarm/agent_composition_audit/current_control.json"),
             })
             vram_before, vram_peak = run_capture(

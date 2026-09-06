@@ -59,6 +59,10 @@ def main() -> int:
                     "TFORGE_FSR4_FORCE_VIEWPORT": "1920x1080", "TFORGE_FSR4_FORCE_SCALE": "1.50",
                     "TFORGE_FSR4_JITTER_MODE": "off", "TFORGE_DISABLE_HW_DECODE": "1",
                     "TFORGE_FSR4_PROFILE_TIMINGS": "1", "TFORGE_TEMPORAL_CAPTURE_TIMEOUT": "90",
+                    # This wrapper post-processes the retained fsr_frames
+                    # sequence after run_temporal_quality.sh exits; the runner
+                    # defaults to discarding image payloads, so preserve them.
+                    "TFORGE_PRESERVE_IMAGE_ARTIFACTS": os.environ.get("TFORGE_PRESERVE_IMAGE_ARTIFACTS", "1"),
                     "TFORGE_QUALITY_LAB_CONFIG": str(root / config), "TFORGE_FSR4_CAS_STRENGTH": strength,
                     "TFORGE_ALLOW_SPATIAL_TEMPORAL_CONTROL": "1",
                 })
