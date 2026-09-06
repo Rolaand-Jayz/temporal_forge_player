@@ -156,14 +156,15 @@ The constructed local review graph is:
 
 ```text
 main
-└─ codex/quality-lab-runtime-reviewable  fdfe7c400
-   └─ codex/quality-lab-tooling-reviewable  c2bdb9e5d
-      └─ codex/quality-lab-docs-reviewable  <current>
-         └─ codex/quality-lab-confidence-fallback-reviewable  <next>
+└─ codex/quality-lab-runtime-reviewable  d2f14746e
+   └─ codex/quality-lab-tooling-reviewable  3cd285c50
+      └─ codex/quality-lab-docs-reviewable  29381bb2b
+         └─ codex/quality-lab-confidence-fallback-final  cb20753dd
 ```
 
-The approximate clean edge sizes are 15.4K additions/91 files for runtime,
-23.3K additions/116 files for tooling, and a small documentation-only edge.
+The approximate clean edge sizes are 15.4K additions/92 files for runtime,
+23.3K additions/116 files for tooling, and 1.6K additions/7 files for
+documentation. The fallback edge is 29 additions/one deletion in three files.
 The production stack deliberately excludes generated capture payloads and
 historical evidence dumps; those remain available from immutable PR #1.
 No remote PRs were created.
@@ -183,4 +184,7 @@ The real Temporal Forge pipeline was exercised with a generated 1920x800
 source, with no forced viewport. The capture completed and produced normal
 fitted dimensions (`854x356` model and `1280x534` output), directly exercising
 the generic-target path. The validation artifacts are temporary and are not
-campaign evidence.
+campaign evidence. The fallback layer's focused CTest passed its one
+registered `motion_estimator_tests` test. All four isolated worktrees were
+clean after validation apart from the intentionally temporary dependency links,
+which were removed and are not tracked.
