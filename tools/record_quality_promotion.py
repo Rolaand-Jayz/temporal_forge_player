@@ -51,10 +51,10 @@ def main() -> int:
         return fail("binary path and sha256 are required")
 
     gates = {
-        "quality": bool(evidence["quality"].get("passed")),
-        "equivalence": bool(evidence["equivalence"].get("passed")),
-        "performance": bool(evidence["performance"].get("passed")),
-        "diagnostics": bool(evidence["diagnostics"].get("disabledByDefault")),
+        "quality": isinstance(evidence["quality"], dict) and bool(evidence["quality"].get("passed")),
+        "equivalence": isinstance(evidence["equivalence"], dict) and bool(evidence["equivalence"].get("passed")),
+        "performance": isinstance(evidence["performance"], dict) and bool(evidence["performance"].get("passed")),
+        "diagnostics": isinstance(evidence["diagnostics"], dict) and bool(evidence["diagnostics"].get("disabledByDefault")),
     }
     reasons = []
     for name, passed in gates.items():

@@ -27,10 +27,12 @@ def _load() -> tuple[dict, list]:
 
 
 class M6SpatialProvenanceTests(unittest.TestCase):
+    @unittest.skipUnless(RESULTS_PATH.is_file(), "external M6 capture artifact is unavailable")
     def test_retry_results_equal_campaign_and_on_disk_binary_config_provenance(self) -> None:
         campaign, results = _load()
         validate_execution_provenance(campaign, results, ROOT)
 
+    @unittest.skipUnless(RESULTS_PATH.is_file(), "external M6 capture artifact is unavailable")
     def test_stale_manifest_binary_is_rejected_even_when_recorded_hashes_look_plausible(self) -> None:
         campaign, results = _load()
         stale = copy.deepcopy(campaign)
@@ -41,6 +43,7 @@ class M6SpatialProvenanceTests(unittest.TestCase):
         with self.assertRaisesRegex(ProvenanceError, "different binary|binary provenance"):
             validate_execution_provenance(stale, results, ROOT)
 
+    @unittest.skipUnless(RESULTS_PATH.is_file(), "external M6 capture artifact is unavailable")
     def test_ambiguous_mixed_binary_results_are_rejected(self) -> None:
         campaign, results = _load()
         ambiguous = copy.deepcopy(results)
@@ -48,6 +51,7 @@ class M6SpatialProvenanceTests(unittest.TestCase):
         with self.assertRaisesRegex(ProvenanceError, "different binary"):
             validate_execution_provenance(campaign, ambiguous, ROOT)
 
+    @unittest.skipUnless(RESULTS_PATH.is_file(), "external M6 capture artifact is unavailable")
     def test_unrecorded_git_is_not_replaced_by_current_head(self) -> None:
         campaign, results = _load()
         ambiguous = copy.deepcopy(campaign)
