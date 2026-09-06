@@ -1,8 +1,12 @@
 # Temporal Forge current state
 
 **Status:** CURRENT
-**As of:** 2026-09-02
-**Source:** repository commit `269631d` plus the documentation audit
+**As of:** 2026-09-06
+**Source:** the Quality Lab production stack (reviewable PR branches #3
+runtime, #4 tooling, #5 documentation, #6 motion-confidence fallback, none
+merged as of 2026-09-06) on top of the immutable historical baseline commit
+`0425ab2e5a23d36c0de4cfc7b395a7ea7f83c148` ("link motion campaign lattice
+qualification"), plus the documentation audit
 
 The worktree may also contain untracked capture-generated evidence while the
 quality campaign runs. That evidence is outside this documentation snapshot.
