@@ -167,7 +167,8 @@ The approximate clean edge sizes are 15.5K additions/92 files for runtime,
 documentation. The fallback edge is 29 additions/one deletion in three files.
 The production stack deliberately excludes generated capture payloads and
 historical evidence dumps; those remain available from immutable PR #1.
-No remote PRs were created.
+The reviewable replacement PRs are #3 (runtime), #4 (tooling), #5
+(documentation), and #6 (motion-confidence fallback). None is merged.
 
 ## Validation record
 
