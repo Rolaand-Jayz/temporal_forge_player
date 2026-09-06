@@ -1,5 +1,15 @@
 # Temporal Forge FSR4 quality campaign orchestration state
 
+**Role:** supporting orchestration/progress log — not an active authority.
+
+This document records what was done in the quality workstream and when. The
+single canonical active quality authority is
+[`QUALITY_CAMPAIGN.md`](QUALITY_CAMPAIGN.md). Where this log and the active
+plan disagree (including phase and gate status), the active plan governs.
+Entries are historical as of their recorded dates. Evidence and document paths
+cited below refer to the full pre-stack history checkout where they are not
+present in the production-stack branches.
+
 ## Orchestration metadata
 
 - **Task:** track the current quality campaign and its completed historical gates
