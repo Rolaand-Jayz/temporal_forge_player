@@ -198,10 +198,6 @@ bool SettingsStore::load(Settings& out) {
     out.depthMode = parseDepth(extractString(v, "depthMode"));
     out.reactiveMode = parseReactive(extractString(v, "reactiveMode"));
     out.presentationScaler = parsePresentation(extractString(v, "presentationScaler"));
-    // Older files may explicitly contain Auto. Keep the file readable while
-    // making the new default deterministic after the next save.
-    if (out.presentationScaler == PresentationScaler::Auto)
-        out.presentationScaler = PresentationScaler::Bicubic;
     out.brightness = static_cast<float>(extractDouble(v, "brightness", 0.0));
     out.contrast = static_cast<float>(extractDouble(v, "contrast", 0.0));
     out.saturation = static_cast<float>(extractDouble(v, "saturation", 0.0));
