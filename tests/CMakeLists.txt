@@ -112,6 +112,13 @@ target_compile_definitions(fsr4_residual_quantization_contract_tests PRIVATE
 set_tests_properties(fsr4_residual_quantization_contract_tests PROPERTIES
     WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
 
+# Runner-dependent motion contract: this test reads the capture runner and
+# therefore belongs with the Quality Lab tooling layer.
+tforge_add_test(fsr4_motion_contract_tests
+    SOURCES fsr4_motion_contract_tests.cpp)
+set_tests_properties(fsr4_motion_contract_tests PROPERTIES
+    WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
+
 # M4 decode-to-upload color contract test. It runs before implementation work
 # is accepted and keeps metadata, chroma phase, and high-bit-depth handling
 # from regressing behind a passing shader compile.
