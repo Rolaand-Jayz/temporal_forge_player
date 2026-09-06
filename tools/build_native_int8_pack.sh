@@ -60,6 +60,7 @@ cache_key_file="$output_dir/pack.sha256"
 cache_key="$(
     {
         sha256sum "$source_hlsl" "$initializer" "$0"
+        find "$runtime_dir/ml2code_runtime" -type f -print0 | sort -z | xargs -0 sha256sum
         if [[ -f "$workgroup_overrides" ]]; then
             sha256sum "$workgroup_overrides"
         fi
