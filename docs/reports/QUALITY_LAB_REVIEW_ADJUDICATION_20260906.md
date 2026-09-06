@@ -156,9 +156,9 @@ The constructed local review graph is:
 
 ```text
 main
-└─ codex/quality-lab-runtime-reviewable  d2f14746e
+└─ codex/quality-lab-runtime-reviewable  (current runtime head)
    └─ codex/quality-lab-tooling-reviewable  3cd285c50
-      └─ codex/quality-lab-docs-reviewable  29381bb2b
+      └─ codex/quality-lab-docs-reviewable  (current docs head)
          └─ codex/quality-lab-confidence-fallback-final  (separate head)
 ```
 
@@ -174,8 +174,8 @@ No remote PRs were created.
 The corrected runtime isolated worktree built successfully with the repository's
 existing FidelityFX SDK and miniaudio dependencies supplied from the local
 device checkout (neither dependency link is part of the commit). CTest passed
-100% of its nine runnable tests; the optional tensor-map test skipped because
-the external tensor-map file is not present, and three GPU/diagnostic tests are
+100% of its 19 runnable tests; the optional tensor-map test skipped because
+the external tensor-map file is not present, and four GPU/diagnostic tests are
 disabled by design. The tooling layer passed 44/44 focused Python contract
 tests, including real child-process game-activity logging and executable
 success/failure checks for the CAS and GPU-timing gates.
@@ -183,8 +183,10 @@ success/failure checks for the CAS and GPU-timing gates.
 The real Temporal Forge pipeline was exercised with a generated 1920x800
 source, with no forced viewport. The capture completed and produced normal
 fitted dimensions (`854x356` model and `1280x534` output), directly exercising
-the generic-target path. The validation artifacts are temporary and are not
-campaign evidence. The fallback layer's focused CTest passed its one
+the generic-target path; the retained run record is under
+`/mnt/workdrive/tforge_arbitrary_run_runtime2_20260906`. The validation
+artifacts are temporary and are not campaign evidence. The fallback layer's
+focused CTest passed its one
 registered `motion_estimator_tests` test. All four isolated worktrees were
 clean after validation apart from the intentionally temporary dependency links,
 which were removed and are not tracked.
