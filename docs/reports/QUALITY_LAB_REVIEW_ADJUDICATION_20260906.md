@@ -159,7 +159,7 @@ main
 └─ codex/quality-lab-runtime-reviewable  d2f14746e
    └─ codex/quality-lab-tooling-reviewable  3cd285c50
       └─ codex/quality-lab-docs-reviewable  29381bb2b
-         └─ codex/quality-lab-confidence-fallback-final  dda6c43cb
+         └─ codex/quality-lab-confidence-fallback-final  (separate head)
 ```
 
 The approximate clean edge sizes are 15.4K additions/92 files for runtime,
