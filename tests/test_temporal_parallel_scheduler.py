@@ -8,7 +8,10 @@ SCRIPT = Path(__file__).parents[1] / ".m6-captures/m6-authoritative-29339fc-2026
 
 
 class TemporalParallelSchedulerContractTests(unittest.TestCase):
-    @unittest.skipUnless(SCRIPT.is_file(), "external M6 scheduler artifact is unavailable")
+    def setUp(self) -> None:
+        if not SCRIPT.is_file():
+            self.skipTest(f"missing external fixture: {SCRIPT}")
+
     def test_scheduler_defaults_to_two_bounded_workers_and_allows_serial_override(self) -> None:
         source = SCRIPT.read_text(encoding="utf-8")
         self.assertIn('os.environ.get("TFORGE_CAPTURE_WORKERS", "2")', source)

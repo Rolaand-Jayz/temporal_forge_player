@@ -36,7 +36,7 @@ def main() -> int:
     assets = marker.get("assets_detail", [])
     if marker.get("assets") != len(assets) or not assets:
         raise SystemExit("completion marker has no complete asset detail")
-    expected_width = 854 if args.output_height == 480 else round(args.output_height * 16 / 9)
+    expected_width = 854 if args.output_height == 480 else args.output_height * 16 // 9
     expected = (expected_width, args.output_height)
     validated = []
     for asset in assets:
