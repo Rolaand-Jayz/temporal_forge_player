@@ -154,41 +154,71 @@ def analyze_frames(
         forward = tvl1_factory().calc(previous, current, None)
         backward = tvl1_factory().calc(current, previous, None)
 
+    return _validated_pair(
+        previous,
+        current,
+        forward,
+        backward,
+        forward_backward_threshold=forward_backward_threshold,
+        photometric_threshold=photometric_threshold,
+    )
+
+
+def _validated_pair(
+    previous: Any,
+    current: Any,
+    forward: Any,
+    backward: Any,
+    *,
+    forward_backward_threshold: float,
+    photometric_threshold: float,
+) -> PairAnalysis:
+    """Combine dense flow fields into current-frame validity evidence.
+
+    ``backward`` is defined at current pixels and points to previous-frame
+    coordinates, matching the codec sidecar's current-destination convention.
+    The forward/backward check therefore samples the FORWARD field at
+    (current + backward), so ``inside``, ``consistency_error``,
+    ``photometric_error``, and the derived occlusion mask all live in the same
+    current-frame domain as the exported backward vectors. Mixing a
+    previous-frame-domain consistency term with current-frame photometric
+    evidence misregisters the validity mask under nonuniform motion.
+    """
+
+    cv2, np = _dependencies()
     height, width = current.shape
     yy, xx = np.mgrid[0:height, 0:width].astype(np.float32)
-    forward_x = forward[..., 0]
-    forward_y = forward[..., 1]
-    sample_x = xx + forward_x
-    sample_y = yy + forward_y
-    inside_forward = (
-        (sample_x >= 1.0)
-        & (sample_x < width - 1.0)
-        & (sample_y >= 1.0)
-        & (sample_y < height - 1.0)
+    backward_x = backward[..., 0]
+    backward_y = backward[..., 1]
+    previous_x = xx + backward_x
+    previous_y = yy + backward_y
+    inside_backward = (
+        (previous_x >= 1.0)
+        & (previous_x < width - 1.0)
+        & (previous_y >= 1.0)
+        & (previous_y < height - 1.0)
     )
-    sampled_backward_x = cv2.remap(
-        backward[..., 0], sample_x, sample_y, cv2.INTER_LINEAR,
+    sampled_forward_x = cv2.remap(
+        forward[..., 0], previous_x, previous_y, cv2.INTER_LINEAR,
         borderMode=cv2.BORDER_CONSTANT,
     )
-    sampled_backward_y = cv2.remap(
-        backward[..., 1], sample_x, sample_y, cv2.INTER_LINEAR,
+    sampled_forward_y = cv2.remap(
+        forward[..., 1], previous_x, previous_y, cv2.INTER_LINEAR,
         borderMode=cv2.BORDER_CONSTANT,
     )
     consistency_error = np.hypot(
-        forward_x + sampled_backward_x,
-        forward_y + sampled_backward_y,
+        backward_x + sampled_forward_x,
+        backward_y + sampled_forward_y,
     ).astype(np.float32)
 
-    # Farneback's backward field is defined at current pixels and points to
-    # their previous-frame coordinates. Reprojection therefore adds the field;
+    # The backward field is defined at current pixels and points to their
+    # previous-frame coordinates. Reprojection therefore adds the field;
     # this is the same destination-plus-motion convention consumed by the FSR
     # prepass and by the replay sidecar.
-    current_x = xx + backward[..., 0]
-    current_y = yy + backward[..., 1]
     warped_previous = cv2.remap(
         previous.astype(np.float32),
-        current_x,
-        current_y,
+        previous_x,
+        previous_y,
         cv2.INTER_LINEAR,
         borderMode=cv2.BORDER_REPLICATE,
     )
@@ -196,7 +226,7 @@ def analyze_frames(
         current.astype(np.float32) / 255.0 - warped_previous / 255.0
     ).astype(np.float32)
     valid = (
-        inside_forward
+        inside_backward
         & (consistency_error <= forward_backward_threshold)
         & (photometric_error <= photometric_threshold)
     )
