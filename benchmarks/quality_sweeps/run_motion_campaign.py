@@ -145,7 +145,12 @@ def main() -> int:
                         "TFORGE_TEMPORAL_SCENE": scene,
                         "TFORGE_TEMPORAL_CONFIG_ID": "motion_campaign",
                         "TFORGE_TEMPORAL_CLASS": "motion_campaign",
-                        "TFORGE_TEMPORAL_START_FRAME": "0",
+                        # The dumped candidate window starts at the source
+                        # warmup frame: the player runs warmup frames before
+                        # dumping, and the dumped PPM/event numbering is
+                        # capture-relative. The event-trace identity must name
+                        # the true source-frame origin of the window.
+                        "TFORGE_TEMPORAL_START_FRAME": str(args.warmup),
                         "TFORGE_TEMPORAL_ANALYSIS_FRAME_INDICES": ",".join(str(index) for index in range(args.frames)),
                         "TFORGE_TEMPORAL_GHOST_THRESHOLD": "0.1",
                         "TFORGE_TEMPORAL_RESET_THRESHOLD": "0.1",
@@ -173,7 +178,14 @@ def main() -> int:
                     subprocess.run([sys.executable, str(validator), "--input", str(inp),
                                     "--output", str(run_dir / "offline_dense_report.json"),
                                     "--flow-output", str(flow), "--replay-output", str(sidecar),
-                                    "--method", "farneback", "--frames", str(max(2, args.frames))],
+                                    "--method", "farneback",
+                                    # The replay sidecar addresses frames by
+                                    # capture-relative index, but the flow
+                                    # itself must be computed on the same
+                                    # source window the player dumped after
+                                    # warmup, not on source frames from 0.
+                                    "--start-frame", str(args.warmup),
+                                    "--frames", str(max(2, args.frames))],
                                    cwd=ROOT, check=True)
                 env["TFORGE_FSR4_EXPERIMENTAL_DENSE_MOTION"] = str(sidecar)
             if conf is not None:
