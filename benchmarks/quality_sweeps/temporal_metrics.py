@@ -461,11 +461,11 @@ def _normalise_error_trace(errors: Sequence[float | None]) -> list[float | None]
 
 
 def _event_index(errors: Sequence[float | None], index: int, name: str) -> None:
-    """Validate an event marker, allowing an event immediately after the trace."""
+    """Validate an event marker within the measured error trace."""
 
     if isinstance(index, bool) or not isinstance(index, int):
         raise ValueError(f"{name} must be an integer")
-    if index < 0 or index > len(errors):
+    if index < 0 or index >= len(errors):
         raise ValueError(f"{name} must be within the error trace")
 
 
@@ -505,6 +505,9 @@ def reset_recovery_frames(
 
     trace = _normalise_error_trace(errors)
     limit = _finite_number(threshold, "threshold")
+    if reset_index == len(trace):
+        # The trace ended exactly at the reset; recovery was never observed.
+        return None
     _event_index(trace, reset_index, "reset_index")
     for index in range(reset_index, len(trace)):
         if trace[index] is not None and trace[index] <= limit:

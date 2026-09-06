@@ -151,6 +151,24 @@ class TemporalMetricTests(unittest.TestCase):
         self.assertEqual(ghost_duration_frames(errors, threshold=0.5, event_index=1), 3)
         self.assertEqual(ghost_duration_frames(errors, threshold=0.5, event_index=4), 0)
 
+    def test_event_index_past_the_trace_raises_validation_error(self) -> None:
+        from benchmarks.quality_sweeps.temporal_metrics import (
+            ghost_duration_frames,
+            reset_recovery_frames,
+        )
+
+        errors = [0.0, 0.8, 0.2]
+        # A ghost event one past the end previously escaped validation and
+        # crashed with IndexError inside the metric; it must fail closed with
+        # the API's normal validation error instead.
+        with self.assertRaisesRegex(ValueError, "within the error trace"):
+            ghost_duration_frames(errors, threshold=0.5, event_index=len(errors))
+        # The reset API keeps its documented past-end meaning: the trace ended
+        # exactly at the reset, so recovery stays unavailable.
+        self.assertIsNone(reset_recovery_frames(errors, threshold=0.5, reset_index=len(errors)))
+        with self.assertRaisesRegex(ValueError, "within the error trace"):
+            reset_recovery_frames(errors, threshold=0.5, reset_index=len(errors) + 1)
+
     def test_reset_recovery_returns_frames_until_threshold_is_reached(self) -> None:
         from benchmarks.quality_sweeps.temporal_metrics import reset_recovery_frames
 
