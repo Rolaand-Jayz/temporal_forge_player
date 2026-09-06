@@ -116,6 +116,24 @@ float parseFloat(const char* value, float fallback, float minValue,
 
 } // namespace
 
+float MotionEstimator::emptyMotionConfidenceFromEnvironment() {
+    // One parse point for the empty/uncovered-motion confidence fallback so
+    // every caller (empty-field early return and aggregateConfidence) sees
+    // the same value. Non-finite input must be rejected before clamping:
+    // std::clamp propagates NaN and saturates infinities to 0.0/1.0, which
+    // would let a malformed override grant or destroy history trust instead
+    // of failing safe to the documented default.
+    constexpr float kDefaultEmptyConfidence = 0.5f;
+    const char* value =
+        std::getenv("TFORGE_FSR4_EXPERIMENTAL_EMPTY_MOTION_CONFIDENCE");
+    if (!value || !*value) return kDefaultEmptyConfidence;
+    char* end = nullptr;
+    const float parsed = std::strtof(value, &end);
+    if (end == value || *end != '\0' || !std::isfinite(parsed))
+        return kDefaultEmptyConfidence;
+    return std::clamp(parsed, 0.0f, 1.0f);
+}
+
 void MotionEstimator::beginFrame(bool sceneCut) {
     stats_ = {};
     stats_.sceneCut = sceneCut;
