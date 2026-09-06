@@ -3,6 +3,7 @@
 from contextlib import redirect_stdout
 from io import StringIO
 from pathlib import Path
+import tempfile
 from unittest import mock
 import json
 import sys
@@ -60,6 +61,33 @@ class HarnessCaptureContractTests(unittest.TestCase):
         self.assertIn("live capture requires a committed tracked worktree", source)
         self.assertIn('"capture_started": False', source)
 
+    def test_fresh_execution_defaults_do_not_reuse_historical_roots(self) -> None:
+        source = RUNNER.read_text(encoding="utf-8")
+        self.assertIn("timestamped run directory", source)
+        self.assertIn("quality_campaign_capture_{run_stamp}", source)
+        self.assertIn("review_harness_{run_stamp}", source)
+        self.assertIn('if args.resume and marker.is_file():', source)
+
+    def test_game_activity_is_sampled_during_capture_without_pausing(self) -> None:
+        source = RUNNER.read_text(encoding="utf-8")
+        self.assertIn('process = subprocess.Popen(command, cwd=cwd, env=merged)', source)
+        self.assertIn('self.record("game_activity"', source)
+        self.assertIn('"active": bool(matches)', source)
+        self.assertIn('def wait_until_clear', source)
+
+    def test_game_activity_log_is_written_for_a_real_child_process(self) -> None:
+        from benchmarks.quality_sweeps.run_harness_campaign import PausingRunner
+
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            runner = PausingRunner(root, (), (), poll_seconds=0.01)
+            with mock.patch.object(runner, "games", return_value=[{"name": "test-game"}]):
+                runner.run([sys.executable, "-c", "import time; time.sleep(0.05)"], "test")
+            events = [json.loads(line) for line in runner.log.read_text().splitlines()]
+            activity = [event for event in events if event["event"] == "game_activity"]
+            self.assertTrue(activity)
+            self.assertTrue(all(event["games"]["active"] for event in activity))
+
     def test_live_capture_requires_explicit_human_review_pass(self) -> None:
         from benchmarks.quality_sweeps.run_harness_campaign import (
             validate_qualification_review_gate,
@@ -88,6 +116,31 @@ class HarnessCaptureContractTests(unittest.TestCase):
         self.assertIn('f"cas=strength={args.cas_strength}"', source)
         self.assertIn('expected_cas_stage = "integrated_post_reconstruction" if cas_enabled else "none"', source)
         self.assertIn('args.cas_strength if args.cas_placement != "none" else "0.00"', source)
+
+    def test_performance_gate_rejects_missing_gpu_timing_but_quality_mode_can_retain_it(self) -> None:
+        from benchmarks.quality_sweeps.run_fsr_supersampling import require_gpu_timing
+
+        with self.assertRaisesRegex(SystemExit, "requires stage-timing GPU evidence"):
+            require_gpu_timing([], Path("scene"))
+        require_gpu_timing(["12.3"], Path("scene"))
+        source = (ROOT / "benchmarks/quality_sweeps/run_fsr_supersampling.py").read_text(encoding="utf-8")
+        self.assertIn('parser.add_argument("--require-gpu-timing"', source)
+        self.assertIn('if args.require_gpu_timing:', source)
+        self.assertIn('require_gpu_timing(gpu, scene_root)', source)
+        self.assertIn('"gpu_ms_mean": gpu[-1] if gpu else ""', source)
+
+    def test_precampaign_cas_disable_is_presence_only_for_no_cas(self) -> None:
+        from benchmarks.quality_sweeps.run_precampaign_qualification import configure_cas_environment
+
+        env = {"TFORGE_FSR4_DISABLE_CAS": "0"}
+        configure_cas_environment(env, "cas20", "0.20")
+        self.assertNotIn("TFORGE_FSR4_DISABLE_CAS", env)
+        configure_cas_environment(env, "no_cas", "0.00")
+        self.assertEqual(env["TFORGE_FSR4_DISABLE_CAS"], "1")
+        source = (ROOT / "benchmarks/quality_sweeps/run_precampaign_qualification.py").read_text(encoding="utf-8")
+        self.assertIn('env.pop("TFORGE_FSR4_DISABLE_CAS", None)', source)
+        self.assertIn('if cas_name == "no_cas":', source)
+        self.assertNotIn('"TFORGE_FSR4_DISABLE_CAS": "1" if cas_name == "no_cas" else "0"', source)
 
     def test_one_capture_publishes_campaign_and_harness_assets(self) -> None:
         source = RUNNER.read_text(encoding="utf-8")

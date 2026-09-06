@@ -146,6 +146,13 @@ FsrJitterPair computeFsrJitterPair(uint32_t decodedW, uint32_t decodedH,
     pair.displayH = pair.neuralTargetH;
   } else {
     const auto fitted = fitToViewport(pair.displayW, pair.displayH);
+    // Generic playback has no fixed native INT8 target.  The fitted display
+    // geometry is therefore also the neural target; leaving the target at the
+    // zero dimensions returned by nativeInt8FixedTarget() collapses the model
+    // input to the 2x2 safety clamp while initFsr4Path() still chooses a real
+    // output size.
+    pair.neuralTargetW = fitted.first;
+    pair.neuralTargetH = fitted.second;
     pair.displayW = fitted.first;
     pair.displayH = fitted.second;
   }
