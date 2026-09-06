@@ -12,7 +12,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-SCENES = ("tos_daylight", "sintel_rooftop", "sintel_cave")
+SCENES = ("tos_daylight", "tos_debris", "sintel_rooftop", "sintel_cave")
 SCALES = (2.00, 2.25, 2.50, 2.75, 3.00)
 
 
