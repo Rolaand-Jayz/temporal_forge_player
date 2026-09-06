@@ -1,0 +1,36 @@
+{
+  "name": "m6-6-1-real-spatial-controls",
+  "baselineCandidateId": "base_only_bilinear",
+  "preset": "Quality",
+  "dimensions": "426x240",
+  "outputDimensions": "1920x1080",
+  "frame": 48,
+  "quality": "high",
+  "clipRegex": "^(tos_daylight|tos_debris|sintel_rooftop|sintel_cave)$",
+  "jitter": {
+    "mode": "current",
+    "controlledStrength": 1.0
+  },
+  "experiments": [
+    {
+      "id": "current",
+      "config": "stage_a/current.json"
+    },
+    {
+      "id": "base_only_bilinear",
+      "config": "stage_a/base_only_bilinear.json"
+    },
+    {
+      "id": "base_only_mitchell",
+      "config": "stage_b/base_only_mitchell.json"
+    },
+    {
+      "id": "base_only_catmull_rom",
+      "config": "stage_b/base_only_catmull_rom.json"
+    },
+    {
+      "id": "base_only_lanczos2",
+      "config": "stage_b/base_only_lanczos2.json"
+    }
+  ]
+}
