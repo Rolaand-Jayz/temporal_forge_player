@@ -7,6 +7,7 @@
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
+#include <limits>
 
 using namespace temporal_forge;
 
@@ -73,6 +74,9 @@ int main() {
     outOfFrame.dstX = 32;
     CHECK(std::fabs(MotionEstimator::aggregateConfidence(
                         {outOfFrame}, 32, 16, 0.8f) - 0.8f) < 1e-6f);
+    CHECK(std::fabs(MotionEstimator::aggregateConfidence(
+                        {outOfFrame}, 32, 16,
+                        std::numeric_limits<float>::quiet_NaN()) - 0.5f) < 1e-6f);
 
     const LumaBuffer previous = gradient(32, 16, 0);
     const LumaBuffer current = gradient(32, 16, 1);
