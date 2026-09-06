@@ -162,8 +162,8 @@ main
          └─ codex/quality-lab-confidence-fallback-final  (separate head)
 ```
 
-The approximate clean edge sizes are 15.4K additions/92 files for runtime,
-23.3K additions/116 files for tooling, and 1.6K additions/7 files for
+The approximate clean edge sizes are 15.5K additions/92 files for runtime,
+23.5K additions/122 files for tooling, and 1.6K additions/7 files for
 documentation. The fallback edge is 29 additions/one deletion in three files.
 The production stack deliberately excludes generated capture payloads and
 historical evidence dumps; those remain available from immutable PR #1.
