@@ -66,6 +66,13 @@ int main() {
     CHECK(std::fabs(legacyTrustedConfidence - legacyUncertainConfidence) <
           1e-6f);
 
+    // Invalid/out-of-frame metadata must follow the same explicit fallback
+    // as an empty field rather than the historical hard-coded 0.25 value.
+    MvEntry outOfFrame = trustedBlock;
+    outOfFrame.dstX = 32;
+    CHECK(std::fabs(MotionEstimator::aggregateConfidence(
+                        {outOfFrame}, 32, 16, 0.8f) - 0.8f) < 1e-6f);
+
     const LumaBuffer previous = gradient(32, 16, 0);
     const LumaBuffer current = gradient(32, 16, 1);
     MvEntry seed;
