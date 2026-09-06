@@ -19,7 +19,7 @@ The current code is organized around FFmpeg decode, `PlaybackEngine`, a Vulkan
 upload/dispatch path, and a backend cascade. On RDNA3, `BackendSelector` tries
 the proof-gated FSR4 INT8 reconstruction path first, then FSR 3.1.5 when
 available, then spatial fallback. The implementation and its invariants are
-authoritatively described in [`../reference/ARCHITECTURE.md`](../reference/ARCHITECTURE.md).
+authoritatively described in [`../../ARCHITECTURE.md`](../../ARCHITECTURE.md).
 
 The quality lab is runtime-configurable through `config/quality_lab.json` and
 the `TFORGE_*` environment contract. Diagnostic settings do not silently define
@@ -40,8 +40,8 @@ CSV/JSON metrics, runtime traces, hashes, and campaign sidecars.
 
 ## Verified versus unresolved
 
-- Milestone contracts M0 through M5 and the M6 tooling contract are preserved
-  as completed historical gates in [`../archive/plans/`](../archive/plans/).
+- The prior M6 triage gate record is preserved in
+  [`../archive/plans/M6_REGRESSION_TRIAGE_20260902.md`](../archive/plans/M6_REGRESSION_TRIAGE_20260902.md).
 - Existing evidence supports keeping reconstruction and final delivery
   dimensions as separate controls. It does not justify a universal 3x default.
 - Current code, intended architecture, and dated evidence are not interchangeable.

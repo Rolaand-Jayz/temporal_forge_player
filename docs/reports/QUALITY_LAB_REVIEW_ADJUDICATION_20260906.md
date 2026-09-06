@@ -175,7 +175,7 @@ The reviewable replacement PRs are #3 (runtime), #4 (tooling), #5
 The corrected runtime isolated worktree built successfully with the repository's
 existing FidelityFX SDK and miniaudio dependencies supplied from the local
 device checkout (neither dependency link is part of the commit). CTest passed
-100% of its 19 runnable tests; the optional tensor-map test skipped because
+100% of all runnable tests; the optional tensor-map test skipped because
 the external tensor-map file is not present, and four GPU/diagnostic tests are
 disabled by design. The tooling layer passed 44/44 focused Python contract
 tests, including real child-process game-activity logging and executable

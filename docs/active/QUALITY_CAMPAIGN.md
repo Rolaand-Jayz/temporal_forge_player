@@ -62,15 +62,16 @@ the superseding plan therefore requires a clean shared recapture. The capture
 contract and operating instructions are in
 [`benchmarks/quality_sweeps/README_HARNESS_CAMPAIGN.md`](../../benchmarks/quality_sweeps/README_HARNESS_CAMPAIGN.md).
 
-The older all-purpose reconstruction plan is preserved as
-[`../archive/plans/QUALITY_RECONSTRUCTION_PLAN_20260822-20260902.md`](../archive/plans/QUALITY_RECONSTRUCTION_PLAN_20260822-20260902.md).
+The older M6 triage record is preserved as
+[`../archive/plans/M6_REGRESSION_TRIAGE_20260902.md`](../archive/plans/M6_REGRESSION_TRIAGE_20260902.md).
 It is historical context, not an active instruction source.
 
 The previously published `quality-campaign-20260904-canonical-v1` metadata is
 now historical/invalidated after human review of a visible periodic lattice;
 its media remains local and is not a campaign baseline. The reopened diagnostic,
 matched reference-resize ablation, prevalence matrix, and focused fix are
-recorded in [`LATTICE_CORRUPTION_DIAGNOSTIC.md`](../../docs/LATTICE_CORRUPTION_DIAGNOSTIC.md).
+recorded in
+[`../reports/QUALITY_LAB_REVIEW_ADJUDICATION_20260906.md`](../reports/QUALITY_LAB_REVIEW_ADJUDICATION_20260906.md).
 
 The PR #1 review adjudication is recorded in
 [`QUALITY_LAB_REVIEW_ADJUDICATION_20260906.md`](../reports/QUALITY_LAB_REVIEW_ADJUDICATION_20260906.md).

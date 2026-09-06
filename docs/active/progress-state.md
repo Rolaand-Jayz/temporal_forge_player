@@ -12,14 +12,14 @@
 
 | Phase | Skill/work | Status | Output location | Completed | Issues |
 |---|---|---|---|---|---|
-| Plan | project-slicer + test-strategy | complete | `docs/archive/plans/slice-plan.md`, `docs/reference/testing/test-strategy.md` | 2026-08-22 | Execution is serial; milestone gates remain separate from slice work. |
-| M0 | baseline/provenance/observability | complete as recorded | `docs/archive/plans/QUALITY_PERFECTION_M0_GATE.md` | 2026-08-22 | Preserve prior artifacts; do not overwrite. |
-| M1 | postpass parameter contract | complete as recorded | `docs/archive/plans/QUALITY_PERFECTION_M1_GATE.md` | 2026-08-22 | Recovery evidence remains version-specific and trace-driven. |
-| M2 | shared reprojection/FP16 temporal state | complete as recorded | `docs/archive/plans/QUALITY_PERFECTION_M2_GATE.md` | 2026-08-22 | Live GPU evidence must remain distinct from CPU contracts. |
-| M3 | causal codec motion | complete as recorded | `docs/archive/plans/QUALITY_PERFECTION_M3_GATE.md` | 2026-08-22 | Real temporal quality matrix still pending. |
-| M4 | color/transfer/chroma/bit depth | complete as recorded | `docs/archive/plans/QUALITY_PERFECTION_M4_GATE.md` | 2026-08-22 | Supported hardware/software paths remain separately ranked. |
-| M5 | decoded-video jitter policy | complete as recorded | `docs/archive/plans/QUALITY_PERFECTION_M5_GATE.md` | 2026-08-22 | Jitter promotion remains evidence-bound. |
-| M6 tooling | campaign, temporal metrics, sidecars, review harness | complete as tooling | `docs/archive/plans/QUALITY_PERFECTION_M6_TOOLING_GATE.md` | 2026-08-23 | Real quality matrix remains open; review-harness browser gate passed outside the sandbox. |
+| Plan | project-slicer + test-strategy | complete | `docs/reports/QUALITY_LAB_REVIEW_ADJUDICATION_20260906.md` | 2026-08-22 | Execution is serial; milestone gates remain separate from slice work. |
+| M0 | baseline/provenance/observability | complete as recorded | `docs/reports/QUALITY_LAB_REVIEW_ADJUDICATION_20260906.md` | 2026-08-22 | Preserve prior artifacts; do not overwrite. |
+| M1 | postpass parameter contract | complete as recorded | `docs/reports/QUALITY_LAB_REVIEW_ADJUDICATION_20260906.md` | 2026-08-22 | Recovery evidence remains version-specific and trace-driven. |
+| M2 | shared reprojection/FP16 temporal state | complete as recorded | `docs/reports/QUALITY_LAB_REVIEW_ADJUDICATION_20260906.md` | 2026-08-22 | Live GPU evidence must remain distinct from CPU contracts. |
+| M3 | causal codec motion | complete as recorded | `docs/reports/QUALITY_LAB_REVIEW_ADJUDICATION_20260906.md` | 2026-08-22 | Real temporal quality matrix still pending. |
+| M4 | color/transfer/chroma/bit depth | complete as recorded | `docs/reports/QUALITY_LAB_REVIEW_ADJUDICATION_20260906.md` | 2026-08-22 | Supported hardware/software paths remain separately ranked. |
+| M5 | decoded-video jitter policy | complete as recorded | `docs/reports/QUALITY_LAB_REVIEW_ADJUDICATION_20260906.md` | 2026-08-22 | Jitter promotion remains evidence-bound. |
+| M6 tooling | campaign, temporal metrics, sidecars, review harness | complete as tooling | `docs/reports/QUALITY_LAB_REVIEW_ADJUDICATION_20260906.md` | 2026-08-23 | Real quality matrix remains open; review-harness browser gate passed outside the sandbox. |
 | M6.1 | neutral runner + real spatial controls | complete as capture/evidence | `/tmp/tforge-m6-6-1-cas-fixed-escalated-20260823/m6-6-1-cas-fixed-escalated-20260823T042444Z` | 2026-08-23 | Current learned path still trails spatial controls; this is evidence, not a promotion. |
 | M6.2 | strict paired spatial metrics and baseline-aware rankings | complete | `/tmp/tforge-m6-2-paired-existing-20260823` | 2026-08-23 | Four real candidates paired against `base_only_bilinear`; no mismatched rows accepted. |
 | M6.3 | causal temporal sidecar validation and temporal metric ingestion | bounded capture-validation complete; matrix pending | `benchmarks/quality_sweeps/motion_sidecar.py`, `benchmarks/quality_sweeps/temporal_sequence.py`, `/tmp/tforge-m6-3-bilinear-fabric-rerun-20260823-escalated`, `/tmp/tforge-m6-3-bilinear-rooftop-retry-p-only-20260823` | 2026-08-23 | Tears of Steel fabric and the corrected P-only Sintel rooftop baseline are identity-validated with wrapper exit 0; full candidate/class temporal matrix is still missing. |
@@ -44,7 +44,7 @@
 | Permit metrics-only campaign closure | The user confirmed numeric results are sufficient; image payloads add storage cost but do not replace required metric, identity, timing, or temporal provenance. | Requiring retained review images; rejected for this campaign mode. | 2026-08-31 |
 | Require paired spatial keys to match exactly | A candidate with a missing clip, changed source/output dimensions, frame, quality, or CRF is not a valid comparison. | Pairing by clip name only; rejected because it can hide changed benchmark conditions. | 2026-08-23 |
 
-## Issues logg
+## Issues log
 
 | Issue | Phase | Severity | Resolution | Date |
 |---|---|---|---|---|
