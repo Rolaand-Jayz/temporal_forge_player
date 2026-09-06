@@ -83,10 +83,14 @@ def main() -> int:
     ap.add_argument("--tiers", nargs="*", choices=tuple(TIERS))
     ap.add_argument("--arms", nargs="*", choices=tuple(ARMS))
     args = ap.parse_args()
-    if not args.player.is_file():
-        ap.error(f"player not found: {args.player}")
-    if not args.config.is_file():
-        ap.error(f"quality config not found: {args.config}")
+    if args.run:
+        # Execution-only prerequisites. A dry run must stay usable on a clean
+        # checkout (plan/preview) even before the player or quality config
+        # exists, so these checks are restricted to capture mode.
+        if not args.player.is_file():
+            ap.error(f"player not found: {args.player}")
+        if not args.config.is_file():
+            ap.error(f"quality config not found: {args.config}")
     args.output_root.mkdir(parents=True, exist_ok=True)
     manifest = args.output_root / "manifest.jsonl"
     completed = set()
