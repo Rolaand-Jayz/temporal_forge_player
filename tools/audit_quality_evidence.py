@@ -30,8 +30,9 @@ def frame_timestamp(path: Path, frame: int) -> float:
 
 
 def png_size(path: Path) -> tuple[int, int]:
-    data = path.read_bytes()
-    if data[:8] != b"\x89PNG\r\n\x1a\n":
+    with path.open("rb") as stream:
+        data = stream.read(24)
+    if len(data) < 24 or data[:8] != b"\x89PNG\r\n\x1a\n":
         raise ValueError(f"not a PNG: {path}")
     return int.from_bytes(data[16:20], "big"), int.from_bytes(data[20:24], "big")
 

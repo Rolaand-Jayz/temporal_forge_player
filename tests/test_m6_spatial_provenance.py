@@ -20,6 +20,8 @@ RESULTS_PATH = Path("/tmp/tforge-m6-spatial/retry-20260823T113531Z/campaign-resu
 
 
 def _load() -> tuple[dict, list]:
+    if not RESULTS_PATH.is_file():
+        raise unittest.SkipTest(f"missing external fixture: {RESULTS_PATH}")
     return (
         json.loads(CAMPAIGN_PATH.read_text(encoding="utf-8")),
         json.loads(RESULTS_PATH.read_text(encoding="utf-8")),
