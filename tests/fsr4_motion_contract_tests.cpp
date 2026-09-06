@@ -57,6 +57,47 @@ int main() {
           std::string::npos);
     CHECK(playback.find("pair.neuralTargetH = fitted.second;") !=
           std::string::npos);
+    // The generic neural target must come from the stable/debounced target
+    // viewport, not the live window: a presentation-only resize (spec 02 /
+    // setFsrViewport contract) must not change model dimensions and rebuild
+    // the FSR path. The fixed native INT8 table stays authoritative where it
+    // applies, exactly like initFsr4Path()'s output sizing.
+    CHECK(playback.find(
+              "const auto fitted = fitToViewport(std::max(2u, targetW),") !=
+          std::string::npos);
+    CHECK(playback.find("pair.neuralTargetW = nativeTarget.width;") !=
+          std::string::npos);
+    // Only the presentation scaler target may follow the live window.
+    CHECK(playback.find(
+              "const auto fitted = fitToViewport(pair.displayW, pair.displayH);") !=
+          std::string::npos);
+
+    // The second FSR4 slot must only be allocated when the in-flight feature
+    // is explicitly enabled: the decode loop dispatches it only under that
+    // predicate, so allocating by default wastes a full resource set.
+    CHECK(playback.find("const bool inFlightWanted =") != std::string::npos);
+    CHECK(playback.find("if (inFlightWanted &&") != std::string::npos);
+    CHECK(playback.find(
+              "std::getenv(\"TFORGE_FSR4_ENABLE_INFLIGHT\") != nullptr &&\n"
+              "      std::getenv(\"TFORGE_FSR4_DISABLE_INFLIGHT\") == nullptr;") !=
+          std::string::npos);
+    // The secondary in-flight slot must share the primary single-pass geometry
+    // (decode-side model dims), not the aligned decoded size: dispatch
+    // alternates slots, so mismatched sizes alternate geometries and break
+    // the motion/jitter contract.
+    CHECK(playback.find(
+              "static_cast<uint32_t>(modelW),\n"
+              "                    static_cast<uint32_t>(modelH), targetSize,") !=
+          std::string::npos);
+
+    // Audio-only media has no video decode loop to raise end-of-media; the
+    // audio loop must arm the flag after its decoder drains. Advancement is
+    // paced on whichever clock owns the tail (audio clock or last video PTS),
+    // so an audio tail cannot stall EOF waiting for a video PTS that can no
+    // longer arrive.
+    CHECK(playback.find("The audio decoder has drained.") != std::string::npos);
+    CHECK(playback.find("pacedUs") != std::string::npos);
+    CHECK(playback.find("audio_.bufferedFrames()") != std::string::npos);
 
     CHECK(decoder.find("static_cast<int8_t>(std::clamp(") !=
           std::string::npos);
