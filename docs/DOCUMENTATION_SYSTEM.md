@@ -422,7 +422,10 @@ Current architecture documentation must describe current code.
 
 If `docs/reference/ARCHITECTURE.md` remains the authoritative document, maintain it accordingly.
 
-If a more logical set of current-reference documents replaces it, clearly identify the replacement.
+In this tree the authoritative current-architecture home is the root
+[`ARCHITECTURE.md`](../ARCHITECTURE.md); the `docs/reference/` variant was
+never carried into the production stack. If a more logical set of
+current-reference documents replaces it, clearly identify the replacement.
 
 Architecture documentation should emphasize durable structure and invariants rather than dated experiment results.
 
@@ -761,15 +764,23 @@ The initial cleanup must explicitly inspect:
 ## `docs/`
 
 - `current/STATE.md`
-- `reference/ARCHITECTURE.md` and current contracts;
 - `active/QUALITY_CAMPAIGN.md` as the single active quality authority, with
   `active/progress-state.md` classified as a supporting progress log rather
   than a second active authority;
-- `decisions/TECHNICAL_HISTORY.md`
-- `reports/` and `reports/audits/`
-- `research/`
+- `reports/`
 - `archive/`
-- other documentation discovered during inventory.
+
+The initial classification ran against the full pre-stack history checkout,
+where `reference/ARCHITECTURE.md`, `decisions/TECHNICAL_HISTORY.md`,
+`research/`, and `archive/plans/QUALITY_PERFECTION_EXECUTION_SLICES.md` /
+`archive/plans/QUALITY_RECONSTRUCTION_PLAN_20260822-20260902.md` were
+inspected and classified. Those locations and the current authority homes
+they produced are reachable from the immutable PR #1 baseline; the
+production-stack branches carry only the resulting current, active, and
+classified documents. In this tree the authoritative architecture home is
+the root `ARCHITECTURE.md`.
+
+Also inspect other documentation discovered during inventory.
 
 ## Archived plans
 

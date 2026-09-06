@@ -36,3 +36,15 @@ Root-level [`README.md`](../README.md) describes the product.
   in narrative documents.
 - Completed plans, dated reports, and research are historical or exploratory
   unless they explicitly link a verified conclusion into a current document.
+
+## Historical preservation
+
+The production-stack branches deliberately exclude historical evidence dumps
+and superseded documents. The full pre-stack history — including the lattice
+corruption chronology (`docs/LATTICE_CORRUPTION_DIAGNOSTIC.md`, introduced at
+commit `f09a302dd` and developed through the lattice close-out commits), the
+archived M0–M7 gate plans, the superseded `QUALITY_RECONSTRUCTION_PLAN.md`
+classification, and the benchmark evidence trees cited by historical
+documents — remains available from the immutable PR #1 baseline branch
+(`pr/quality-lab-baseline`). Historical documents in this tree that cite
+those paths refer to that baseline, not to this branch.
