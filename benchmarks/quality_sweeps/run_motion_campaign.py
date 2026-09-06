@@ -103,6 +103,8 @@ def main() -> int:
             if prior.get("status") == "complete":
                 completed.add(prior.get("key"))
     count = 0
+    executed = 0
+    failed = 0
     for scene, tier, arm, conf, inp, ref, ref_kind in plans(args):
         count += 1
         key = f"{scene}/{tier}/{arm}/confidence-{conf or 'default'}"
@@ -181,11 +183,21 @@ def main() -> int:
             cmd = [str(ROOT / "benchmarks" / "video_corpus" / "run_temporal_quality.sh"), str(args.player), str(inp), str(ref), str(csv), str(args.frames)]
             row["command"] = cmd
             proc = subprocess.run(cmd, env=env, cwd=ROOT)
-            row["status"] = "complete" if proc.returncode == 0 else f"failed:{proc.returncode}"
+            executed += 1
+            if proc.returncode == 0:
+                row["status"] = "complete"
+            else:
+                row["status"] = f"failed:{proc.returncode}"
+                failed += 1
         with manifest.open("a", encoding="utf-8") as f:
             f.write(json.dumps(row, sort_keys=True) + "\n")
         print(f"[{count}] {row['status']} {key}", flush=True)
-    print(f"planned={count} manifest={manifest}")
+    print(f"planned={count} executed={executed} failed={failed} manifest={manifest}")
+    # A dry run (nothing executed) exits 0; executed capture failures must be
+    # visible to callers, not silently absorbed into a successful exit.
+    if executed and failed:
+        print(f"motion campaign: {failed}/{executed} executed capture(s) failed", file=sys.stderr)
+        return 1
     return 0
 
 
