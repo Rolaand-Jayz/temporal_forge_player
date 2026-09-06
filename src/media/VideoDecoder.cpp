@@ -15,6 +15,7 @@ extern "C" {
 
 #include <cstring>
 #include <cstdlib>
+#include <algorithm>
 
 namespace temporal_forge {
 
@@ -27,6 +28,26 @@ static bool isGpuFriendlyPixelFormat(AVPixelFormat fmt) {
 
 static bool isHardwarePixelFormat(AVPixelFormat fmt) {
     return fmt == AV_PIX_FMT_VAAPI || fmt == AV_PIX_FMT_DRM_PRIME;
+}
+
+// Convert FFmpeg's past-reference vector at one explicit boundary. FFmpeg's
+// contract is src_x = dst_x + motion_x / motion_scale, so this produces the
+// displacement from the current destination block to its corresponding
+// previous source block. The returned convention is current destination to
+// previous source in source-pixel units; all downstream motion consumers use
+// that convention without another sign or scale conversion.
+static MvEntry codecMvToCurrentPrevious(const AVMotionVector& motion) {
+    MvEntry entry;
+    entry.dstX = motion.dst_x;
+    entry.dstY = motion.dst_y;
+    entry.mvX = static_cast<float>(motion.motion_x) /
+               static_cast<float>(motion.motion_scale);
+    entry.mvY = static_cast<float>(motion.motion_y) /
+               static_cast<float>(motion.motion_scale);
+    entry.w = motion.w;
+    entry.h = motion.h;
+    entry.source = static_cast<int8_t>(std::clamp(motion.source, -128, 127));
+    return entry;
 }
 
 enum AVPixelFormat VideoDecoder::getHwPixelFormat(AVCodecContext* ctx, const enum AVPixelFormat* pix_fmts) {
@@ -82,7 +103,27 @@ bool VideoDecoder::open(AVFormatContext* fmt, int streamIndex) {
     codec_->opaque = this;
     codec_->get_format = &VideoDecoder::getHwPixelFormat;
 
-    const bool disableHwDecode = std::getenv("TFORGE_DISABLE_HW_DECODE") != nullptr;
+    // VAAPI/DRM frames remain suitable for color upload, but this handoff does
+    // not preserve AV_FRAME_DATA_MOTION_VECTORS. If the caller explicitly
+    // selects codec or codec_refined motion, force software decode so the
+    // requested estimator receives real FFmpeg side data instead of an empty
+    // seed field. The normal path stays hardware-decoded unless motion data is
+    // explicitly requested.
+    const char *motionMode = std::getenv("TFORGE_FSR4_MOTION_ESTIMATOR");
+    // The quality runner uses MOTION_ABLATION for its named A/B arms, while
+    // the standalone estimator accepts MOTION_ESTIMATOR. Keep the decoder's
+    // hardware/software decision on the same precedence as the estimator
+    // itself, so `refined` cannot silently lose FFmpeg motion side data.
+    if (!motionMode || !*motionMode)
+        motionMode = std::getenv("TFORGE_FSR4_MOTION_ABLATION");
+    const bool motionMetadataRequested =
+        motionMetadataRequested_ ||
+        (motionMode && (std::strcmp(motionMode, "codec") == 0 ||
+                        std::strcmp(motionMode, "codec_refined") == 0 ||
+                        std::strcmp(motionMode, "refined") == 0));
+    const bool disableHwDecode =
+        std::getenv("TFORGE_DISABLE_HW_DECODE") != nullptr ||
+        motionMetadataRequested;
     if (!disableHwDecode &&
         av_hwdevice_ctx_create(&hwDeviceCtx_, AV_HWDEVICE_TYPE_VAAPI, nullptr,
                                nullptr, 0) == 0 &&
@@ -92,7 +133,10 @@ bool VideoDecoder::open(AVFormatContext* fmt, int streamIndex) {
         logInfo("VideoDecoder: VAAPI device created");
     } else if (disableHwDecode) {
         hwaccelEnabled_ = false;
-        logInfo("VideoDecoder: hardware decode disabled by environment");
+        logInfo("VideoDecoder: hardware decode disabled{}",
+                motionMetadataRequested
+                    ? " because codec motion metadata was requested"
+                    : " by environment");
     } else {
         hwaccelEnabled_ = false;
         logWarn("VideoDecoder: VAAPI device creation failed; continuing with software decode");
@@ -116,7 +160,7 @@ bool VideoDecoder::open(AVFormatContext* fmt, int streamIndex) {
     logInfo("VideoDecoder: opened codec '{}' {}x{} pix_fmt={}",
             codec->name, width_, height_, av_get_pix_fmt_name(static_cast<AVPixelFormat>(pixFmt_)));
     if (!gpuFriendlyFormat()) {
-        logWarn("VideoDecoder: pix_fmt={} is not GPU-friendly for the current upload path",
+        logInfo("VideoDecoder: pix_fmt={} will use the software-to-YUV420 fallback",
                 av_get_pix_fmt_name(static_cast<AVPixelFormat>(pixFmt_)));
     }
     return true;
@@ -171,8 +215,13 @@ bool VideoDecoder::receiveFrame(DecodedVideoFrame& out) {
 
     const AVPixelFormat decodedFmt = static_cast<AVPixelFormat>(frame_->format);
     const bool decodedHwFrame = isHardwarePixelFormat(decodedFmt) || isDrmPrimeFrame(frame_);
-    if (!decodedHwFrame && !isGpuFriendlyPixelFormat(decodedFmt)) {
-        logWarn("VideoDecoder: rejecting unsupported frame format {} on GPU-only path",
+    // Keep software frames even when they are not native 4:2:0. The uploader
+    // normalizes supported libav pixel formats through libswscale before the
+    // GPU YUV conversion pass; rejecting them here made valid videos render
+    // as a permanent black frame.
+    if (!decodedHwFrame &&
+        (!av_pix_fmt_desc_get(decodedFmt) || !frame_->data[0])) {
+        logWarn("VideoDecoder: decoded frame has no usable pixel data (format {})",
                 av_get_pix_fmt_name(decodedFmt));
         av_frame_unref(frame_);
         return false;
@@ -229,7 +278,26 @@ bool VideoDecoder::receiveFrame(DecodedVideoFrame& out) {
     out.colorSpace = sourceFrame->colorspace != AVCOL_SPC_UNSPECIFIED
                          ? sourceFrame->colorspace
                          : codec_->colorspace;
+    out.colorTransfer = sourceFrame->color_trc != AVCOL_TRC_UNSPECIFIED
+                            ? sourceFrame->color_trc
+                            : codec_->color_trc;
+    out.colorPrimaries = sourceFrame->color_primaries != AVCOL_PRI_UNSPECIFIED
+                             ? sourceFrame->color_primaries
+                             : codec_->color_primaries;
+    out.chromaLocation = sourceFrame->chroma_location != AVCHROMA_LOC_UNSPECIFIED
+                             ? sourceFrame->chroma_location
+                             : codec_->chroma_sample_location;
+    const AVPixFmtDescriptor *sourceDesc =
+        av_pix_fmt_desc_get(static_cast<AVPixelFormat>(sourceFrame->format));
+    out.bitDepth = sourceDesc && sourceDesc->comp[0].depth > 0
+                       ? sourceDesc->comp[0].depth
+                       : 8;
     out.hwFrame = drmFrame != nullptr;
+    // Preserve coded picture type beside the motion side data. FFmpeg's
+    // negative motion-vector source value identifies a past reference list,
+    // but a B-picture may still refer to an older displayed picture rather
+    // than the immediately previous frame owned by Temporal Forge.
+    out.bFrame = sourceFrame->pict_type == AV_PICTURE_TYPE_B;
     out.hwFrameFormat = out.hwFrame ? AV_PIX_FMT_DRM_PRIME : -1;
     out.drmObjects = 0;
     out.keyframe = (sourceFrame->flags & AV_FRAME_FLAG_KEY) != 0;
@@ -257,7 +325,7 @@ bool VideoDecoder::receiveFrame(DecodedVideoFrame& out) {
     if (!decodedHwFrame || !out.hwFrame) {
         // Copy each plane into owned host memory so the frame can outlive the
         // AVFrame reuse. This is the CPU-decode fallback path.
-        const AVPixFmtDescriptor* desc = av_pix_fmt_desc_get(static_cast<AVPixelFormat>(sourceFrame->format));
+        const AVPixFmtDescriptor* desc = sourceDesc;
         out.planes = 0;
         if (desc) {
             int nb = av_pix_fmt_count_planes(static_cast<AVPixelFormat>(sourceFrame->format));
@@ -308,6 +376,50 @@ bool VideoDecoder::receiveFrame(DecodedVideoFrame& out) {
         out.planes = 0;
     }
 
+    // Optional hardware-analysis bridge: keep the DRM PRIME frame above as
+    // the zero-copy presentation/upload surface, but make one software YUV
+    // copy available to the cheap causal luma matcher. This is deliberately
+    // opt-in because the transfer adds CPU/GPU synchronization; the default
+    // hardware path remains unchanged until a matched quality/performance A/B
+    // proves that the extra motion evidence is worth its cost.
+    // A block-motion/replacement capture also needs the analysis copy. Keep
+    // the zero-copy DRM surface for presentation, but do not make callers
+    // remember a second hidden switch just to make the explicitly requested
+    // matcher receive luma. Ordinary playback remains unchanged because all
+    // three conditions are opt-in diagnostics.
+    const bool hardwareAnalysisRequested =
+        std::getenv("TFORGE_FSR4_ENABLE_HW_ANALYSIS_LUMA") != nullptr ||
+        std::getenv("TFORGE_FSR4_EXPERIMENTAL_BLOCK_MOTION") != nullptr ||
+        std::getenv("TFORGE_FSR4_EXPERIMENTAL_REPLACE_MOTION") != nullptr;
+    if (decodedHwFrame && drmFrame && hardwareAnalysisRequested) {
+        AVFrame* analysisFrame = av_frame_alloc();
+        if (analysisFrame) {
+            analysisFrame->format = AV_PIX_FMT_YUV420P;
+            analysisFrame->width = sourceFrame->width;
+            analysisFrame->height = sourceFrame->height;
+            if (av_hwframe_transfer_data(analysisFrame, frame_, 0) == 0 &&
+                analysisFrame->data[0] && analysisFrame->linesize[0] > 0) {
+                const size_t bytes = static_cast<size_t>(analysisFrame->linesize[0]) *
+                                     static_cast<size_t>(analysisFrame->height);
+                out.plane[0].assign(analysisFrame->data[0],
+                                    analysisFrame->data[0] + bytes);
+                out.linesize[0] = analysisFrame->linesize[0];
+                out.planes = 1;
+                logInfo("VideoDecoder: hardware analysis luma enabled {}x{} "
+                        "pitch={} bytes={}", out.width, out.height,
+                        out.linesize[0], bytes);
+            } else {
+                static bool warnedAnalysisTransfer = false;
+                if (!warnedAnalysisTransfer) {
+                    logWarn("VideoDecoder: hardware analysis-luma transfer "
+                            "failed; retaining zero-copy frame only");
+                    warnedAnalysisTransfer = true;
+                }
+            }
+            av_frame_free(&analysisFrame);
+        }
+    }
+
     // Extract codec motion vectors (H.264/H.265) into the frame. Each
     // AVMotionVector is normalized to source-pixel motion deltas. Empty for
     // intra-only codecs or when MV export is unsupported — the motion-texture
@@ -321,14 +433,7 @@ bool VideoDecoder::receiveFrame(DecodedVideoFrame& out) {
         for (size_t i = 0; i < count; ++i) {
             const auto& m = mvs[i];
             if (m.motion_scale == 0) continue; // guard against div-by-zero
-            MvEntry e;
-            e.dstX = m.dst_x;
-            e.dstY = m.dst_y;
-            e.mvX  = static_cast<float>(m.motion_x) / static_cast<float>(m.motion_scale);
-            e.mvY  = static_cast<float>(m.motion_y) / static_cast<float>(m.motion_scale);
-            e.w    = m.w;
-            e.h    = m.h;
-            e.source = static_cast<int8_t>(m.source < 0 ? -1 : (m.source > 0 ? 1 : 0));
+            MvEntry e = codecMvToCurrentPrevious(m);
             out.motionVectors.push_back(e);
         }
     }

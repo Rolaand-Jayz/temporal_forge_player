@@ -1,4 +1,9 @@
-// Demuxer.cpp
+// Demuxer.cpp — FFmpeg container and packet boundary.
+//
+// Upstream: PlaybackEngine opens a URL and drives readPacket/seekUs from its
+// playback thread. Downstream: packet consumers route streamIndex to
+// VideoDecoder, AudioDecoder, or subtitle handling. This layer owns only the
+// AVFormatContext and stream metadata; it does not decode or touch Vulkan.
 #include "media/Demuxer.hpp"
 #include "util/Log.hpp"
 
@@ -16,7 +21,9 @@ extern "C" {
 
 namespace temporal_forge {
 
-// --- Packet ---
+// Packet lifetime wrapper: allocate/free the AVPacket and move ownership
+// without copying FFmpeg's reference-counted payload. Demuxer produces these
+// packets; decode queues consume them after the move.
 Packet::Packet() {
     av = av_packet_alloc();
 }
@@ -39,7 +46,8 @@ Packet& Packet::operator=(Packet&& o) noexcept {
     return *this;
 }
 
-// --- Demuxer ---
+// Demuxer lifetime: close is idempotent so a failed open, playlist switch, or
+// destructor can all use the same cleanup path.
 Demuxer::Demuxer() = default;
 
 Demuxer::~Demuxer() { close(); }
@@ -64,6 +72,10 @@ static StreamInfo::Type avTypeToInfo(int t) {
 }
 
 void Demuxer::fillStreamInfo() {
+    // Convert FFmpeg stream descriptors into the stable MediaInfo structure
+    // consumed by PlaybackEngine/QML. Best-stream selection happens here so
+    // the rest of the player does not duplicate FFmpeg's stream preference
+    // rules.
     info_.streams.clear();
     info_.streams.reserve(ctx_->nb_streams);
     for (unsigned i = 0; i < ctx_->nb_streams; ++i) {
@@ -118,6 +130,9 @@ void Demuxer::fillStreamInfo() {
 }
 
 bool Demuxer::open(const std::string& url) {
+    // Open the container, read its stream headers, then publish duration and
+    // selected stream metadata. On any FFmpeg failure the caller receives
+    // false and can keep the previous playlist item or report an error.
     close();
     abort_ = false;
     info_ = {};
@@ -149,6 +164,9 @@ bool Demuxer::open(const std::string& url) {
 }
 
 void Demuxer::close() {
+    // Stop future reads before releasing AVFormatContext. Queued packets are
+    // owned by the decode queues, not by this context, so this method only
+    // resets demux-owned metadata and the abort flag.
     if (ctx_) {
         avformat_close_input(&ctx_);
         ctx_ = nullptr;
@@ -158,6 +176,9 @@ void Demuxer::close() {
 }
 
 bool Demuxer::readPacket(Packet& out) {
+    // Read one packet from the container. EOF is represented as false because
+    // PlaybackEngine owns the higher-level EOF/playlist transition; streamIndex
+    // lets that consumer route a successful packet to the proper decoder.
     if (!ctx_) return false;
     if (abort_) return false;
     int err = av_read_frame(ctx_, out.av);
@@ -174,6 +195,9 @@ bool Demuxer::readPacket(Packet& out) {
 }
 
 bool Demuxer::seekUs(int64_t targetUs) {
+    // Seek in the global AV_TIME_BASE, clamp to known media duration, and use
+    // backward seeking so the decoders can rebuild reference state. The
+    // caller must flush its decoder/history state after this succeeds.
     if (!ctx_) return false;
     targetUs = std::max<int64_t>(0, std::min(targetUs, info_.durationUs));
     // Seek on AV_TIME_BASE (stream-agnostic).

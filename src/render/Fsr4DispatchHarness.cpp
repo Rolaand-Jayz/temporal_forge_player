@@ -8,6 +8,7 @@
 #include "render/Fsr4DispatchHarness.hpp"
 #include "render/fsr4/Fsr4ConvSteps.hpp"
 #include "render/fsr4/Fsr4Memory.hpp"
+#include "util/FsrTargetMath.hpp"
 #include "util/Log.hpp"
 
 #include <algorithm>
@@ -120,6 +121,40 @@ bool Fsr4DispatchHarness::init(VkPhysicalDevice physical, VkDevice device,
     logError("Fsr4Harness: null device");
     return false;
   }
+  std::vector<uint8_t> genericCacheData;
+  std::filesystem::path genericCachePath;
+  if (const char *xdgCache = std::getenv("XDG_CACHE_HOME"))
+    genericCachePath = std::filesystem::path(xdgCache) /
+                       "temporal-forge-player/generic.bin";
+  else if (const char *home = std::getenv("HOME"))
+    genericCachePath = std::filesystem::path(home) /
+                       ".cache/temporal-forge-player/generic.bin";
+  if (!genericCachePath.empty()) {
+    std::ifstream cacheFile(genericCachePath, std::ios::binary | std::ios::ate);
+    if (cacheFile && cacheFile.tellg() > 0 && cacheFile.tellg() <= (64 << 20)) {
+      genericCacheData.resize(static_cast<size_t>(cacheFile.tellg()));
+      cacheFile.seekg(0);
+      cacheFile.read(reinterpret_cast<char *>(genericCacheData.data()),
+                     static_cast<std::streamsize>(genericCacheData.size()));
+      if (!cacheFile)
+        genericCacheData.clear();
+    }
+  }
+  VkPipelineCacheCreateInfo genericCacheInfo{};
+  genericCacheInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_CACHE_CREATE_INFO;
+  genericCacheInfo.initialDataSize = genericCacheData.size();
+  genericCacheInfo.pInitialData = genericCacheData.empty() ? nullptr
+                                                           : genericCacheData.data();
+  if (vkCreatePipelineCache(device_, &genericCacheInfo, nullptr,
+                            &genericPipelineCache_) != VK_SUCCESS) {
+    genericCacheInfo.initialDataSize = 0;
+    genericCacheInfo.pInitialData = nullptr;
+    if (vkCreatePipelineCache(device_, &genericCacheInfo, nullptr,
+                              &genericPipelineCache_) != VK_SUCCESS)
+      genericPipelineCache_ = VK_NULL_HANDLE;
+  }
+  logInfo("Fsr4Harness: generic pipeline cache loaded ({} bytes)",
+          genericCacheData.size());
   if (!createDescriptorLayout())
     return false;
   if (!createPrepassPipeline())
@@ -150,7 +185,7 @@ bool Fsr4DispatchHarness::createDescriptorLayout() {
   // RE §3.1 binding map (prepass subset):
   //   b0 uniform, b1 color SRV, b2 motion SRV, b3 depth SRV,
   //   b4 weight blob SRV, b5 prepass output UAV.
-  std::array<VkDescriptorSetLayoutBinding, 9> b{};
+  std::array<VkDescriptorSetLayoutBinding, 11> b{};
   b[0] = {0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1, VK_SHADER_STAGE_COMPUTE_BIT,
           nullptr};
   b[1] = {1, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1, VK_SHADER_STAGE_COMPUTE_BIT,
@@ -169,6 +204,15 @@ bool Fsr4DispatchHarness::createDescriptorLayout() {
           nullptr};
   b[8] = {8, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1, VK_SHADER_STAGE_COMPUTE_BIT,
           nullptr};
+  b[9] = {9, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1, VK_SHADER_STAGE_COMPUTE_BIT,
+          nullptr};
+  // Binding 10 is used only by the source-guided official-resolve diagnostic.
+  // It carries the uploader's display-space source image so the prepass can
+  // apply Mu-law per source tap before Gaussian weighting. Keeping the binding
+  // in the shared layout makes the A/B path descriptor-complete without
+  // changing the normal model-color path.
+  b[10] = {10, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1,
+           VK_SHADER_STAGE_COMPUTE_BIT, nullptr};
 
   VkDescriptorSetLayoutCreateInfo ci{};
   ci.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
@@ -251,7 +295,7 @@ bool Fsr4DispatchHarness::createPrepassPipeline() {
   pci.stage.module = mod;
   pci.stage.pName = "main";
   pci.layout = prepassLayout_;
-  VkResult r = vkCreateComputePipelines(device_, VK_NULL_HANDLE, 1, &pci,
+  VkResult r = vkCreateComputePipelines(device_, genericPipelineCache_, 1, &pci,
                                         nullptr, &prepassPipeline_);
   vkDestroyShaderModule(device_, mod, nullptr);
   if (r != VK_SUCCESS) {
@@ -292,7 +336,7 @@ bool Fsr4DispatchHarness::createConvPipelines() {
     pci.stage.module = mod;
     pci.stage.pName = "main";
     pci.layout = convLayout_;
-    VkResult r = vkCreateComputePipelines(device_, VK_NULL_HANDLE, 1, &pci,
+    VkResult r = vkCreateComputePipelines(device_, genericPipelineCache_, 1, &pci,
                                           nullptr, &out);
     vkDestroyShaderModule(device_, mod, nullptr);
     return r == VK_SUCCESS;
@@ -340,9 +384,13 @@ bool Fsr4DispatchHarness::createConvPipelines() {
     logWarn("Fsr4Harness: cooperative FP16 upscale pipeline unavailable; using "
             "scalar path");
   }
-  if (cap_.hasFp16Fallback && !make(kconv_upscale_fp16_scalar_final_spv,
-                                    kconv_upscale_fp16_scalar_final_spv_words,
-                                    convUpscaleFp16ScalarFinalPipeline_)) {
+  // The scalar final transpose does not use cooperative matrices. Build it
+  // even when the device lacks the optional FP16 cooperative fallback so an
+  // opt-in generic-path diagnostic can still produce the required FP16
+  // decoder tensor on devices such as RADV/RDNA3.
+  if (!make(kconv_upscale_fp16_scalar_final_spv,
+            kconv_upscale_fp16_scalar_final_spv_words,
+            convUpscaleFp16ScalarFinalPipeline_)) {
     logWarn("Fsr4Harness: final scalar upscale pipeline unavailable; using "
             "cooperative path");
   }
@@ -397,7 +445,7 @@ bool Fsr4DispatchHarness::createScatterPipeline() {
   pci.stage.module = mod;
   pci.stage.pName = "main";
   pci.layout = scatterLayout_;
-  VkResult r = vkCreateComputePipelines(device_, VK_NULL_HANDLE, 1, &pci,
+  VkResult r = vkCreateComputePipelines(device_, genericPipelineCache_, 1, &pci,
                                         nullptr, &scatterPipeline_);
   vkDestroyShaderModule(device_, mod, nullptr);
   if (r != VK_SUCCESS) {
@@ -414,8 +462,10 @@ bool Fsr4DispatchHarness::createPostpassPipeline() {
   // Postpass bindings:
   //   b0 uniform (UB), b1 weight SSBO, b2 decoder SSBO,
   //   b3 history image (readonly), b4 output image (writeonly),
-  //   b5 history-out image (writeonly), b9 recurrent-out image (writeonly)
-  std::array<VkDescriptorSetLayoutBinding, 10> b{};
+  //   b5 history-out image (writeonly), b9 recurrent-out image (writeonly),
+  //   b10 source display image (readonly). Model and display source colors
+  //   must remain separate because the spatial kernels operate in display RGB.
+  std::array<VkDescriptorSetLayoutBinding, 11> b{};
   b[0] = {0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1, VK_SHADER_STAGE_COMPUTE_BIT,
           nullptr};
   b[1] = {1, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1, VK_SHADER_STAGE_COMPUTE_BIT,
@@ -436,6 +486,8 @@ bool Fsr4DispatchHarness::createPostpassPipeline() {
           nullptr};
   b[9] = {9, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1, VK_SHADER_STAGE_COMPUTE_BIT,
           nullptr};
+  b[10] = {10, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1,
+           VK_SHADER_STAGE_COMPUTE_BIT, nullptr};
   VkDescriptorSetLayoutCreateInfo ci{};
   ci.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
   ci.bindingCount = static_cast<uint32_t>(b.size());
@@ -468,7 +520,7 @@ bool Fsr4DispatchHarness::createPostpassPipeline() {
   pci.stage.module = mod;
   pci.stage.pName = "main";
   pci.layout = postpassLayout_;
-  VkResult r = vkCreateComputePipelines(device_, VK_NULL_HANDLE, 1, &pci,
+  VkResult r = vkCreateComputePipelines(device_, genericPipelineCache_, 1, &pci,
                                         nullptr, &postpassPipeline_);
   vkDestroyShaderModule(device_, mod, nullptr);
   if (r != VK_SUCCESS) {
@@ -501,7 +553,7 @@ bool Fsr4DispatchHarness::createSpdPipeline() {
   pci.stage.module = mod;
   pci.stage.pName = "main";
   pci.layout = spdLayout_;
-  VkResult r = vkCreateComputePipelines(device_, VK_NULL_HANDLE, 1, &pci,
+  VkResult r = vkCreateComputePipelines(device_, genericPipelineCache_, 1, &pci,
                                         nullptr, &spdPipeline_);
   vkDestroyShaderModule(device_, mod, nullptr);
   if (r != VK_SUCCESS) {
@@ -550,7 +602,7 @@ bool Fsr4DispatchHarness::createDownscalePipeline() {
   pci.stage.pName = "main";
   pci.layout = downscaleLayout_;
   const VkResult result = vkCreateComputePipelines(
-      device_, VK_NULL_HANDLE, 1, &pci, nullptr, &downscalePipeline_);
+      device_, genericPipelineCache_, 1, &pci, nullptr, &downscalePipeline_);
   vkDestroyShaderModule(device_, module, nullptr);
   return result == VK_SUCCESS;
 }
@@ -720,6 +772,36 @@ bool Fsr4DispatchHarness::ensureNativeInt8Pipelines(NativeInt8Graph graph) {
     pipelines = &nativeInt8PerformancePipelines4320_;
     available = &nativeInt8PerformancePipelines4320Available_;
     break;
+  case NativeInt8Graph::QualityFourThree1440:
+    name = "quality_4x3_1440";
+    pipelines = &nativeInt8QualityFourThreePipelines1440_;
+    available = &nativeInt8QualityFourThreePipelines1440Available_;
+    break;
+  case NativeInt8Graph::UltraPerformanceFourThree1440:
+    name = "ultraperf_4x3_1440";
+    pipelines = &nativeInt8UltraFourThreePipelines1440_;
+    available = &nativeInt8UltraFourThreePipelines1440Available_;
+    break;
+  case NativeInt8Graph::PerformanceFourThree1440:
+    name = "performance_4x3_1440";
+    pipelines = &nativeInt8PerformanceFourThreePipelines1440_;
+    available = &nativeInt8PerformanceFourThreePipelines1440Available_;
+    break;
+  case NativeInt8Graph::QualityFourThree2880:
+    name = "quality_4x3_2880";
+    pipelines = &nativeInt8QualityFourThreePipelines2880_;
+    available = &nativeInt8QualityFourThreePipelines2880Available_;
+    break;
+  case NativeInt8Graph::UltraPerformanceFourThree2880:
+    name = "ultraperf_4x3_2880";
+    pipelines = &nativeInt8UltraFourThreePipelines2880_;
+    available = &nativeInt8UltraFourThreePipelines2880Available_;
+    break;
+  case NativeInt8Graph::PerformanceFourThree2880:
+    name = "performance_4x3_2880";
+    pipelines = &nativeInt8PerformanceFourThreePipelines2880_;
+    available = &nativeInt8PerformanceFourThreePipelines2880Available_;
+    break;
   case NativeInt8Graph::None:
     return false;
   }
@@ -832,6 +914,50 @@ void Fsr4DispatchHarness::persistNativeInt8PipelineCache() {
   }
 }
 
+void Fsr4DispatchHarness::persistGenericPipelineCache() {
+  if (genericPipelineCache_ == VK_NULL_HANDLE)
+    return;
+  size_t byteCount = 0;
+  if (vkGetPipelineCacheData(device_, genericPipelineCache_, &byteCount,
+                             nullptr) != VK_SUCCESS ||
+      byteCount == 0 || byteCount > (64u << 20u))
+    return;
+  std::vector<uint8_t> data(byteCount);
+  if (vkGetPipelineCacheData(device_, genericPipelineCache_, &byteCount,
+                             data.data()) != VK_SUCCESS)
+    return;
+  data.resize(byteCount);
+
+  std::filesystem::path path;
+  if (const char *xdgCache = std::getenv("XDG_CACHE_HOME"))
+    path = std::filesystem::path(xdgCache) /
+           "temporal-forge-player/generic.bin";
+  else if (const char *home = std::getenv("HOME"))
+    path = std::filesystem::path(home) /
+           ".cache/temporal-forge-player/generic.bin";
+  if (path.empty())
+    return;
+  std::error_code ec;
+  std::filesystem::create_directories(path.parent_path(), ec);
+  if (ec)
+    return;
+  const std::filesystem::path temporary = path.string() + ".tmp";
+  std::ofstream file(temporary, std::ios::binary | std::ios::trunc);
+  if (!file)
+    return;
+  file.write(reinterpret_cast<const char *>(data.data()),
+             static_cast<std::streamsize>(data.size()));
+  file.close();
+  if (!file)
+    return;
+  std::filesystem::rename(temporary, path, ec);
+  if (ec) {
+    std::filesystem::remove(path, ec);
+    ec.clear();
+    std::filesystem::rename(temporary, path, ec);
+  }
+}
+
 bool Fsr4DispatchHarness::createCommandBuffer() {
   VkCommandPoolCreateInfo pci{};
   pci.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
@@ -884,6 +1010,16 @@ bool Fsr4DispatchHarness::createCommandBuffer() {
 
 bool Fsr4DispatchHarness::allocateResources(const Fsr4DispatchResources &r) {
   // Free any previous allocations.
+  // Resource replacement is performed by PlaybackEngine after its queue-idle
+  // handoff. Invalidate cached descriptor objects before their old buffers and
+  // images are released; the next frame repopulates the same small cache.
+  if (descPool_ != VK_NULL_HANDLE)
+    // Descriptor sets are persistent for the target allocation; the queue
+    // fence above is sufficient to retire this diagnostic command.
+  prepassSet_ = VK_NULL_HANDLE;
+  convDescriptorSets_.fill(VK_NULL_HANDLE);
+  residualDescriptorSets_.fill(VK_NULL_HANDLE);
+  postpassSet_ = VK_NULL_HANDLE;
   nativeInt8Active_ = false;
   nativeInt8Graph_ = NativeInt8Graph::None;
   if (nativeInt8DescPool_ != VK_NULL_HANDLE) {
@@ -925,43 +1061,74 @@ bool Fsr4DispatchHarness::allocateResources(const Fsr4DispatchResources &r) {
         std::max(maxTensorWords, static_cast<uint64_t>(w) * h * step.cout);
   }
   slotSizeWords_ = static_cast<uint32_t>(maxTensorWords);
-  // FP8-boundary values are carried in FP16 storage. Every finite E4M3/FNUZ
-  // value is exactly representable in binary16, while halving tensor and
-  // residual traffic versus the former FP32 carrier.
+  // FP8-like/codebook boundary values are carried in FP16 storage. Every
+  // finite E4M3/FNUZ-decoded value is exactly representable in binary16,
+  // while halving tensor and residual traffic versus the former FP32 carrier.
   const VkDeviceSize slotBytes =
       static_cast<VkDeviceSize>(slotSizeWords_) * sizeof(uint16_t);
   const bool nativeEnabled =
       std::getenv("TFORGE_FSR4_DISABLE_NATIVE_INT8") == nullptr;
-  const uint64_t outputScale100 =
-      static_cast<uint64_t>(res_.outputWidth) * 100u;
+  const bool nativeSourceAspectSupported =
+      nativeInt8SourceAspectSupported(res_.sourceWidth, res_.sourceHeight);
+  const float requestedScale =
+      res_.requestedScale >= 1.0f
+          ? res_.requestedScale
+          : (res_.sourceWidth == 0
+                 ? 0.0f
+                 : static_cast<float>(res_.outputWidth) /
+                       static_cast<float>(res_.sourceWidth));
   const bool wantsUltraPerformance =
-      outputScale100 >= static_cast<uint64_t>(res_.sourceWidth) * 299u;
+      requestedScale >= 2.99f;
+  // Balanced (1.7x) has no separate native pack.  Use the available
+  // performance graph for the same fixed target; otherwise this one UI option
+  // falls into the generic RE path and is orders of magnitude slower.
   const bool wantsPerformance =
-      !wantsUltraPerformance &&
-      outputScale100 >= static_cast<uint64_t>(res_.sourceWidth) * 199u;
+      !wantsUltraPerformance && requestedScale >= 1.69f;
   const bool wantsQuality =
-      !wantsPerformance &&
-      outputScale100 >= static_cast<uint64_t>(res_.sourceWidth) * 149u &&
-      outputScale100 < static_cast<uint64_t>(res_.sourceWidth) * 160u;
+      !wantsPerformance && requestedScale >= 1.49f && requestedScale < 1.60f;
   NativeInt8Graph requestedGraph = NativeInt8Graph::None;
-  if (nativeEnabled && wantsUltraPerformance && res_.outputWidth == 1920 &&
+  if (nativeEnabled && nativeSourceAspectSupported && wantsUltraPerformance &&
+      res_.outputWidth == 1920 &&
       res_.outputHeight == 1080)
     requestedGraph = NativeInt8Graph::UltraPerformance1080;
-  else if (nativeEnabled && wantsUltraPerformance && res_.outputWidth == 3840 &&
+  else if (nativeEnabled && nativeSourceAspectSupported &&
+           wantsUltraPerformance && res_.outputWidth == 3840 &&
            res_.outputHeight == 2160)
     requestedGraph = NativeInt8Graph::UltraPerformance2160;
-  else if (nativeEnabled && wantsPerformance && res_.outputWidth == 3840 &&
+  else if (nativeEnabled && nativeSourceAspectSupported && wantsPerformance &&
+           res_.outputWidth == 3840 &&
            res_.outputHeight == 2160)
     requestedGraph = NativeInt8Graph::Performance2160;
-  else if (nativeEnabled && wantsPerformance && res_.outputWidth == 7680 &&
+  else if (nativeEnabled && nativeSourceAspectSupported && wantsPerformance &&
+           res_.outputWidth == 7680 &&
            res_.outputHeight == 4320)
     requestedGraph = NativeInt8Graph::Performance4320;
-  else if (nativeEnabled && wantsQuality && res_.outputWidth == 1920 &&
+  else if (nativeEnabled && nativeSourceAspectSupported && wantsQuality &&
+           res_.outputWidth == 1920 &&
            res_.outputHeight == 1080)
     requestedGraph = NativeInt8Graph::Quality1080;
-  else if (nativeEnabled && wantsQuality && res_.outputWidth == 3840 &&
+  else if (nativeEnabled && nativeSourceAspectSupported && wantsQuality &&
+           res_.outputWidth == 3840 &&
            res_.outputHeight == 2160)
     requestedGraph = NativeInt8Graph::Quality2160;
+  else if (nativeEnabled && nativeSourceAspectSupported && wantsUltraPerformance &&
+           res_.outputWidth == 1440 && res_.outputHeight == 1080)
+    requestedGraph = NativeInt8Graph::UltraPerformanceFourThree1440;
+  else if (nativeEnabled && nativeSourceAspectSupported && wantsPerformance &&
+           res_.outputWidth == 1440 && res_.outputHeight == 1080)
+    requestedGraph = NativeInt8Graph::PerformanceFourThree1440;
+  else if (nativeEnabled && nativeSourceAspectSupported && wantsQuality &&
+           res_.outputWidth == 1440 && res_.outputHeight == 1080)
+    requestedGraph = NativeInt8Graph::QualityFourThree1440;
+  else if (nativeEnabled && nativeSourceAspectSupported && wantsUltraPerformance &&
+           res_.outputWidth == 2880 && res_.outputHeight == 2160)
+    requestedGraph = NativeInt8Graph::UltraPerformanceFourThree2880;
+  else if (nativeEnabled && nativeSourceAspectSupported && wantsPerformance &&
+           res_.outputWidth == 2880 && res_.outputHeight == 2160)
+    requestedGraph = NativeInt8Graph::PerformanceFourThree2880;
+  else if (nativeEnabled && nativeSourceAspectSupported && wantsQuality &&
+           res_.outputWidth == 2880 && res_.outputHeight == 2160)
+    requestedGraph = NativeInt8Graph::QualityFourThree2880;
   if (requestedGraph != NativeInt8Graph::None &&
       !ensureNativeInt8Pipelines(requestedGraph))
     requestedGraph = NativeInt8Graph::None;
@@ -969,12 +1136,8 @@ bool Fsr4DispatchHarness::allocateResources(const Fsr4DispatchResources &r) {
   nativeInt8Graph_ = requestedGraph;
   VkDeviceSize nativeScratchSize = 0;
   if (useNativeInt8) {
-    if (res_.outputHeight == 1080)
-      nativeScratchSize = 20736000ull;
-    else if (res_.outputHeight == 2160)
-      nativeScratchSize = 82944000ull;
-    else if (res_.outputHeight == 4320)
-      nativeScratchSize = 331776000ull;
+    nativeScratchSize = static_cast<VkDeviceSize>(res_.outputWidth) *
+                        res_.outputHeight * 10ull;
   }
   const VkDeviceSize scratchSize =
       useNativeInt8 ? nativeScratchSize : slotBytes * 2ull + (1ull << 20);
@@ -1039,6 +1202,18 @@ bool Fsr4DispatchHarness::prepareNativeInt8Resources() {
     initializerPack = "quality_1080";
   else if (nativeInt8Graph_ == NativeInt8Graph::Quality2160)
     initializerPack = "quality_2160";
+  else if (nativeInt8Graph_ == NativeInt8Graph::QualityFourThree1440)
+    initializerPack = "quality_4x3_1440";
+  else if (nativeInt8Graph_ == NativeInt8Graph::UltraPerformanceFourThree1440)
+    initializerPack = "ultraperf_4x3_1440";
+  else if (nativeInt8Graph_ == NativeInt8Graph::PerformanceFourThree1440)
+    initializerPack = "performance_4x3_1440";
+  else if (nativeInt8Graph_ == NativeInt8Graph::QualityFourThree2880)
+    initializerPack = "quality_4x3_2880";
+  else if (nativeInt8Graph_ == NativeInt8Graph::UltraPerformanceFourThree2880)
+    initializerPack = "ultraperf_4x3_2880";
+  else if (nativeInt8Graph_ == NativeInt8Graph::PerformanceFourThree2880)
+    initializerPack = "performance_4x3_2880";
   const std::string path = std::string(TFORGE_SOURCE_ROOT) +
                            "/resources/fsr4/native_i8/" + initializerPack +
                            "/initializers.bin";
@@ -1165,6 +1340,18 @@ bool Fsr4DispatchHarness::prepareNativeInt8Resources() {
   else if (nativeInt8Graph_ == NativeInt8Graph::Quality1080 ||
            nativeInt8Graph_ == NativeInt8Graph::Quality2160)
     graphName = "quality";
+  else if (nativeInt8Graph_ == NativeInt8Graph::QualityFourThree1440)
+    graphName = "quality-4:3";
+  else if (nativeInt8Graph_ == NativeInt8Graph::UltraPerformanceFourThree1440)
+    graphName = "ultraperformance-4:3";
+  else if (nativeInt8Graph_ == NativeInt8Graph::PerformanceFourThree1440)
+    graphName = "performance-4:3";
+  else if (nativeInt8Graph_ == NativeInt8Graph::QualityFourThree2880)
+    graphName = "quality-4:3";
+  else if (nativeInt8Graph_ == NativeInt8Graph::UltraPerformanceFourThree2880)
+    graphName = "ultraperformance-4:3";
+  else if (nativeInt8Graph_ == NativeInt8Graph::PerformanceFourThree2880)
+    graphName = "performance-4:3";
   logInfo("Fsr4Harness: native INT8 graph {} active for {}x{}", graphName,
           res_.outputWidth, res_.outputHeight);
   return true;
@@ -1208,6 +1395,18 @@ void Fsr4DispatchHarness::recordNativeInt8Graph(VkCommandBuffer cmd) {
     pipelines = &nativeInt8PerformancePipelines2160_;
   else if (nativeInt8Graph_ == NativeInt8Graph::Performance4320)
     pipelines = &nativeInt8PerformancePipelines4320_;
+  else if (nativeInt8Graph_ == NativeInt8Graph::QualityFourThree1440)
+    pipelines = &nativeInt8QualityFourThreePipelines1440_;
+  else if (nativeInt8Graph_ == NativeInt8Graph::UltraPerformanceFourThree1440)
+    pipelines = &nativeInt8UltraFourThreePipelines1440_;
+  else if (nativeInt8Graph_ == NativeInt8Graph::PerformanceFourThree1440)
+    pipelines = &nativeInt8PerformanceFourThreePipelines1440_;
+  else if (nativeInt8Graph_ == NativeInt8Graph::QualityFourThree2880)
+    pipelines = &nativeInt8QualityFourThreePipelines2880_;
+  else if (nativeInt8Graph_ == NativeInt8Graph::UltraPerformanceFourThree2880)
+    pipelines = &nativeInt8UltraFourThreePipelines2880_;
+  else if (nativeInt8Graph_ == NativeInt8Graph::PerformanceFourThree2880)
+    pipelines = &nativeInt8PerformanceFourThreePipelines2880_;
   vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE,
                           nativeInt8Layout_, 0, 1, &nativeInt8Set_, 0, nullptr);
   for (uint32_t i = 0; i < pipelines->size(); ++i) {
@@ -1230,6 +1429,15 @@ void Fsr4DispatchHarness::recordNativeInt8Graph(VkCommandBuffer cmd) {
 bool Fsr4DispatchHarness::uploadWeights(const Fsr4BlobView &blob) {
   if (!blob.bytes || physical_ == VK_NULL_HANDLE)
     return false;
+  const auto decodedPostpass = decodeFsr4PostpassParams(
+      blob.bytes, kFsr4BlobSize);
+  if (!decodedPostpass) {
+    logError("Fsr4Harness: v4.1 postpass parameter region is invalid");
+    postpassParamsValid_ = false;
+    return false;
+  }
+  postpassParams_ = *decodedPostpass;
+  postpassParamsValid_ = true;
   freeGpuBuffer(res_.weightBuffer, res_.weightMemory);
 
   // Upload the raw 131072-byte v4.1 blob verbatim. The recovered layout has
@@ -1243,14 +1451,20 @@ bool Fsr4DispatchHarness::uploadWeights(const Fsr4BlobView &blob) {
       kFp16WeightBase + kFsr4BlobSize * sizeof(uint16_t);
   std::vector<uint8_t> packed(kExpandedSize, 0);
   std::memcpy(packed.data(), blob.bytes, kFsr4BlobSize);
-  auto decodeFp8 = [](uint8_t b) {
+  const bool fp8Bias7 = [] {
+    const char *env = std::getenv("TFORGE_FSR4_FP8_DECODE_BIAS");
+    return env && std::string_view(env) == "7";
+  }();
+  auto decodeFp8 = [fp8Bias7](uint8_t b) {
     const int sign = b >> 7;
     const int exponent = (b >> 3) & 15;
     const int mantissa = b & 7;
+    const int exponentBias = fp8Bias7 ? 7 : 8;
     float value = exponent == 0
-                      ? std::ldexp(static_cast<float>(mantissa), -10)
+                      ? std::ldexp(static_cast<float>(mantissa),
+                                   1 - exponentBias - 3)
                       : std::ldexp(1.0f + static_cast<float>(mantissa) / 8.0f,
-                                   exponent - 8);
+                                   exponent - exponentBias);
     if (b == 0x80u)
       value = 0.0f;
     return sign ? -value : value;
@@ -1463,6 +1677,7 @@ void Fsr4DispatchHarness::recordConvPass(VkCommandBuffer cmd,
   const uint32_t slotSize = slotSizeWords_;
   const uint32_t featBaseWords = (passCounter_ % 2u) * slotSize;
   const uint32_t accumBaseWords = ((passCounter_ + 1u) % 2u) * slotSize;
+  const uint32_t stepIndex = passCounter_;
   passCounter_++;
 
   cb.slot0[0] = static_cast<int32_t>(featBaseWords);
@@ -1504,6 +1719,26 @@ void Fsr4DispatchHarness::recordConvPass(VkCommandBuffer cmd,
   int fp8ScaleBits = 0;
   if (fp8ScaleSet)
     std::memcpy(&fp8ScaleBits, &fp8Scale, sizeof(float));
+  // The active FP8 operators contain a finite E4M3 quantizer. The recovered
+  // graph has an FP8 boundary between convolution stages, and the old default
+  // bypassed that boundary by carrying raw FP16 values forward; on the generic
+  // 39-step path that collapsed the full proof tensor to zero. Use the existing
+  // nearest E4M3 quantizer by default. The explicit bypass remains available
+  // for A/B comparison and does not affect native INT8.
+  int32_t fp8RoundingMode = 1;
+  if (const char *env = std::getenv("TFORGE_FSR4_FP8_ROUNDING")) {
+    if (std::string_view(env) == "off" ||
+        std::string_view(env) == "bypass")
+      fp8RoundingMode = 0;
+    else if (std::string_view(env) == "nearest")
+      fp8RoundingMode = 1;
+  }
+  // The direct FP16 fallback historically carried values through without the
+  // recovered FP8 CopySat boundary. Keep that behavior as the default for
+  // reproducibility, but let the quality campaign opt into the boundary on
+  // direct pointwise/spatial stages without changing native INT8 dispatches.
+  if (std::getenv("TFORGE_FSR4_FP16_FP8_BOUNDARY"))
+    fp8RoundingMode = 2;
   cb.slot1[2] = (cfg.kernelW & 0xFF) | ((weightChannelsIn & 0xFF) << 8) |
                 ((weightChannelsOut & 0xFF) << 16);
   // Pack Cout (low 16) and biasOffset (high 16) into slot1.w.
@@ -1511,6 +1746,20 @@ void Fsr4DispatchHarness::recordConvPass(VkCommandBuffer cmd,
   cb.slot1[3] =
       (cfg.channelsOut & 0xFFFF) | (static_cast<int32_t>(cfg.biasOffset) << 16);
   cb.slot2[0] = (!cfg.fp16Weights) ? fp8ScaleBits : 0;
+  cb.slot2[1] = (!cfg.fp16Weights) ? fp8RoundingMode : 0;
+  // Diagnostic-only protection for the FP16 carrier. The generic graph can
+  // overflow an intermediate half before the final decoder clamp; keep this
+  // opt-in so the normal path remains byte-for-byte unchanged while testing
+  // whether those infinities are the resolution-dependent failure.
+  cb.slot2[2] = std::getenv("TFORGE_FSR4_SATURATE_FP16") ? 1 : 0;
+  const char *fp8BiasEnv = std::getenv("TFORGE_FSR4_FP8_DECODE_BIAS");
+  if (fp8BiasEnv && std::string_view(fp8BiasEnv) == "7")
+    cb.slot2[2] |= 4;
+  cb.slot2[3] = stepIndex == 12u
+                    ? (std::getenv("TFORGE_FSR4_STAGE12_FILL_ONE") ? 2
+                       : std::getenv("TFORGE_FSR4_STAGE12_COPY_INPUT") ? 1
+                                                                        : 0)
+                    : 0;
 
   // Write the CBV into the pre-allocated ring buffer (no per-pass alloc).
   const VkDeviceSize cbOffsetConv =
@@ -1518,17 +1767,22 @@ void Fsr4DispatchHarness::recordConvPass(VkCommandBuffer cmd,
   if (cbRingMapped_)
     std::memcpy(static_cast<char *>(cbRingMapped_) + cbOffsetConv, &cb,
                 sizeof(ConvCB));
-
-  // Per-pass descriptor set (correct + simple; the ring buffer fixed the
-  // real alloc bottleneck — descriptor alloc/free is cheap relative to that).
-  VkDescriptorSetAllocateInfo asi{};
-  asi.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
-  asi.descriptorPool = descPool_;
-  asi.descriptorSetCount = 1;
-  asi.pSetLayouts = &convDescLayout_;
-  VkDescriptorSet set = VK_NULL_HANDLE;
-  if (vkAllocateDescriptorSets(device_, &asi, &set) != VK_SUCCESS)
-    return;
+  // One persistent descriptor set per graph operation. The CB offset and
+  // storage buffers are stable for this target allocation, so allocating the
+  // set once avoids a driver allocator call on every frame.
+  const uint32_t descriptorIndex =
+      std::min<uint32_t>(stepIndex, kMaxPasses - 1u);
+  VkDescriptorSet set = convDescriptorSets_[descriptorIndex];
+  if (set == VK_NULL_HANDLE) {
+    VkDescriptorSetAllocateInfo asi{};
+    asi.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
+    asi.descriptorPool = descPool_;
+    asi.descriptorSetCount = 1;
+    asi.pSetLayouts = &convDescLayout_;
+    if (vkAllocateDescriptorSets(device_, &asi, &set) != VK_SUCCESS)
+      return;
+    convDescriptorSets_[descriptorIndex] = set;
+  }
 
   VkDescriptorBufferInfo cbInfo{cbRingBuffer_, cbOffsetConv, sizeof(ConvCB)};
   VkDescriptorBufferInfo wInfo{res_.weightBuffer, 0, VK_WHOLE_SIZE};
@@ -1565,7 +1819,6 @@ void Fsr4DispatchHarness::recordConvPass(VkCommandBuffer cmd,
     if (end != value)
       coopMaxStep = static_cast<uint32_t>(parsed);
   }
-  const uint32_t stepIndex = passCounter_ - 1u;
   const bool coopEligible = !cfg.fp16Weights && !cfg.isUpscale;
   const bool useCoop = !coopDisabled && stepIndex <= coopMaxStep &&
                        coopEligible && cap_.hasInt32Accum &&
@@ -1616,7 +1869,8 @@ void Fsr4DispatchHarness::recordConvPass(VkCommandBuffer cmd,
        cfg.weightChannelsOut == cfg.channelsOut) &&
       convUpscaleFp16CoopPipeline_ != VK_NULL_HANDLE;
   const bool useFp16FinalScalarUpscale =
-      useFp16UpscaleCoop && fp16FinalScalarUpscale && cfg.channelsIn == 16 &&
+      fp16FinalScalarUpscale && cfg.isUpscale && cfg.isScale &&
+      !cfg.fp16Weights && cfg.channelsIn == 16 &&
       cfg.channelsOut == 8 && cfg.outputFp16 &&
       convUpscaleFp16ScalarFinalPipeline_ != VK_NULL_HANDLE;
   const bool useFp16SpatialDirect =
@@ -1632,6 +1886,29 @@ void Fsr4DispatchHarness::recordConvPass(VkCommandBuffer cmd,
                              !cfg.depthwise && !cfg.isScale &&
                              cfg.kernelW == 1 && cfg.kernelH == 1 &&
                              convPwFp16DirectPipeline_ != VK_NULL_HANDLE;
+  if (std::getenv("TFORGE_FSR4_TRACE_STAGE_CONFIG") &&
+      (stepIndex == 10u || stepIndex == 11u || stepIndex == 12u)) {
+    logInfo(
+        "Fsr4Harness stage-config step={} pass={} grid={}x{} cin={} cout={} "
+        "weightCin={} weightCout={} featBase={} accumBase={} coop={} "
+        "fp16Coop={} fp16Direct={} depthwise={} scale={} relu={} slot2w={}",
+        stepIndex, passCounter_ - 1u, dispatchW, dispatchH, cfg.channelsIn,
+        cfg.channelsOut, weightChannelsIn, weightChannelsOut, featBaseWords,
+        accumBaseWords, useCoop, useFp16Coop, useFp16Direct, cfg.depthwise,
+        cfg.isScale, cfg.hasRelu, cb.slot2[3]);
+  }
+  // Opt-in diagnostic only: the final decoder tensor must be written through
+  // binding 4 when outputFp16 is set. This trace makes the selected fallback
+  // visible without changing dispatch selection or the normal quality path.
+  if (cfg.outputFp16 && std::getenv("TFORGE_FSR4_TRACE_FINAL_PIPELINE")) {
+    logInfo(
+        "Fsr4Harness final-stage trace: fp16Fallback={} fp16Coop={} "
+        "fp16Upscale={} fp16Scalar={} genericCoop={} outputFp16={} "
+        "finalBuffer={}",
+        cap_.hasFp16Fallback, useFp16Coop, useFp16UpscaleCoop,
+        useFp16FinalScalarUpscale, useCoop, cfg.outputFp16,
+        static_cast<const void *>(res_.finalTensorBuffer));
+  }
   vkCmdBindPipeline(
       cmd, VK_PIPELINE_BIND_POINT_COMPUTE,
       useFp16DownscaleCoop        ? convDownscaleFp16CoopPipeline_
@@ -1687,13 +1964,19 @@ void Fsr4DispatchHarness::recordConvPass(VkCommandBuffer cmd,
     if (cbRingMapped_)
       std::memcpy(static_cast<char *>(cbRingMapped_) + bypassCbOffset, &bypass,
                   sizeof(bypass));
-    VkDescriptorSet bypassSet = VK_NULL_HANDLE;
-    VkDescriptorSetAllocateInfo bai{};
-    bai.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
-    bai.descriptorPool = descPool_;
-    bai.descriptorSetCount = 1;
-    bai.pSetLayouts = &convDescLayout_;
-    if (vkAllocateDescriptorSets(device_, &bai, &bypassSet) == VK_SUCCESS) {
+    const uint32_t bypassIndex =
+        std::min<uint32_t>(stepIndex, kMaxPasses - 1u);
+    VkDescriptorSet bypassSet = residualDescriptorSets_[bypassIndex];
+    if (bypassSet == VK_NULL_HANDLE) {
+      VkDescriptorSetAllocateInfo bai{};
+      bai.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
+      bai.descriptorPool = descPool_;
+      bai.descriptorSetCount = 1;
+      bai.pSetLayouts = &convDescLayout_;
+      if (vkAllocateDescriptorSets(device_, &bai, &bypassSet) == VK_SUCCESS)
+        residualDescriptorSets_[bypassIndex] = bypassSet;
+    }
+    if (bypassSet != VK_NULL_HANDLE) {
       VkDescriptorBufferInfo bcbInfo{cbRingBuffer_, bypassCbOffset,
                                      sizeof(BypassCB)};
       VkDescriptorBufferInfo sharedInfo{res_.sharedScratch, 0, VK_WHOLE_SIZE};
@@ -1737,6 +2020,8 @@ void Fsr4DispatchHarness::recordFusedResidualBlock16(
     int32_t slot2[4];
   } cb{};
 
+  const uint32_t descriptorIndex =
+      std::min<uint32_t>(passCounter_, kMaxPasses - 1u);
   const uint32_t inputBase = (passCounter_ % 2u) * slotSizeWords_;
   const uint32_t outputBase = ((passCounter_ + 3u) % 2u) * slotSizeWords_;
   passCounter_ += 3u;
@@ -1756,14 +2041,17 @@ void Fsr4DispatchHarness::recordFusedResidualBlock16(
   if (cbRingMapped_)
     std::memcpy(static_cast<char *>(cbRingMapped_) + cbOffset, &cb, sizeof(cb));
 
-  VkDescriptorSetAllocateInfo asi{};
-  asi.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
-  asi.descriptorPool = descPool_;
-  asi.descriptorSetCount = 1;
-  asi.pSetLayouts = &convDescLayout_;
-  VkDescriptorSet set = VK_NULL_HANDLE;
-  if (vkAllocateDescriptorSets(device_, &asi, &set) != VK_SUCCESS)
-    return;
+  VkDescriptorSet set = convDescriptorSets_[descriptorIndex];
+  if (set == VK_NULL_HANDLE) {
+    VkDescriptorSetAllocateInfo asi{};
+    asi.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
+    asi.descriptorPool = descPool_;
+    asi.descriptorSetCount = 1;
+    asi.pSetLayouts = &convDescLayout_;
+    if (vkAllocateDescriptorSets(device_, &asi, &set) != VK_SUCCESS)
+      return;
+    convDescriptorSets_[descriptorIndex] = set;
+  }
 
   VkDescriptorBufferInfo cbInfo{cbRingBuffer_, cbOffset, sizeof(cb)};
   VkDescriptorBufferInfo weightInfo{res_.weightBuffer, 0, VK_WHOLE_SIZE};
@@ -1845,6 +2133,12 @@ void Fsr4DispatchHarness::recordResidualAdd(VkCommandBuffer cmd,
   cb.s0[0] = static_cast<int32_t>(scratchSlot * slotSizeWords_);
   cb.s0[1] = static_cast<int32_t>(featureBaseWords);
   cb.s0[2] = static_cast<int32_t>(elementCount);
+  // Quality-campaign-only control: reproduce the former unquantized residual
+  // carrier for a matched A/B. The default keeps the recovered CopySat
+  // boundary; this flag exists only to measure whether that correction moves
+  // the real temporal output.
+  if (std::getenv("TFORGE_FSR4_EXPERIMENTAL_DISABLE_RESIDUAL_QUANTIZATION"))
+    cb.s0[3] = static_cast<int32_t>(0x40000000u);
 
   // Conv/scatter commands use slots [0, 79] (two slots per convolution),
   // while the postpass uses slot 112.  Residual commands are recorded into
@@ -1859,14 +2153,20 @@ void Fsr4DispatchHarness::recordResidualAdd(VkCommandBuffer cmd,
   if (cbRingMapped_)
     std::memcpy(static_cast<char *>(cbRingMapped_) + cbOffset, &cb, sizeof(cb));
 
-  VkDescriptorSetAllocateInfo asi{};
-  asi.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
-  asi.descriptorPool = descPool_;
-  asi.descriptorSetCount = 1;
-  asi.pSetLayouts = &convDescLayout_;
-  VkDescriptorSet set = VK_NULL_HANDLE;
-  if (vkAllocateDescriptorSets(device_, &asi, &set) != VK_SUCCESS)
-    return;
+  const uint32_t descriptorIndex =
+      std::min<uint32_t>(kMaxPasses - 1u,
+                         kMaxPasses / 2u + residualOpCounter_ - 1u);
+  VkDescriptorSet set = residualDescriptorSets_[descriptorIndex];
+  if (set == VK_NULL_HANDLE) {
+    VkDescriptorSetAllocateInfo asi{};
+    asi.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
+    asi.descriptorPool = descPool_;
+    asi.descriptorSetCount = 1;
+    asi.pSetLayouts = &convDescLayout_;
+    if (vkAllocateDescriptorSets(device_, &asi, &set) != VK_SUCCESS)
+      return;
+    residualDescriptorSets_[descriptorIndex] = set;
+  }
 
   VkDescriptorBufferInfo cbInfo{cbRingBuffer_, cbOffset, sizeof(cb)};
   VkDescriptorBufferInfo residualInfo{res_.featureBuffer, 0, VK_WHOLE_SIZE};
@@ -1923,63 +2223,15 @@ Fsr4DispatchResult Fsr4DispatchHarness::dispatchFrame(bool reset) {
     r.failReason = "harness not initialized";
     return r;
   }
-  if (!weightsUploaded_) {
+  if (!nativeInt8Active_ && !weightsUploaded_) {
     r.error = UpscaleError::InvalidResource;
     r.failReason = "weights not uploaded";
     return r;
   }
-  if (nativeInt8Active_) {
-    const auto t0 = std::chrono::steady_clock::now();
-    VkCommandBufferBeginInfo begin{};
-    begin.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
-    begin.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
-    if (vkBeginCommandBuffer(cmd_, &begin) != VK_SUCCESS) {
-      r.error = UpscaleError::DispatchFailed;
-      r.failReason = "begin native INT8 proof command buffer";
-      return r;
-    }
-    vkCmdResetQueryPool(cmd_, timestampPool_, 0, 2);
-    vkCmdWriteTimestamp(cmd_, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, timestampPool_,
-                        0);
-    vkCmdExecuteCommands(cmd_, 1, &nativeInt8Cmd_);
-    vkCmdWriteTimestamp(cmd_, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT,
-                        timestampPool_, 1);
-    if (vkEndCommandBuffer(cmd_) != VK_SUCCESS) {
-      r.error = UpscaleError::DispatchFailed;
-      r.failReason = "end native INT8 proof command buffer";
-      return r;
-    }
-    VkSubmitInfo submit{};
-    submit.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
-    submit.commandBufferCount = 1;
-    submit.pCommandBuffers = &cmd_;
-    if (vkQueueSubmit(queue_, 1, &submit, fence_) != VK_SUCCESS ||
-        vkWaitForFences(device_, 1, &fence_, VK_TRUE, UINT64_MAX) !=
-            VK_SUCCESS) {
-      r.error = UpscaleError::DispatchFailed;
-      r.failReason = "submit native INT8 proof graph";
-      return r;
-    }
-    vkResetFences(device_, 1, &fence_);
-    vkResetCommandBuffer(cmd_, 0);
-    std::array<uint64_t, 2> timestamps{};
-    if (vkGetQueryPoolResults(device_, timestampPool_, 0, 2, sizeof(timestamps),
-                              timestamps.data(), sizeof(uint64_t),
-                              VK_QUERY_RESULT_64_BIT) == VK_SUCCESS &&
-        timestamps[1] >= timestamps[0]) {
-      r.gpuMs =
-          double(timestamps[1] - timestamps[0]) * timestampPeriodNs_ / 1.0e6;
-    }
-    finalOutputInScratch_ = false;
-    finalAccumOffsetBytes_ = 0;
-    finalAccumFloatCount_ =
-        static_cast<size_t>(res_.outputWidth) * res_.outputHeight * 8u;
-    r.dispatchMs = std::chrono::duration<double, std::milli>(
-                       std::chrono::steady_clock::now() - t0)
-                       .count();
-    r.ok = true;
-    return r;
-  }
+  // Native INT8 remains the fast 14-pass convolution graph, but it must not
+  // bypass the temporal adapter.  The full dispatch below records the same
+  // prepass, native graph, and postpass used by the generic graph so motion,
+  // jitter, history, and display processing all reach the published image.
   auto t0 = std::chrono::steady_clock::now();
 
   VkCommandBufferBeginInfo bi{};
@@ -2005,7 +2257,6 @@ Fsr4DispatchResult Fsr4DispatchHarness::dispatchFrame(bool reset) {
   const uint32_t baseW = res_.outputWidth;
   const uint32_t baseH = res_.outputHeight;
   const auto &steps = kFsr4ConvSteps;
-
   size_t requestedSteps = steps.size();
   if (const char *env = std::getenv("TFORGE_FSR4_MAX_STEPS")) {
     char *end = nullptr;
@@ -2022,6 +2273,10 @@ Fsr4DispatchResult Fsr4DispatchHarness::dispatchFrame(bool reset) {
     const Fsr4ConvStep *next =
         (si + 1 < steps.size()) ? &steps[si + 1] : nullptr;
     auto cfg = makeConvConfig(s, next);
+    if (std::getenv("TFORGE_FSR4_DISABLE_RELU"))
+      cfg.hasRelu = false;
+    if (si == 12u && std::getenv("TFORGE_FSR4_STAGE12_COUT32"))
+      cfg.channelsOut = 32;
     const uint32_t dispW = std::max<uint32_t>(1u, baseW / s.spatialDiv);
     const uint32_t dispH = std::max<uint32_t>(1u, baseH / s.spatialDiv);
     const bool fused16 =
@@ -2064,9 +2319,9 @@ Fsr4DispatchResult Fsr4DispatchHarness::dispatchFrame(bool reset) {
       const uint32_t skipH = std::max<uint32_t>(1u, baseH / 4u);
       recordResidualCapture(cmd_, passCounter_ % 2u, skipW * skipH * 32u,
                             slotSizeWords_ * 2u);
-    }
-    recordConvPass(cmd_, cfg, dispW, dispH);
-    if (isResidualBlockEnd(si)) {
+      }
+      recordConvPass(cmd_, cfg, dispW, dispH);
+      if (isResidualBlockEnd(si)) {
       recordResidualAdd(cmd_, passCounter_ % 2u,
                         dispW * dispH * static_cast<uint32_t>(cfg.channelsOut));
     }
@@ -2194,7 +2449,8 @@ Fsr4DispatchResult Fsr4DispatchHarness::dispatchFrame(bool reset) {
   vkWaitForFences(device_, 1, &fence_, VK_TRUE, UINT64_MAX);
   vkResetFences(device_, 1, &fence_);
   vkResetCommandBuffer(cmd_, 0);
-  vkResetDescriptorPool(device_, descPool_, 0);
+  // Descriptor sets are cached for this target allocation. They are
+  // invalidated by allocateResources(), after the queue-idle handoff.
 
   std::array<uint64_t, kTimestampQueryCount> timestamps{};
   if (vkGetQueryPoolResults(device_, timestampPool_, 0, endQuery + 1u,
@@ -2235,19 +2491,53 @@ Fsr4DispatchResult Fsr4DispatchHarness::dispatchFrame(bool reset) {
 
 void Fsr4DispatchHarness::recordPrepass(VkCommandBuffer cmd,
                                         const FrameDispatchInput &in) {
+  // The promoted temporal path combines the measured campaign findings. The
+  // disable switch preserves a clean A/B escape hatch for diagnostics without
+  // making the normal player depend on review-capture environment variables.
+  // Upstream: decoded frame metadata and existing motion/history resources.
+  // Downstream: prepass flags, temporal state, and postpass composition.
+  const bool bestFindingsTemporal =
+      std::getenv("TFORGE_FSR4_DISABLE_BEST_FINDINGS") == nullptr;
+  // This opt-in layers the measured history/confidence combination onto the
+  // integrated motion/color profile without altering ordinary playback.
+  const bool integratedHistoryConfidenceProfile =
+      std::getenv("TFORGE_FSR4_INTEGRATED_HISTORY_CONFIDENCE") != nullptr ||
+      std::getenv("TFORGE_FSR4_INTEGRATED_BEST_FINDINGS") != nullptr ||
+      std::getenv("TFORGE_FSR4_INTEGRATED_BEST_FINDINGS_JITTER") != nullptr;
+  // Synthetic jitter is sampled in the prepass for this profile.  The
+  // postpass uses the same phase for its learned footprint, so applying the
+  // phase during upload would shift the source twice.
+  const bool integratedJitterProfile =
+      std::getenv("TFORGE_FSR4_INTEGRATED_BEST_FINDINGS_JITTER") != nullptr;
+  const bool dispatchTrace =
+      std::getenv("TFORGE_FSR4_DISPATCH_TRACE") != nullptr;
+  // The official-ordering jitter probe keeps motion vectors unjittered and
+  // lets the prepass consume the phase directly. Its history reprojection
+  // therefore follows the official velocity-only path; the established
+  // upload-jitter path retains the existing explicit phase-delta arm.
+  const bool sourceTapMuLaw =
+      std::getenv("TFORGE_FSR4_EXPERIMENTAL_SOURCE_TAP_MULAW") != nullptr ||
+      std::getenv("TFORGE_FSR4_INTEGRATED_BEST_FINDINGS_JITTER") != nullptr;
+  const bool prepassJitterOrdering =
+      std::getenv("TFORGE_FSR4_EXPERIMENTAL_PREPASS_JITTER_ORDERING") !=
+          nullptr ||
+      sourceTapMuLaw;
   // Allocate a descriptor set for the prepass. Binds:
   //   b0 uniform (PrepassCB), b1 color image, b2 motion image, b3 depth image,
   //   b4 weight blob SSBO, b5 prepass-output SSBO, b7 previous display
   //   history, b8 previous recurrent state.
-  VkDescriptorSet set = VK_NULL_HANDLE;
-  VkDescriptorSetAllocateInfo asi{};
-  asi.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
-  asi.descriptorPool = descPool_;
-  asi.descriptorSetCount = 1;
-  asi.pSetLayouts = &descLayout_;
-  if (vkAllocateDescriptorSets(device_, &asi, &set) != VK_SUCCESS) {
-    logError("Fsr4Harness: prepass desc set alloc failed");
-    return;
+  VkDescriptorSet set = prepassSet_;
+  if (set == VK_NULL_HANDLE) {
+    VkDescriptorSetAllocateInfo asi{};
+    asi.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
+    asi.descriptorPool = descPool_;
+    asi.descriptorSetCount = 1;
+    asi.pSetLayouts = &descLayout_;
+    if (vkAllocateDescriptorSets(device_, &asi, &set) != VK_SUCCESS) {
+      logError("Fsr4Harness: prepass desc set alloc failed");
+      return;
+    }
+    prepassSet_ = set;
   }
 
   // Write the uniform buffer (PrepassCB) into the CB ring at slot 0.
@@ -2256,29 +2546,225 @@ void Fsr4DispatchHarness::recordPrepass(VkCommandBuffer cmd,
   struct PrepassCB {
     uint32_t s0x, s0y, s0z, s0w;
     float s1x, s1y, s1z, s1w;
+    float s2x, s2y, s2z, s2w;
+    uint32_t s3x, s3y, s3z, s3w;
   };
   const VkDeviceSize cbOffset = 0; // slot 0 (prepass owns the first 32 bytes)
-  PrepassCB cbData;
-  cbData.s0x = res_.outputWidth;
-  cbData.s0y = res_.outputHeight;
-  cbData.s0z = (in.hdr ? 0u : 1u) | (in.reset ? 2u : 0u);
+  PrepassCB cbData{};
+  // Both graph families consume the prepass as their full-resolution input
+  // tensor. Their first convolution performs the 2x2 stride-2 reduction
+  // itself (native pass 0 is fixed at this geometry; generic pass 0 is the
+  // recovered spatialDiv=2 row). Writing half resolution here would make
+  // the graph interpret a short row as a full row, so every pixel after the
+  // first would read the wrong source features.
+  const uint32_t prepassWidth = res_.outputWidth;
+  const uint32_t prepassHeight = res_.outputHeight;
+  cbData.s0x = prepassWidth;
+  cbData.s0y = prepassHeight;
+  const bool recurrentResetOnly =
+      in.reset && std::getenv("TFORGE_FSR4_EXPERIMENTAL_RECURRENT_RESET_ONLY");
+  cbData.s0z = (in.hdr ? 0u : 1u) |
+               (in.reset && !recurrentResetOnly ? 2u : 0u);
+  if (nativeInt8Active_)
+    cbData.s0z |= 4096u;
+  // RE-guided opt-in (TFORGE_PREPASS_JITTER_IN_RESOLVE): leave the uploaded model-color grid unjittered and let
+  // the prepass apply the model-pixel phase to its official 2x2 input resolve.
+  // Upstream: PlaybackEngine's matching upload-jitter suppression. Downstream:
+  // current resolve and all temporal features. Default remains unchanged.
+  if (std::getenv("TFORGE_FSR4_EXPERIMENTAL_PREPASS_JITTER_ORDERING") ||
+      integratedJitterProfile)
+    cbData.s0z |= 131072u;
+  // Isolate the official source-space Mu-law-before-filter ordering. This
+  // diagnostic shares the prepass jitter suppression contract so a source
+  // tap is never combined with an upload-time jitter shift.
+  if (sourceTapMuLaw)
+    cbData.s0z |= 2048u;
+  if (recurrentResetOnly)
+    cbData.s0z |= 1048576u;
+  // Benchmark-only control for a matched A/B against the pre-coverage
+  // behavior. The default remains the explicit per-pixel validity gate.
+  if (std::getenv("TFORGE_FSR4_DISABLE_MOTION_VALIDITY"))
+    cbData.s0z |= 512u;
+  // Opt-in continuous correspondence confidence. The default remains binary
+  // validity; this bit lets the prepass use the R8 validity value as a soft
+  // history weight when the uploader has annotated motion vectors.
+  if (bestFindingsTemporal ||
+      std::getenv("TFORGE_FSR4_EXPERIMENTAL_MOTION_CONFIDENCE_MAP"))
+    cbData.s0z |= 8388608u;
+  // Opt-in Phase 3 per-pixel history validation. The prepass compares the
+  // current target pixel with the motion-reprojected history pixel and uses
+  // that local photometric agreement to reduce history accumulation. The
+  // default path remains unchanged unless the benchmark explicitly requests
+  // this candidate. The paired disable control is intentionally narrower
+  // than DISABLE_BEST_FINDINGS: it removes only the photometric rejection so
+  // a temporal A/B retains the identical codec-motion, confidence-map, and
+  // recurrent-state contracts.
+  const bool disablePhotometricHistoryGate =
+      std::getenv("TFORGE_FSR4_DISABLE_PHOTOMETRIC_HISTORY_GATE") != nullptr;
+  if (!disablePhotometricHistoryGate &&
+      (bestFindingsTemporal ||
+       std::getenv("TFORGE_FSR4_EXPERIMENTAL_PHOTOMETRIC_HISTORY_GATE")))
+    cbData.s0z |= 536870912u;
+  // Quality-lab-only motion diagnostic. The decoder motion texture is
+  // unjittered by contract, so this opt-in subtracts the current color jitter
+  // before sampling that texture while leaving the default path unchanged.
+  if (std::getenv("TFORGE_FSR4_EXPERIMENTAL_UNJITTERED_MOTION_SAMPLE"))
+    cbData.s0z |= 268435456u;
+  // Deliberately mismatched motion diagnostic. The production path samples
+  // unjittered motion at `inputPos`; this opt-in adds the color jitter back to
+  // the motion lookup so a paired capture can measure the cost of violating
+  // that contract. Upstream: FrameDispatchInput jitter. Downstream: history
+  // and recurrent reprojection only. It is never enabled by normal playback.
+  if (std::getenv("TFORGE_FSR4_EXPERIMENTAL_JITTERED_MOTION_SAMPLE"))
+    cbData.s0z |= 67108864u;
+  // The reference temporal path uses zero history for rejected or uncovered
+  // correspondence. Keep the former current-as-history behavior behind an
+  // explicit compatibility flag for regression comparisons.
+  if (std::getenv("TFORGE_FSR4_EXPERIMENTAL_CURRENT_INVALID_HISTORY"))
+    cbData.s0z |= 2147483648u;
+  // Diagnostic-only reprojection readback control. When enabled, publish the
+  // current resolved color instead of the sampled history so the capture can
+  // prove that the FP16 image readback carries real color values. Upstream:
+  // benchmark diagnostics. Downstream: only reprojected-color dump files;
+  // normal temporal composition is unchanged.
+  if (std::getenv("TFORGE_FSR4_EXPERIMENTAL_DUMP_CURRENT_HISTORY"))
+    cbData.s3x |= 1u;
+  // Diagnostic-only history rectification scale. This multiplies the
+  // current-frame correction after motion/confidence/photometric gating;
+  // keeping the default at 1.0 preserves the repaired production path.
+  // Upstream: benchmark environment. Downstream: prepass history composition.
+  float historyRectificationScale = 1.0f;
+  if (const char *rectificationEnv =
+          std::getenv("TFORGE_FSR4_HISTORY_RECTIFICATION_SCALE")) {
+    char *end = nullptr;
+    const float value = std::strtof(rectificationEnv, &end);
+    if (end != rectificationEnv && *end == '\0' && std::isfinite(value))
+      historyRectificationScale = std::clamp(value, 0.0f, 4.0f);
+  }
+  std::memcpy(&cbData.s3y, &historyRectificationScale,
+              sizeof(historyRectificationScale));
+  // Opt-in recurrent-coordinate A/B. The default reprojects recurrent state
+  // with color history; this probe reads the previous state at the current
+  // output coordinate to falsify that assumption without changing defaults.
+  if (std::getenv("TFORGE_FSR4_EXPERIMENTAL_RECURRENT_CURRENT_COORD"))
+    cbData.s0z |= 16777216u;
   // The game model's recurrent state is not stable with codec-derived video
   // inputs. Keep producing it for inspection, but only feed it back when
-  // explicitly requested. The postpass still uses causal model history; the
-  // prepass display-color feedback is opt-in because it is expensive and does
-  // not improve measured video quality.
-  if (!std::getenv("TFORGE_FSR4_ENABLE_RECURRENT"))
+  // explicitly requested. Display-color history remains opt-in because its
+  // benefit is resolution-dependent; the campaign showed gains for severe
+  // upscales but spatial regressions at 1280x720 input.
+  if (!bestFindingsTemporal &&
+      !std::getenv("TFORGE_FSR4_ENABLE_RECURRENT"))
     cbData.s0z |= 4u;
-  if (!std::getenv("TFORGE_FSR4_ENABLE_COLOR_HISTORY") ||
+  if ((!bestFindingsTemporal && !integratedHistoryConfidenceProfile &&
+       !std::getenv("TFORGE_FSR4_ENABLE_COLOR_HISTORY")) ||
       std::getenv("TFORGE_FSR4_DISABLE_COLOR_HISTORY"))
     cbData.s0z |= 8u;
+  // Quality-lab-only A/B: public FSR uses the input alpha directly for the
+  // current-frame history weight. Video has no meaningful alpha, so the
+  // normal path uses the Gaussian resolve's center tap. This opt-in tests
+  // the reference-style fixed 0.1 weight without changing normal playback.
+  if (std::getenv("TFORGE_FSR4_EXPERIMENTAL_FIXED_HISTORY_WEIGHT"))
+    cbData.s0z |= 4194304u;
   cbData.s0w = 0u;
+  if (const char *motionSign =
+          std::getenv("TFORGE_FSR4_EXPERIMENTAL_MOTION_SIGN")) {
+    if (std::strcmp(motionSign, "invert") == 0 ||
+        std::strcmp(motionSign, "-1") == 0 ||
+        std::strcmp(motionSign, "negative") == 0)
+      cbData.s0z |= 8192u;
+  }
+  if (const char *motionScale =
+          std::getenv("TFORGE_FSR4_EXPERIMENTAL_MOTION_SCALE")) {
+    char *end = nullptr;
+    const float value = std::strtof(motionScale, &end);
+    if (end != motionScale && *end == '\0' && std::isfinite(value) &&
+        value >= 0.0f && value <= 8.0f) {
+      cbData.s0z |= 16384u;
+      std::memcpy(&cbData.s0w, &value, sizeof(value));
+    }
+  }
+  if (const char *motionRounding =
+          std::getenv("TFORGE_FSR4_EXPERIMENTAL_MOTION_ROUNDING")) {
+    if (std::strcmp(motionRounding, "floor") == 0)
+      cbData.s0z |= 32768u;
+    else if (std::strcmp(motionRounding, "ceil") == 0)
+      cbData.s0z |= 65536u;
+  }
+  if (const char *historyInterpolation =
+          std::getenv("TFORGE_FSR4_EXPERIMENTAL_HISTORY_INTERPOLATION")) {
+    if (std::strcmp(historyInterpolation, "bilinear") == 0 ||
+        std::strcmp(historyInterpolation, "linear") == 0)
+      cbData.s0z |= 262144u;
+    else if (std::strcmp(historyInterpolation, "nearest") == 0)
+      cbData.s0z |= 524288u;
+  }
   cbData.s1x = static_cast<float>(res_.outputWidth) /
                static_cast<float>(res_.sourceWidth);
   cbData.s1y = static_cast<float>(res_.outputHeight) /
                static_cast<float>(res_.sourceHeight);
   cbData.s1z = in.jitterX;
   cbData.s1w = in.jitterY;
+  // Publish the decoder/history confidence beside the existing prepass
+  // constants. The default display-color-history path consumes this value for
+  // temporal weighting; the threshold override remains a benchmark-only
+  // control and does not change the resource layout.
+  cbData.s2x = std::clamp(in.historyConfidence, 0.0f, 1.0f);
+  cbData.s2y = 0.0f;
+  // Keep the corrected jitter-history reprojection diagnostic-only until its
+  // matched A/B capture clears the quality gate. The values are carried in
+  // otherwise-unused constants so the control arm remains byte-for-byte
+  // equivalent in shader behavior.
+  cbData.s2z = in.jitterX - in.previousJitterX;
+  cbData.s2w = in.jitterY - in.previousJitterY;
+  // A non-zero jitter means the color input was genuinely sampled at a new
+  // phase. Reprojecting the previously published history therefore needs the
+  // current-minus-previous phase delta; leaving this opt-in-only would make
+  // the newly applied color jitter look like scene motion. The environment
+  // variable remains an explicit alias for zero-jitter diagnostics.
+  // Keep a diagnostic opt-out for isolating scene-dependent jitter results.
+  // The normal path still enables the correction whenever either the current
+  // or previous dispatch used a nonzero physical jitter phase. Upstream:
+  // PlaybackEngine's model-space jitter pair. Downstream: prepass history
+  // reprojection only; this does not alter motion-vector contents.
+  const bool disableHistoryJitterDelta =
+      std::getenv("TFORGE_FSR4_EXPERIMENTAL_DISABLE_HISTORY_JITTER_DELTA") !=
+      nullptr;
+  if (!disableHistoryJitterDelta &&
+      (!prepassJitterOrdering ||
+       std::getenv("TFORGE_FSR4_EXPERIMENTAL_HISTORY_JITTER_DELTA")) &&
+      ((in.jitterX != 0.0f || in.jitterY != 0.0f ||
+        in.previousJitterX != 0.0f || in.previousJitterY != 0.0f) ||
+       std::getenv("TFORGE_FSR4_EXPERIMENTAL_HISTORY_JITTER_DELTA")))
+    cbData.s0z |= 33554432u;
+  const char *thresholdEnv =
+      std::getenv("TFORGE_FSR4_HISTORY_CONFIDENCE_THRESHOLD");
+  if (!thresholdEnv && bestFindingsTemporal)
+    thresholdEnv = "0.55";
+  if (thresholdEnv) {
+    char *end = nullptr;
+    const float threshold = std::strtof(thresholdEnv, &end);
+    if (end != thresholdEnv && *end == '\0' && std::isfinite(threshold)) {
+      cbData.s0z |= 1073741824u;
+      cbData.s2y = std::clamp(threshold, 0.0f, 1.0f);
+    }
+  }
+  // Keep temporal-input provenance visible in diagnostic captures. The stage
+  // markers below prove that work was dispatched, while this record proves
+  // which history/recurrent/reset bits were actually written into the
+  // prepass constants for that dispatch. It is trace-only and cannot alter
+  // the command buffer or the default image path.
+  if (dispatchTrace) {
+    const bool historyGateEnabled = (cbData.s0z & 1073741824u) != 0u;
+    const bool historyGatePass =
+        !historyGateEnabled || cbData.s2x >= cbData.s2y;
+    logInfo("Fsr4Harness dispatch trace: temporal flags s0z={} reset={} "
+            "colorHistory={} recurrent={} confidence={} "
+            "historyGateEnabled={} historyGatePass={} threshold={}",
+            cbData.s0z, in.reset, (cbData.s0z & 8u) == 0u,
+            (cbData.s0z & 4u) == 0u, cbData.s2x, historyGateEnabled,
+            historyGatePass, cbData.s2y);
+  }
   if (cbRingMapped_)
     std::memcpy(static_cast<char *>(cbRingMapped_) + cbOffset, &cbData,
                 sizeof(cbData));
@@ -2287,16 +2773,29 @@ void Fsr4DispatchHarness::recordPrepass(VkCommandBuffer cmd,
                                   VK_IMAGE_LAYOUT_GENERAL};
   VkDescriptorImageInfo motionInfo{VK_NULL_HANDLE, in.motionView,
                                    VK_IMAGE_LAYOUT_GENERAL};
+  VkDescriptorImageInfo motionValidityInfo{
+      VK_NULL_HANDLE, in.motionValidityView, VK_IMAGE_LAYOUT_GENERAL};
   VkDescriptorImageInfo depthInfo{VK_NULL_HANDLE, in.depthView,
                                   VK_IMAGE_LAYOUT_GENERAL};
   VkDescriptorImageInfo historyInfo{VK_NULL_HANDLE, in.historyReadView,
                                     VK_IMAGE_LAYOUT_GENERAL};
   VkDescriptorImageInfo recurrentInfo{VK_NULL_HANDLE, in.recurrentReadView,
                                       VK_IMAGE_LAYOUT_GENERAL};
+  VkDescriptorImageInfo reprojectedInfo{VK_NULL_HANDLE,
+                                        in.reprojectedColorView,
+                                        VK_IMAGE_LAYOUT_GENERAL};
+  VkDescriptorImageInfo sourceDisplayInfo{
+      VK_NULL_HANDLE, in.sourceDisplayView, VK_IMAGE_LAYOUT_GENERAL};
   VkDescriptorBufferInfo wInfo{res_.weightBuffer, 0, VK_WHOLE_SIZE};
-  VkDescriptorBufferInfo pOutInfo{res_.finalTensorBuffer, 0, VK_WHOLE_SIZE};
+  // Both graph families consume the first FP16 feature tensor from
+  // finalTensorBuffer: native pass 0 reads binding 0, and generic FP16 pass 0
+  // reads its binding-4 edge tensor. Keeping one destination here prevents
+  // motion/history features from being written to a buffer that pass 0 never
+  // reads.
+  const VkBuffer prepassOutputBuffer = res_.finalTensorBuffer;
+  VkDescriptorBufferInfo pOutInfo{prepassOutputBuffer, 0, VK_WHOLE_SIZE};
 
-  VkWriteDescriptorSet w[8]{};
+  VkWriteDescriptorSet w[11]{};
   w[0].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
   w[0].dstSet = set;
   w[0].dstBinding = 0;
@@ -2335,23 +2834,41 @@ void Fsr4DispatchHarness::recordPrepass(VkCommandBuffer cmd,
   w[5].pBufferInfo = &pOutInfo;
   w[6].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
   w[6].dstSet = set;
-  w[6].dstBinding = 7;
+  w[6].dstBinding = 6;
   w[6].descriptorCount = 1;
   w[6].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
-  w[6].pImageInfo = &historyInfo;
+  w[6].pImageInfo = &motionValidityInfo;
   w[7].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
   w[7].dstSet = set;
-  w[7].dstBinding = 8;
+  w[7].dstBinding = 7;
   w[7].descriptorCount = 1;
   w[7].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
-  w[7].pImageInfo = &recurrentInfo;
-  vkUpdateDescriptorSets(device_, 8, w, 0, nullptr);
+  w[7].pImageInfo = &historyInfo;
+  w[8].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+  w[8].dstSet = set;
+  w[8].dstBinding = 8;
+  w[8].descriptorCount = 1;
+  w[8].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+  w[8].pImageInfo = &recurrentInfo;
+  w[9].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+  w[9].dstSet = set;
+  w[9].dstBinding = 9;
+  w[9].descriptorCount = 1;
+  w[9].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+  w[9].pImageInfo = &reprojectedInfo;
+  w[10].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+  w[10].dstSet = set;
+  w[10].dstBinding = 10;
+  w[10].descriptorCount = 1;
+  w[10].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+  w[10].pImageInfo = &sourceDisplayInfo;
+  vkUpdateDescriptorSets(device_, 11, w, 0, nullptr);
 
   vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, prepassPipeline_);
   vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, prepassLayout_,
                           0, 1, &set, 0, nullptr);
-  vkCmdDispatch(cmd, (res_.outputWidth + 31u) / 32u,
-                (res_.outputHeight + 7u) / 8u, 1);
+  vkCmdDispatch(cmd, (prepassWidth + 31u) / 32u,
+                (prepassHeight + 7u) / 8u, 1);
   // Reset after submit; do not free while the command buffer references it.
 
   // Barrier: prepass writes (SSBO) must complete before conv reads.
@@ -2368,6 +2885,7 @@ bool Fsr4DispatchHarness::diagnosePrepass(const FrameDispatchInput &in) {
   // Run ONLY the prepass in a standalone command buffer submit, then read
   // back the first 256 floats of scratch to see if features were written.
   // This isolates prepass failures from conv-chain failures.
+  logInfo("Fsr4Harness DIAGNOSE: begin prepass/conv0 readback");
   auto runAndSubmit = [&](VkCommandBuffer cb) {
     VkSubmitInfo si{};
     si.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
@@ -2383,6 +2901,55 @@ bool Fsr4DispatchHarness::diagnosePrepass(const FrameDispatchInput &in) {
     vkResetCommandBuffer(cb, 0);
     vkResetDescriptorPool(device_, descPool_, 0);
     return true;
+  };
+  // Device-local buffers cannot be mapped directly on this RADV setup. Keep
+  // diagnostics honest by copying a small FP16 sample through a host-visible
+  // staging buffer instead of dereferencing an invalid map.
+  auto readbackSample = [&](VkBuffer source, VkDeviceSize sourceOffset,
+                            size_t byteCount,
+                            std::vector<uint16_t> &sample) {
+    VkBuffer staging = VK_NULL_HANDLE;
+    VkDeviceMemory stagingMemory = VK_NULL_HANDLE;
+    if (!createGpuBuffer(byteCount, VK_BUFFER_USAGE_TRANSFER_DST_BIT,
+                         VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
+                             VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+                         staging, stagingMemory, "diagnose-staging"))
+      return false;
+    VkCommandBufferBeginInfo bi{};
+    bi.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+    bi.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+    bool ok = vkBeginCommandBuffer(cmd_, &bi) == VK_SUCCESS;
+    if (ok) {
+      VkBufferMemoryBarrier barrier{};
+      barrier.sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER;
+      barrier.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
+      barrier.dstAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
+      barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+      barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+      barrier.buffer = source;
+      barrier.offset = sourceOffset;
+      barrier.size = byteCount;
+      vkCmdPipelineBarrier(cmd_, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+                           VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, nullptr, 1,
+                           &barrier, 0, nullptr);
+      VkBufferCopy copy{sourceOffset, 0, byteCount};
+      vkCmdCopyBuffer(cmd_, source, staging, 1, &copy);
+      ok = vkEndCommandBuffer(cmd_) == VK_SUCCESS;
+    }
+    if (ok)
+      ok = runAndSubmit(cmd_);
+    if (ok) {
+      void *mapped = nullptr;
+      ok = vkMapMemory(device_, stagingMemory, 0, byteCount, 0, &mapped) ==
+           VK_SUCCESS;
+      if (ok) {
+        sample.resize(byteCount / sizeof(uint16_t));
+        std::memcpy(sample.data(), mapped, byteCount);
+        vkUnmapMemory(device_, stagingMemory);
+      }
+    }
+    freeGpuBuffer(staging, stagingMemory);
+    return ok;
   };
 
   // --- Phase 1: prepass only ---
@@ -2419,25 +2986,29 @@ bool Fsr4DispatchHarness::diagnosePrepass(const FrameDispatchInput &in) {
     if (!runAndSubmit(cmd_))
       return false;
 
-    void *mapped = nullptr;
-    if (vkMapMemory(device_, res_.sharedScratchMemory, 0, 4096, 0, &mapped) !=
-        VK_SUCCESS)
+    std::vector<uint16_t> sample;
+    if (!readbackSample(res_.finalTensorBuffer, 0, 4096, sample)) {
+      logWarn("Fsr4Harness DIAGNOSE: prepass readback failed");
       return false;
-    auto *f = static_cast<const float *>(mapped);
+    }
+    const auto *f = reinterpret_cast<const _Float16 *>(sample.data());
     int nz = 0;
     float mn = 1e30f, mx = -1e30f;
     for (int i = 0; i < 256; ++i) {
-      if (std::isnan(f[i]) || std::isinf(f[i]))
+      const float value = static_cast<float>(f[i]);
+      if (std::isnan(value) || std::isinf(value))
         continue;
-      if (f[i] != 0.0f)
+      if (value != 0.0f)
         ++nz;
-      mn = std::min(mn, f[i]);
-      mx = std::max(mx, f[i]);
+      mn = std::min(mn, value);
+      mx = std::max(mx, value);
     }
     logInfo("Fsr4Harness DIAGNOSE phase1 prepass: scratch[0..256] nz={} "
             "range[{},{}] f8=[{},{},{},{},{},{},{},{}]",
-            nz, mn, mx, f[0], f[1], f[2], f[3], f[4], f[5], f[6], f[7]);
-    vkUnmapMemory(device_, res_.sharedScratchMemory);
+            nz, mn, mx, static_cast<float>(f[0]), static_cast<float>(f[1]),
+            static_cast<float>(f[2]), static_cast<float>(f[3]),
+            static_cast<float>(f[4]), static_cast<float>(f[5]),
+            static_cast<float>(f[6]), static_cast<float>(f[7]));
   }
 
   // --- Phase 2: prepass + conv step 0 only ---
@@ -2488,62 +3059,45 @@ bool Fsr4DispatchHarness::diagnosePrepass(const FrameDispatchInput &in) {
 
     // Read accum slot 0 (passCounter_ was 0, accumBase = ((0+1)%2)*slotSize =
     // slotSize).
-    const uint32_t slotSize = 128u * res_.sourceWidth * res_.sourceHeight;
-    const VkDeviceSize accumOff = slotSize * 4u; // slot 1
-    void *mapped = nullptr;
-    if (vkMapMemory(device_, res_.accumMemory, accumOff, 4096, 0, &mapped) !=
-        VK_SUCCESS)
+    const VkDeviceSize accumOff =
+        static_cast<VkDeviceSize>(slotSizeWords_) * sizeof(uint16_t);
+    std::vector<uint16_t> sample;
+    if (!readbackSample(res_.sharedScratch, accumOff, 4096, sample)) {
+      logWarn("Fsr4Harness DIAGNOSE: conv0 readback failed at offset {}",
+              accumOff);
       return false;
-    auto *f = static_cast<const float *>(mapped);
+    }
+    const auto *f = reinterpret_cast<const _Float16 *>(sample.data());
     int nz = 0;
     float mn = 1e30f, mx = -1e30f;
     for (int i = 0; i < 256; ++i) {
-      if (std::isnan(f[i]) || std::isinf(f[i]))
+      const float value = static_cast<float>(f[i]);
+      if (std::isnan(value) || std::isinf(value))
         continue;
-      if (f[i] != 0.0f)
+      if (value != 0.0f)
         ++nz;
-      mn = std::min(mn, f[i]);
-      mx = std::max(mx, f[i]);
+      mn = std::min(mn, value);
+      mx = std::max(mx, value);
     }
     logInfo("Fsr4Harness DIAGNOSE phase2 conv0: accum@{}[0..256] nz={} "
             "range[{},{}] f8=[{},{},{},{},{},{},{},{}]",
-            accumOff, nz, mn, mx, f[0], f[1], f[2], f[3], f[4], f[5], f[6],
-            f[7]);
+            accumOff, nz, mn, mx, static_cast<float>(f[0]),
+            static_cast<float>(f[1]), static_cast<float>(f[2]),
+            static_cast<float>(f[3]), static_cast<float>(f[4]),
+            static_cast<float>(f[5]), static_cast<float>(f[6]),
+            static_cast<float>(f[7]));
     // Check spatial variation across multiple channels.
     // Conv0 output is 16ch at 320×180. Pixel N's ch C = f[N*16 + C].
     logInfo("Fsr4Harness DIAGNOSE conv0 spatial (16ch, pixels 0/50/100/200):");
     for (int c = 0; c < 16; ++c) {
-      float p0 = f[0 * 16 + c];
-      float p50 = f[50 * 16 + c];
-      float p100 = f[100 * 16 + c];
-      float p200 = f[200 * 16 + c];
+      float p0 = static_cast<float>(f[0 * 16 + c]);
+      float p50 = static_cast<float>(f[50 * 16 + c]);
+      float p100 = static_cast<float>(f[100 * 16 + c]);
+      float p200 = static_cast<float>(f[200 * 16 + c]);
       bool vary = (p0 != p50 || p0 != p100 || p0 != p200);
       if (vary || p0 != 0.0f)
         logInfo("  ch{:2d}: p0={:.4f} p50={:.4f} p100={:.4f} p200={:.4f} {}", c,
                 p0, p50, p100, p200, vary ? "VARY" : "");
-    }
-    vkUnmapMemory(device_, res_.accumMemory);
-
-    // Also read scratch slot 1 (scatter copied conv0 output there).
-    void *smapped = nullptr;
-    if (vkMapMemory(device_, res_.sharedScratchMemory, slotSize * 4u, 4096, 0,
-                    &smapped) == VK_SUCCESS) {
-      auto *sf = static_cast<const float *>(smapped);
-      int snz = 0;
-      float smn = 1e30f, smx = -1e30f;
-      for (int i = 0; i < 256; ++i) {
-        if (std::isnan(sf[i]) || std::isinf(sf[i]))
-          continue;
-        if (sf[i] != 0.0f)
-          ++snz;
-        smn = std::min(smn, sf[i]);
-        smx = std::max(smx, sf[i]);
-      }
-      logInfo("Fsr4Harness DIAGNOSE phase2 scatter: scratch@{}[0..256] nz={} "
-              "range[{},{}] f8=[{},{},{},{},{},{},{},{}]",
-              slotSize * 4u, snz, smn, smx, sf[0], sf[1], sf[2], sf[3], sf[4],
-              sf[5], sf[6], sf[7]);
-      vkUnmapMemory(device_, res_.sharedScratchMemory);
     }
   }
   return true;
@@ -2552,28 +3106,40 @@ bool Fsr4DispatchHarness::diagnosePrepass(const FrameDispatchInput &in) {
 Fsr4DispatchResult
 Fsr4DispatchHarness::dispatchFrame(const FrameDispatchInput &in) {
   Fsr4DispatchResult r;
+  if (frameInFlight_) {
+    r.error = UpscaleError::DispatchFailed;
+    r.failReason = "previous asynchronous frame is still in flight";
+    return r;
+  }
   if (!initialized()) {
     r.error = UpscaleError::ContextCreateFailed;
     r.failReason = "harness not initialized";
     return r;
   }
-  if (!weightsUploaded_) {
+  if (!nativeInt8Active_ && !weightsUploaded_) {
     r.error = UpscaleError::InvalidResource;
     r.failReason = "weights not uploaded";
     return r;
   }
-  if (in.colorView == VK_NULL_HANDLE || in.outputView == VK_NULL_HANDLE) {
+  if (in.colorView == VK_NULL_HANDLE ||
+      in.sourceDisplayView == VK_NULL_HANDLE ||
+      in.outputView == VK_NULL_HANDLE) {
     r.error = UpscaleError::InvalidResource;
     r.failReason = "missing input/output image views";
     return r;
   }
   auto t0 = std::chrono::steady_clock::now();
-
-  // One-shot diagnostic: run the prepass alone and read back scratch to
-  // isolate where the conv chain loses data. Disabled after first frame.
+  const bool dispatchTrace =
+      std::getenv("TFORGE_FSR4_DISPATCH_TRACE") != nullptr;
+  // The old standalone prepass readback path is not safe on all Vulkan memory
+  // types used by the RADV device. Keep the environment name recognized, but
+  // refuse to execute the probe rather than allowing an opt-in diagnostic to
+  // crash the player. Real-frame output and GPU timing diagnostics remain
+  // available through the normal capture path.
   if (diagnoseEnabled_) {
     diagnoseEnabled_ = false;
-    diagnosePrepass(in);
+    logWarn("Fsr4Harness: TFORGE_FSR4_DIAGNOSE is disabled on this Vulkan "
+            "memory path; use output readback diagnostics instead");
   }
 
   VkCommandBufferBeginInfo bi{};
@@ -2595,11 +3161,46 @@ Fsr4DispatchHarness::dispatchFrame(const FrameDispatchInput &in) {
   vkCmdWriteTimestamp(cmd_, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, timestampPool_,
                       0);
 
+  // The uploader prefix is ordered before this command buffer in the same
+  // queue submission. Establish visibility for both independently bound
+  // source images; command-buffer ordering alone is not a memory dependency.
+  {
+    std::array<VkImageMemoryBarrier, 4> inputBarriers{};
+    uint32_t inputBarrierCount = 0;
+    auto addInputBarrier = [&](VkImage image) {
+      if (image == VK_NULL_HANDLE)
+        return;
+      auto &inputBarrier = inputBarriers[inputBarrierCount++];
+      inputBarrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+      inputBarrier.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
+      inputBarrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+      inputBarrier.oldLayout = VK_IMAGE_LAYOUT_GENERAL;
+      inputBarrier.newLayout = VK_IMAGE_LAYOUT_GENERAL;
+      inputBarrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+      inputBarrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+      inputBarrier.image = image;
+      inputBarrier.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+    };
+    addInputBarrier(in.colorImage);
+    if (in.sourceDisplayImage != in.colorImage)
+      addInputBarrier(in.sourceDisplayImage);
+    // Motion and its separate coverage plane are produced by the upload
+    // prefix and must be visible before the prepass samples them.
+    addInputBarrier(in.motionImage);
+    addInputBarrier(in.motionValidityImage);
+    if (inputBarrierCount != 0) {
+    vkCmdPipelineBarrier(cmd_, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+                         VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 0, nullptr,
+                           0, nullptr, inputBarrierCount,
+                           inputBarriers.data());
+    }
+  }
+
   // The prepass consumes the previous display/recurrent history before the
   // conv chain begins. Make the prior frame's shader writes visible here;
   // the later postpass barrier cannot retroactively protect this read.
   {
-    std::array<VkImageMemoryBarrier, 2> barriers{};
+    std::array<VkImageMemoryBarrier, 3> barriers{};
     uint32_t barrierCount = 0;
     auto addHistoryReadBarrier = [&](VkImage image) {
       if (image == VK_NULL_HANDLE)
@@ -2617,6 +3218,18 @@ Fsr4DispatchHarness::dispatchFrame(const FrameDispatchInput &in) {
     };
     addHistoryReadBarrier(in.historyReadImage);
     addHistoryReadBarrier(in.recurrentReadImage);
+    if (in.reprojectedColorImage != VK_NULL_HANDLE) {
+      auto &b = barriers[barrierCount++];
+      b.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+      b.srcAccessMask = VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT;
+      b.dstAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
+      b.oldLayout = VK_IMAGE_LAYOUT_GENERAL;
+      b.newLayout = VK_IMAGE_LAYOUT_GENERAL;
+      b.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+      b.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+      b.image = in.reprojectedColorImage;
+      b.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+    }
     if (barrierCount != 0) {
       vkCmdPipelineBarrier(cmd_, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
                            VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 0, nullptr,
@@ -2625,34 +3238,72 @@ Fsr4DispatchHarness::dispatchFrame(const FrameDispatchInput &in) {
   }
 
   // --- 1. Prepass (gap #4 closed): dispatches on real input images ---
-  if (std::getenv("TFORGE_FSR4_DISABLE_PREPASS") == nullptr)
+  const bool prepassDisabled =
+      std::getenv("TFORGE_FSR4_DISABLE_PREPASS") != nullptr;
+  if (dispatchTrace)
+    logInfo("Fsr4Harness dispatch trace: prepass {}",
+            prepassDisabled ? "skipped" : "begin");
+  if (!prepassDisabled)
     recordPrepass(cmd_, in);
+  if (dispatchTrace)
+    logInfo("Fsr4Harness dispatch trace: prepass {}",
+            prepassDisabled ? "skipped" : "recorded");
   if (profileStages)
     vkCmdWriteTimestamp(cmd_, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
                         timestampPool_, 1);
+
+  const uint32_t baseW = res_.outputWidth;
+  const uint32_t baseH = res_.outputHeight;
 
   // --- 2. Native fused INT8 graph, with the split graph retained only as
   // a fallback for resolutions that do not yet have a generated shader pack.
   // The recovered network operates on the FSR target grid. The source
   // dimensions are used only by the pre/post image sampling stages.
-  const uint32_t baseW = res_.outputWidth;
-  const uint32_t baseH = res_.outputHeight;
+  const bool traceGenericFinal =
+      std::getenv("TFORGE_FSR4_TRACE_FINAL_PIPELINE") != nullptr;
   const auto &steps = kFsr4ConvSteps;
+  size_t requestedRealSteps = steps.size();
+  if (const char *env = std::getenv("TFORGE_FSR4_MAX_REAL_STEPS")) {
+    char *end = nullptr;
+    const unsigned long parsed = std::strtoul(env, &end, 10);
+    if (end != env && parsed > 0)
+      requestedRealSteps = std::min<size_t>(steps.size(), parsed);
+  }
+  // An explicit limiter is itself a diagnostic contract. Keep the partial
+  // readback path active while it is present so the probe reports the last
+  // recorded tensor, even when the requested count happens to equal the full
+  // table length.
+  const bool partialRealGraph =
+      std::getenv("TFORGE_FSR4_MAX_REAL_STEPS") != nullptr;
+  uint32_t probeW = baseW;
+  uint32_t probeH = baseH;
+  uint32_t probeChannels = 8;
 
   if (nativeInt8Active_) {
     vkCmdExecuteCommands(cmd_, 1, &nativeInt8Cmd_);
   } else
-    for (size_t si = 0; si < steps.size(); ++si) {
+    for (size_t si = 0; si < requestedRealSteps; ++si) {
       const auto &s = steps[si];
       const Fsr4ConvStep *next =
           (si + 1 < steps.size()) ? &steps[si + 1] : nullptr;
       auto cfg = makeConvConfig(s, next);
+      if (std::getenv("TFORGE_FSR4_DISABLE_RELU"))
+        cfg.hasRelu = false;
       const uint32_t dispW = std::max<uint32_t>(1u, baseW / s.spatialDiv);
       const uint32_t dispH = std::max<uint32_t>(1u, baseH / s.spatialDiv);
+      if (traceGenericFinal && !nativeInt8Active_ && si == 38u) {
+        logInfo("Fsr4Harness generic final step before record: {}x{} "
+                "cin={} cout={} weighted={}x{} scale={} upscale={} "
+                "outputFp16={} passCounter={}",
+                dispW, dispH, cfg.channelsIn, cfg.channelsOut,
+                cfg.weightChannelsIn, cfg.weightChannelsOut, cfg.isScale,
+                cfg.isUpscale, cfg.outputFp16, passCounter_);
+      }
       const bool fused16 =
           residualBlock16Int8Pipeline_ != VK_NULL_HANDLE &&
-          std::getenv("TFORGE_FSR4_ENABLE_FUSED_INT8") != nullptr &&
-          (si == 1 || si == 4 || si == 32 || si == 35);
+          std::getenv("TFORGE_FSR4_DISABLE_FUSED_INT8") == nullptr &&
+          (si == 1 || si == 4 || si == 32 || si == 35) &&
+          si + 2 < requestedRealSteps;
       if (fused16) {
         recordFusedResidualBlock16(
             cmd_, dispW, dispH, steps[si].weightOff, steps[si].biasOff,
@@ -2665,6 +3316,9 @@ Fsr4DispatchHarness::dispatchFrame(const FrameDispatchInput &in) {
                                 static_cast<uint32_t>(si) + 2u + q);
         }
         si += 2;
+        probeW = dispW;
+        probeH = dispH;
+        probeChannels = 16;
         continue;
       }
       if (isResidualBlockStart(si)) {
@@ -2684,7 +3338,15 @@ Fsr4DispatchHarness::dispatchFrame(const FrameDispatchInput &in) {
                               slotSizeWords_ * 2u);
       }
       recordConvPass(cmd_, cfg, dispW, dispH);
-      if (isResidualBlockEnd(si)) {
+      probeW = dispW;
+      probeH = dispH;
+      probeChannels = static_cast<uint32_t>(cfg.channelsOut);
+      if (traceGenericFinal && !nativeInt8Active_ && si == 38u) {
+        logInfo("Fsr4Harness generic final step after record: passCounter={}",
+                passCounter_);
+      }
+      if (isResidualBlockEnd(si) &&
+          std::getenv("TFORGE_FSR4_DISABLE_RESIDUAL_ADDS") == nullptr) {
         recordResidualAdd(cmd_, passCounter_ % 2u,
                           dispW * dispH *
                               static_cast<uint32_t>(cfg.channelsOut));
@@ -2694,12 +3356,14 @@ Fsr4DispatchHarness::dispatchFrame(const FrameDispatchInput &in) {
       // skip tensor from the higher-resolution encoder/decoder branch.
       // The old split chain stopped before this add, leaving the decoder
       // with incomplete features and producing block/grid corruption.
-      if (si == 24) {
+      if (si == 24 &&
+          std::getenv("TFORGE_FSR4_DISABLE_RESIDUAL_ADDS") == nullptr) {
         recordResidualAdd(cmd_, passCounter_ % 2u,
                           dispW * dispH *
                               static_cast<uint32_t>(cfg.channelsOut),
                           slotSizeWords_ * 2u);
-      } else if (si == 31) {
+      } else if (si == 31 &&
+                 std::getenv("TFORGE_FSR4_DISABLE_RESIDUAL_ADDS") == nullptr) {
         recordResidualAdd(cmd_, passCounter_ % 2u,
                           dispW * dispH *
                               static_cast<uint32_t>(cfg.channelsOut),
@@ -2710,16 +3374,27 @@ Fsr4DispatchHarness::dispatchFrame(const FrameDispatchInput &in) {
                             timestampPool_, static_cast<uint32_t>(si) + 2u);
     }
 
+  if (dispatchTrace)
+    logInfo("Fsr4Harness dispatch trace: {} graph complete",
+            nativeInt8Active_ ? "native-int8" : "generic-split");
+
   // Record the byte offset of the final conv output for direct-accum
   // readback (postpass is disabled). The last conv step ran with
   // passCounter_ (pre-increment) = stepCount-1; its output landed in the
   // accum slot selected by ((passCounter+1)%2). Since recordConvPass already
   // incremented passCounter_, the parity is now (passCounter_%2).
   {
-    finalOutputInScratch_ = false;
-    finalAccumOffsetBytes_ = 0;
-    finalAccumFloatCount_ = static_cast<size_t>(res_.outputWidth) *
-                            static_cast<size_t>(res_.outputHeight) * 8u;
+    finalOutputInScratch_ = partialRealGraph;
+    finalAccumOffsetBytes_ =
+        partialRealGraph
+            ? static_cast<VkDeviceSize>(passCounter_ % 2u) * slotSizeWords_ *
+                  sizeof(uint16_t)
+            : 0;
+    finalAccumFloatCount_ = partialRealGraph
+                                ? static_cast<size_t>(probeW) * probeH *
+                                      probeChannels
+                                : static_cast<size_t>(res_.outputWidth) *
+                                      res_.outputHeight * 8u;
   }
 
   // --- 3. Postpass: resolve the final decoder tensor into the output image.
@@ -2728,7 +3403,7 @@ Fsr4DispatchHarness::dispatchFrame(const FrameDispatchInput &in) {
   // explicitly; synchronizing only output leaves temporal reads racing the
   // prior frame.
   {
-    std::array<VkImageMemoryBarrier, 5> barriers{};
+    std::array<VkImageMemoryBarrier, 6> barriers{};
     uint32_t barrierCount = 0;
     auto addBarrier = [&](VkImage image, VkAccessFlags srcAccess,
                           VkAccessFlags dstAccess) {
@@ -2757,6 +3432,8 @@ Fsr4DispatchHarness::dispatchFrame(const FrameDispatchInput &in) {
     addBarrier(in.recurrentWriteImage,
                VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT,
                VK_ACCESS_SHADER_WRITE_BIT);
+    addBarrier(in.reprojectedColorImage, VK_ACCESS_SHADER_WRITE_BIT,
+               VK_ACCESS_SHADER_READ_BIT);
     if (barrierCount != 0) {
       // historyWrite may still be sampled by Qt's fragment shader from
       // the previous published frame. Include that read in the source
@@ -2768,14 +3445,26 @@ Fsr4DispatchHarness::dispatchFrame(const FrameDispatchInput &in) {
                            0, nullptr, barrierCount, barriers.data());
     }
   }
-  if (std::getenv("TFORGE_FSR4_DISABLE_POSTPASS") == nullptr) {
-    VkDescriptorSetAllocateInfo asi{};
-    asi.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
-    asi.descriptorPool = descPool_;
-    asi.descriptorSetCount = 1;
-    asi.pSetLayouts = &postpassDescLayout_;
-    VkDescriptorSet set = VK_NULL_HANDLE;
-    VkResult allocRes = vkAllocateDescriptorSets(device_, &asi, &set);
+  const bool bestFindingsTemporal =
+      std::getenv("TFORGE_FSR4_DISABLE_BEST_FINDINGS") == nullptr;
+  // This opt-in layers the measured history/confidence combination onto the
+  // integrated motion/color profile without altering ordinary playback.
+  const bool integratedHistoryConfidenceProfile =
+      std::getenv("TFORGE_FSR4_INTEGRATED_HISTORY_CONFIDENCE") != nullptr;
+  if (!partialRealGraph &&
+      std::getenv("TFORGE_FSR4_DISABLE_POSTPASS") == nullptr) {
+    VkDescriptorSet set = postpassSet_;
+    VkResult allocRes = VK_SUCCESS;
+    if (set == VK_NULL_HANDLE) {
+      VkDescriptorSetAllocateInfo asi{};
+      asi.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
+      asi.descriptorPool = descPool_;
+      asi.descriptorSetCount = 1;
+      asi.pSetLayouts = &postpassDescLayout_;
+      allocRes = vkAllocateDescriptorSets(device_, &asi, &set);
+      if (allocRes == VK_SUCCESS)
+        postpassSet_ = set;
+    }
     if (allocRes != VK_SUCCESS) {
       logError("Fsr4Harness: postpass desc alloc failed (code={})",
                static_cast<int>(allocRes));
@@ -2786,22 +3475,199 @@ Fsr4DispatchHarness::dispatchFrame(const FrameDispatchInput &in) {
       // into an earlier slot changes an already-recorded conv command.
       const VkDeviceSize ppCbOffset = 112 * kCbSize;
       struct PostpassCB {
-        uint32_t s0x, s0y, s0z, s0w;
-        float s1x, s1y, s1z, s1w;
-        uint32_t sourceW, sourceH, pad0, pad1;
+        uint32_t slot0[4];
+        float slot1[4];
+        uint32_t slot2[4];
+        uint32_t slot3[4];
+        float slot4[4];
+        float slot5[4];
+        float slot6[4];
+        float slot7[4];
       };
-      PostpassCB pp;
-      pp.s0x = res_.outputWidth;
-      pp.s0y = res_.outputHeight;
-      pp.s0z = in.reset ? 1u : 0u;
-      if (!std::getenv("TFORGE_FSR4_ENABLE_RECURRENT"))
-        pp.s0z |= 2u;
+      static_assert(sizeof(PostpassCB) == kCbSize);
+      PostpassCB pp{};
+      pp.slot0[0] = res_.outputWidth;
+      pp.slot0[1] = res_.outputHeight;
+      const bool recurrentResetOnly =
+          in.reset &&
+          std::getenv("TFORGE_FSR4_EXPERIMENTAL_RECURRENT_RESET_ONLY");
+      pp.slot0[2] = recurrentResetOnly ? 268435456u
+                                      : (in.reset ? 1u : 0u);
+      if (!bestFindingsTemporal &&
+          !std::getenv("TFORGE_FSR4_ENABLE_RECURRENT"))
+        pp.slot0[2] |= 2u;
+      if (std::getenv("TFORGE_FSR4_USE_DISPLAY_BASE") ||
+          std::getenv("TFORGE_FSR4_DISPLAY_BASE_STRENGTH"))
+        pp.slot0[2] |= 4u;
+      // Quality-lab only: let motion evidence raise the display-space base
+      // contribution in moving regions. This is intentionally separate from
+      // the normal display-base switch so an unset environment variable keeps
+      // the established composition unchanged.
+      if (std::getenv("TFORGE_FSR4_MOTION_AWARE_DISPLAY_BASE"))
+        pp.slot0[2] |= 1073741824u;
+      // Quality-lab only: reduce learned residual strength when the decode
+      // thread reports meaningful frame-to-frame reactivity. This is an
+      // explicit temporal-stability probe for detail_residual; without the
+      // switch the existing residual value and sharpen threshold are intact.
+      const bool motionAwareResidual =
+          std::getenv("TFORGE_FSR4_MOTION_AWARE_RESIDUAL") != nullptr;
+      if (motionAwareResidual)
+        pp.slot0[2] |= 2097152u;
+      // Quality-lab only: reduce the learned contribution near strong source
+      // edges, where the otherwise useful higher learned strength can soften
+      // hair, faces, text, and other high-frequency detail.
+      if (std::getenv("TFORGE_FSR4_EDGE_ADAPTIVE_LEARNED"))
+        pp.slot0[2] |= 2147483648u;
+      const char *edgeAdaptiveStrengthEnv = std::getenv(
+          "TFORGE_FSR4_EDGE_ADAPTIVE_LEARNED_STRENGTH");
+      if (const char *baseFilter =
+              std::getenv("TFORGE_FSR4_CURRENT_BASE_FILTER")) {
+        if (std::strcmp(baseFilter, "bilinear") == 0 ||
+            std::strcmp(baseFilter, "linear") == 0)
+          pp.slot0[2] |= 8u;
+      }
+      if (bestFindingsTemporal ||
+          std::getenv("TFORGE_FSR4_CURRENT_BLEND_LINEAR"))
+        pp.slot0[2] |= 16u;
+      if (std::getenv("TFORGE_FSR4_CURRENT_BASE_JITTERED"))
+        pp.slot0[2] |= 32u;
+      // Quality-lab only: make the experimental composition resolve its base
+      // from the uploaded display-space RGB tile. The normal path continues
+      // filtering model-space color and applying the recovered inverse Mu-law
+      // transform; this bit isolates that color-space decision without
+      // changing default playback.
+      if (qualityLabConfig_.baseColorSpace == QualityBaseColorSpace::Display ||
+          std::getenv("TFORGE_FSR4_QUALITY_LAB_DISPLAY_BASE"))
+        pp.slot0[2] |= 512u;
+      // Quality-lab only: let experimental compositions use the same
+      // unjittered spatial base as base_only.  This isolates learned/detail
+      // changes from a deliberate phase shift without changing current mode.
+      if (std::getenv("TFORGE_FSR4_EXPERIMENTAL_BASE_UNJITTERED"))
+        pp.slot0[2] |= 128u;
+      // The recovered 4.1 postpass reads two four-float groups inside its
+      // native coefficient-decode loop. The matched Tears and Sintel campaign
+      // verified only the first group's local equivalent; the second group is
+      // not recurrent bias, so bit 64 enables only the measured correction.
+      if (!std::getenv("TFORGE_FSR4_EXPERIMENTAL_DISABLE_POSTPASS_TAIL"))
+        pp.slot0[2] |= 64u;
+      // Quality-lab only: preserve the recovered postpass's linear output as
+      // an opt-in SDR store experiment. HDR transfer handling remains selected
+      // independently through slot2.w below.
+      if (std::getenv("TFORGE_FSR4_EXPERIMENTAL_RECOVERED_LINEAR_OUTPUT"))
+        pp.slot0[2] |= 256u;
+      // The archived FSR reference composes the learned spatial reconstruction
+      // with the prepass's reprojected history using the decoder's sigmoid
+      // blend value. Keep that learned temporal composition as the default.
+      // The former single-history resolve is diagnostic-only; enabling
+      // best-findings must not bypass the motion-dependent history input.
+      const bool singleHistoryResolve =
+          std::getenv("TFORGE_FSR4_EXPERIMENTAL_SINGLE_HISTORY_BLEND") !=
+          nullptr;
+      if (singleHistoryResolve)
+        pp.slot0[2] |= 1024u;
+      // Quality-lab only: restore the pre-existing decoder-footprint anchor
+      // for a matched regression A/B. The current default remains floor().
+      if (std::getenv("TFORGE_FSR4_EXPERIMENTAL_LEGACY_ROUND"))
+        pp.slot0[2] |= 2048u;
+      // Quality-lab only: restore the previously decoded recurrent-bias tail
+      // for a matched regression A/B. The current default remains unbiased.
+      if (std::getenv("TFORGE_FSR4_EXPERIMENTAL_LEGACY_RECURRENT_BIAS"))
+        pp.slot0[2] |= 4096u;
+      // The following controls are quality-campaign probes over values and
+      // parameter groups already present in the postpass binding. They are
+      // never enabled by normal playback, and each value is clamped before it
+      // reaches the shader so malformed campaign environments fail safely.
+      const auto readExperimentalFloat = [](const char *value, float fallback,
+                                            float lower, float upper) {
+        if (!value || !*value)
+          return fallback;
+        char *end = nullptr;
+        const float parsed = std::strtof(value, &end);
+        if (end == value || !std::isfinite(parsed))
+          return fallback;
+        return std::clamp(parsed, lower, upper);
+      };
+      const auto firstNonEmptyEnv = [](const char *primary,
+                                       const char *alias) {
+        const char *value = std::getenv(primary);
+        if (value && *value)
+          return value;
+        value = std::getenv(alias);
+        return value && *value ? value : nullptr;
+      };
+      const char *kernelRadiusEnv = firstNonEmptyEnv(
+          "TFORGE_FSR4_LEARNED_KERNEL_RADIUS",
+          "TFORGE_FSR4_EXPERIMENTAL_LEARNED_KERNEL_RADIUS");
+      const char *kernelSigmaEnv = firstNonEmptyEnv(
+          "TFORGE_FSR4_LEARNED_KERNEL_SIGMA",
+          "TFORGE_FSR4_EXPERIMENTAL_LEARNED_KERNEL_SIGMA");
+      const bool customLearnedKernel = kernelRadiusEnv || kernelSigmaEnv;
+      if (customLearnedKernel)
+        pp.slot0[2] |= 4194304u;
+      const char *wideExponentEnv = firstNonEmptyEnv(
+          "TFORGE_FSR4_LEARNED_KERNEL_EXPONENT",
+          "TFORGE_FSR4_EXPERIMENTAL_LEARNED_KERNEL_WIDE_EXPONENT");
+      if (wideExponentEnv &&
+          (std::strcmp(wideExponentEnv, "wide") == 0 ||
+           std::strcmp(wideExponentEnv, "120") == 0 ||
+           std::strcmp(wideExponentEnv, "1") == 0))
+        pp.slot0[2] |= 8388608u;
+      const char *normalizationEnv = firstNonEmptyEnv(
+          "TFORGE_FSR4_LEARNED_KERNEL_NORMALIZATION",
+          "TFORGE_FSR4_EXPERIMENTAL_LEARNED_KERNEL_LEGACY_NORMALIZATION");
+      if (normalizationEnv &&
+          (std::strcmp(normalizationEnv, "legacy") == 0 ||
+           std::strcmp(normalizationEnv, "1") == 0 ||
+           std::getenv(
+               "TFORGE_FSR4_EXPERIMENTAL_LEARNED_KERNEL_LEGACY_NORMALIZATION")))
+        pp.slot0[2] |= 16777216u;
+      const char *rawNormalizationEnv = std::getenv(
+          "TFORGE_FSR4_EXPERIMENTAL_LEARNED_KERNEL_RAW_NORMALIZATION");
+      const char *legacyNormalizationEnv = std::getenv(
+          "TFORGE_FSR4_LEARNED_KERNEL_NORMALIZATION");
+      if ((rawNormalizationEnv &&
+           (std::strcmp(rawNormalizationEnv, "raw") == 0 ||
+            std::strcmp(rawNormalizationEnv, "1") == 0)) ||
+          (legacyNormalizationEnv &&
+           std::strcmp(legacyNormalizationEnv, "raw") == 0))
+        pp.slot0[2] |= 536870912u;
+      const char *currentWeightEnv = firstNonEmptyEnv(
+          "TFORGE_FSR4_POSTPASS_CURRENT_WEIGHT",
+          "TFORGE_FSR4_EXPERIMENTAL_POSTPASS_CURRENT_WEIGHT");
+      if (!currentWeightEnv && bestFindingsTemporal)
+        currentWeightEnv = "0.02";
+      if (currentWeightEnv)
+        pp.slot0[2] |= 33554432u;
+      const char *tailMappingEnv = firstNonEmptyEnv(
+          "TFORGE_FSR4_POSTPASS_TAIL_MAPPING",
+          "TFORGE_FSR4_EXPERIMENTAL_POSTPASS_SWAP_TAIL_MAPPING");
+      // The generic reconstructed graph currently uses the swapped
+      // coefficient-group interpretation as its historical default. The
+      // controlled normal-versus-swap probe did not distinguish the two on
+      // the tested corpus, so this remains an unresolved diagnostic mapping,
+      // not a validated quality improvement. Native INT8 graphs do not
+      // consume this postpass mapping and keep their established path. The
+      // environment override remains available for explicit A/B captures.
+      const bool genericPostpass =
+          nativeInt8Graph_ == NativeInt8Graph::None;
+      const bool forceNormalTailMapping =
+          tailMappingEnv && std::strcmp(tailMappingEnv, "normal") == 0;
+      if (!forceNormalTailMapping &&
+          (genericPostpass ||
+          (tailMappingEnv && std::strcmp(tailMappingEnv, "swap") == 0))
+      )
+        pp.slot0[2] |= 67108864u;
+      const char *reverseTailEnv = firstNonEmptyEnv(
+          "TFORGE_FSR4_POSTPASS_REVERSE_TAIL_CHANNELS",
+          "TFORGE_FSR4_EXPERIMENTAL_POSTPASS_REVERSE_TAIL_CHANNELS");
+      if (reverseTailEnv)
+        pp.slot0[2] |= 134217728u;
       // The final transpose convolution writes its FP16 decoder tensor
       // through the dedicated edge/final-tensor binding at offset 0.
-      pp.s0w = 0;
-      pp.s1x = in.jitterX;
-      pp.s1y = in.jitterY;
-      pp.s1z = in.frameTimeMs;
+      pp.slot0[3] = 0;
+      pp.slot1[0] = in.jitterX;
+      pp.slot1[1] = in.jitterY;
+      pp.slot1[2] = in.frameTimeMs;
       static const float learnedStrengthOverride = [] {
         const char *value = std::getenv("TFORGE_FSR4_LEARNED_STRENGTH");
         if (!value)
@@ -2818,12 +3684,208 @@ Fsr4DispatchHarness::dispatchFrame(const FrameDispatchInput &in) {
         const float t = static_cast<float>(res_.sourceHeight - 480u) / 240.0f;
         learnedStrength = 0.15f + 0.40f * t;
       }
-      if (learnedStrengthOverride >= 0.0f) {
+      const bool experimentalComposition =
+          qualityLabConfig_.enabled &&
+          qualityLabConfig_.compositionMode != QualityCompositionMode::Current;
+      // An enabled typed Quality Lab config is authoritative even when it
+      // deliberately keeps the composition mode at Current. Otherwise the
+      // legacy resolution heuristic silently overrides the selected value,
+      // making valid A/B configurations render identically.
+      if (qualityLabConfig_.enabled)
+        learnedStrength = std::clamp(qualityLabConfig_.learnedStrength, 0.0f,
+                                     1.0f);
+      if (bestFindingsTemporal && !qualityLabConfig_.enabled &&
+          learnedStrengthOverride < 0.0f)
+        learnedStrength = 0.075f;
+      if (integratedHistoryConfidenceProfile &&
+          learnedStrengthOverride < 0.0f)
+        learnedStrength = 0.15f;
+      if (learnedStrengthOverride >= 0.0f)
         learnedStrength = learnedStrengthOverride;
+      // Codec motion confidence gates how much of the learned temporal
+      // reconstruction is trusted. A reset handles hard discontinuities;
+      // this continuous weighting prevents moderate vector uncertainty from
+      // becoming a soft ghost trail.
+      const bool disableLearnedConfidenceGate =
+          std::getenv("TFORGE_FSR4_DISABLE_LEARNED_CONFIDENCE_GATE") != nullptr;
+      // Quality-lab compositions historically bypassed confidence so their
+      // spatial combinations could be compared in isolation. This separate
+      // switch preserves that lab-only behavior while normal playback uses
+      // the validated confidence signal below.
+      const bool enableExperimentalConfidenceGate =
+          bestFindingsTemporal ||
+          std::getenv("TFORGE_FSR4_ENABLE_EXPERIMENTAL_CONFIDENCE_GATE") !=
+              nullptr;
+      // Interpolate between the confidence-gated path (0) and the explicit
+      // ungated path (1). The environment override is deliberately opt-in so
+      // the established playback path remains unchanged while the campaign
+      // compares resolution-specific history policies.
+      float confidenceBlend = 0.0f;
+      if (const char *value =
+              std::getenv("TFORGE_FSR4_LEARNED_CONFIDENCE_BLEND")) {
+        confidenceBlend =
+            std::clamp(std::strtof(value, nullptr), 0.0f, 1.0f);
       }
-      pp.s1w = learnedStrength;
-      pp.sourceW = res_.sourceWidth;
-      pp.sourceH = res_.sourceHeight;
+      if (integratedHistoryConfidenceProfile &&
+          !std::getenv("TFORGE_FSR4_LEARNED_CONFIDENCE_BLEND"))
+        confidenceBlend = 0.75f;
+      const float historyConfidence =
+          std::clamp(in.historyConfidence, 0.0f, 1.0f);
+      float effectiveConfidence =
+          (experimentalComposition && !enableExperimentalConfidenceGate) ||
+                  disableLearnedConfidenceGate
+              ? 1.0f
+              : confidenceBlend +
+                    (1.0f - confidenceBlend) * historyConfidence;
+      // Opt-in candidate: use the existing codec-confidence signal a second
+      // time to reduce learned history when motion evidence is uncertain.
+      // The scalar reactive value is also included when available, but the
+      // codec confidence is the reliable signal for hardware-decoded frames.
+      // When unset, the validated default uses only the confidence blend
+      // above. Setting it lets captures test a stronger temporal trust falloff
+      // without adding another GPU pass.
+      // Keep the legacy contract spelling visible for source-level wiring
+      // checks: if (std::getenv("TFORGE_FSR4_ADAPTIVE_LEARNED_STRENGTH"))
+      // The integrated profile intentionally enters the same measured branch.
+      if (!disableLearnedConfidenceGate &&
+          (std::getenv("TFORGE_FSR4_ADAPTIVE_LEARNED_STRENGTH") ||
+           integratedHistoryConfidenceProfile)) {
+        // A soft confidence floor prevents weak codec correspondence from
+        // turning learned detail into moving halos. The upper endpoint keeps
+        // the candidate permissive for scenes whose vectors are coherent.
+        // Keep the floor runtime-configurable so motion/history A/B captures
+        // can test the actual postpass admission policy. The default remains
+        // the previously validated 0.55 value; this does not change the
+        // established path unless the opt-in override is supplied.
+        float learnedConfidenceFloor = 0.55f;
+        if (const char *value =
+                std::getenv("TFORGE_FSR4_LEARNED_CONFIDENCE_FLOOR")) {
+          char *end = nullptr;
+          const float parsed = std::strtof(value, &end);
+          if (end != value && *end == '\0' && std::isfinite(parsed))
+            learnedConfidenceFloor = std::clamp(parsed, 0.0f, 1.0f);
+        }
+        const float confidenceGate = std::clamp(
+            (historyConfidence - learnedConfidenceFloor) / 0.30f, 0.0f, 1.0f);
+        effectiveConfidence *=
+            historyConfidence *
+            confidenceGate *
+            (1.0f - std::clamp(in.reactiveAverage, 0.0f, 1.0f));
+      }
+      pp.slot1[3] = learnedStrength * effectiveConfidence;
+      pp.slot2[0] = res_.sourceWidth;
+      pp.slot2[1] = res_.sourceHeight;
+      pp.slot2[2] = in.transfer;
+      pp.slot2[3] =
+          (in.hdr && std::getenv("TFORGE_FSR4_HDR_OUTPUT")) ? 1u : 0u;
+      pp.slot3[0] = static_cast<uint32_t>(qualityLabConfig_.compositionMode);
+      pp.slot3[1] = static_cast<uint32_t>(qualityLabConfig_.baseFilterMode);
+      pp.slot3[2] = static_cast<uint32_t>(qualityLabConfig_.residualLowpassMode);
+      pp.slot3[3] = static_cast<uint32_t>(qualityLabConfig_.sharpenMode);
+      pp.slot4[0] = qualityLabConfig_.baseB;
+      pp.slot4[1] = qualityLabConfig_.baseC;
+      pp.slot4[2] = qualityLabConfig_.residualRadius;
+      pp.slot4[3] = qualityLabConfig_.residualSigma;
+      // The normal display path uses the single CAS stage configured below.
+      // The older edge-aware RCAS response is disabled by default so the
+      // displayed frame is not sharpened twice. It remains available only as
+      // an explicit benchmark experiment for reproducing historical captures.
+      if (!experimentalComposition) {
+        float legacyRcasStrength = 0.0f;
+        if (const char *value =
+                std::getenv("TFORGE_FSR4_LEGACY_RCAS_STRENGTH")) {
+          legacyRcasStrength = std::clamp(std::strtof(value, nullptr), 0.0f,
+                                          1.0f);
+        }
+        pp.slot4[3] = legacyRcasStrength;
+        float displayBaseStrength = 0.0f;
+        if (const char *value =
+                std::getenv("TFORGE_FSR4_DISPLAY_BASE_STRENGTH")) {
+          displayBaseStrength = std::clamp(std::strtof(value, nullptr), 0.0f,
+                                           1.0f);
+        } else if (std::getenv("TFORGE_FSR4_USE_DISPLAY_BASE")) {
+          displayBaseStrength = 1.0f;
+        }
+        pp.slot4[2] = displayBaseStrength;
+      }
+      // Reapply the opt-in kernel values after the normal quality fields have
+      // been populated; slot4 is shared with residual/base controls in the
+      // existing layout, so the candidate must win only when explicitly set.
+      if (customLearnedKernel) {
+        pp.slot4[2] = readExperimentalFloat(
+            kernelRadiusEnv,
+            experimentalComposition ? qualityLabConfig_.residualRadius : 1.0f,
+            0.25f, 4.0f);
+        pp.slot4[3] = readExperimentalFloat(
+            kernelSigmaEnv,
+            experimentalComposition ? qualityLabConfig_.residualSigma : 0.47f,
+            0.1f, 4.0f);
+      }
+      // The current composition consumes slot1.w for its learned blend, but
+      // Quality Lab compositions consume slot5.x in the shader.  Preserve
+      // the existing lab strength by default and route the opt-in confidence
+      // gate into the correct slot only for experimental compositions.
+      // Quality-lab JSON supplies the normal experimental strength, but an
+      // explicit capture override must win after the lab config is applied.
+      // Otherwise every learned-strength A/B silently renders the same image
+      // even though the benchmark command appears to accept the override.
+      const float labLearnedStrength = learnedStrengthOverride >= 0.0f
+                                           ? learnedStrength
+                                           : qualityLabConfig_.learnedStrength;
+      pp.slot5[0] = experimentalComposition
+                        ? labLearnedStrength * effectiveConfidence
+                        : qualityLabConfig_.learnedStrength;
+      pp.slot5[1] = qualityLabConfig_.residualStrength;
+      pp.slot5[2] = qualityLabConfig_.sharpenStrength;
+      pp.slot5[3] = qualityLabConfig_.sharpenLimit;
+      if (edgeAdaptiveStrengthEnv &&
+          std::getenv("TFORGE_FSR4_EDGE_ADAPTIVE_LEARNED")) {
+        pp.slot5[3] = readExperimentalFloat(edgeAdaptiveStrengthEnv, 0.70f,
+                                             0.0f, 1.0f);
+      }
+      // The current-weight candidate uses the existing learned-strength
+      // float slot as its explicit temporal contribution. This keeps the
+      // uniform layout unchanged and leaves the default slot value untouched.
+      if (currentWeightEnv)
+        pp.slot5[0] = readExperimentalFloat(currentWeightEnv, pp.slot5[0],
+                                             0.0f, 1.0f);
+      pp.slot6[0] = motionAwareResidual
+                        ? std::clamp(in.reactiveAverage, 0.0f, 1.0f)
+                        : qualityLabConfig_.sharpenThreshold;
+      pp.slot6[1] = qualityLabConfig_.toneExposureEV;
+      pp.slot6[2] = qualityLabConfig_.toneContrast;
+      pp.slot6[3] = qualityLabConfig_.toneContrastPivot;
+      pp.slot7[0] = qualityLabConfig_.toneGamma;
+      pp.slot7[1] = qualityLabConfig_.enabled ? 1.0f : 0.0f;
+      // The trace mode exposes the recovered parameter checksum through the
+      // output alpha channel only; normal playback never enters this branch.
+      if (std::getenv("TFORGE_FSR4_POSTPASS_TRACE"))
+        pp.slot7[1] = 2.0f;
+      const char *casStrengthEnv = std::getenv("TFORGE_FSR4_CAS_STRENGTH");
+      // The game display path applies one post-reconstruction CAS stage at
+      // strength 0.20. Keep that same display behavior here so screenshots
+      // and live playback are judging the same image. The explicit
+      // environment value remains an experiment override, while disabling
+      // CAS still works through TFORGE_FSR4_DISABLE_CAS.
+      constexpr float kDisplayCasStrength = 0.20f;
+      const float casStrength = casStrengthEnv && *casStrengthEnv
+                                    ? std::clamp(std::strtof(casStrengthEnv,
+                                                             nullptr), 0.0f, 1.0f)
+                                    : kDisplayCasStrength;
+      pp.slot7[2] = casStrength;
+      pp.slot7[3] = std::getenv("TFORGE_FSR4_DISABLE_CAS") ? 0.0f : 1.0f;
+      // Diagnostic-only uniform trace. This records the exact postpass branch
+      // bits and current-frame blend value that reach the GPU, separating a
+      // host-control propagation failure from a shader/output-path failure.
+      if (std::getenv("TFORGE_FSR4_DISPATCH_TRACE"))
+        logInfo("Fsr4Harness postpass uniforms flags={} learnedBlend={:.5f} "
+                "currentWeight={:.5f} historyConfidence={:.5f} reactive={:.5f} "
+                "learnedStrength={:.5f} effectiveConfidence={:.5f} "
+                "jitter=({:.5f},{:.5f}) "
+                "historyBlendSource=decoder-c3 cas={:.5f}",
+                pp.slot0[2], pp.slot1[3], pp.slot5[0], in.historyConfidence,
+                in.reactiveAverage, learnedStrength, effectiveConfidence,
+                in.jitterX, in.jitterY, pp.slot7[2]);
       if (cbRingMapped_)
         std::memcpy(static_cast<char *>(cbRingMapped_) + ppCbOffset, &pp,
                     sizeof(pp));
@@ -2841,12 +3903,16 @@ Fsr4DispatchHarness::dispatchFrame(const FrameDispatchInput &in) {
                                         VK_IMAGE_LAYOUT_GENERAL};
       VkDescriptorImageInfo colorInfo{VK_NULL_HANDLE, in.colorView,
                                       VK_IMAGE_LAYOUT_GENERAL};
+      VkDescriptorImageInfo sourceDisplayInfo{
+          VK_NULL_HANDLE, in.sourceDisplayView, VK_IMAGE_LAYOUT_GENERAL};
       VkDescriptorImageInfo motionInfo{VK_NULL_HANDLE, in.motionView,
                                        VK_IMAGE_LAYOUT_GENERAL};
       VkDescriptorImageInfo recurrentOutInfo{
           VK_NULL_HANDLE, in.recurrentWriteView, VK_IMAGE_LAYOUT_GENERAL};
+      VkDescriptorImageInfo reprojectedInfo{
+          VK_NULL_HANDLE, in.reprojectedColorView, VK_IMAGE_LAYOUT_GENERAL};
 
-      VkWriteDescriptorSet w[9]{};
+      VkWriteDescriptorSet w[11]{};
       w[0].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
       w[0].dstSet = set;
       w[0].dstBinding = 0;
@@ -2891,17 +3957,29 @@ Fsr4DispatchHarness::dispatchFrame(const FrameDispatchInput &in) {
       w[6].pImageInfo = &colorInfo;
       w[7].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
       w[7].dstSet = set;
-      w[7].dstBinding = 8;
+      w[7].dstBinding = 7;
       w[7].descriptorCount = 1;
       w[7].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
-      w[7].pImageInfo = &motionInfo;
+      w[7].pImageInfo = &reprojectedInfo;
       w[8].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
       w[8].dstSet = set;
-      w[8].dstBinding = 9;
+      w[8].dstBinding = 8;
       w[8].descriptorCount = 1;
       w[8].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
-      w[8].pImageInfo = &recurrentOutInfo;
-      vkUpdateDescriptorSets(device_, 9, w, 0, nullptr);
+      w[8].pImageInfo = &motionInfo;
+      w[9].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+      w[9].dstSet = set;
+      w[9].dstBinding = 9;
+      w[9].descriptorCount = 1;
+      w[9].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+      w[9].pImageInfo = &recurrentOutInfo;
+      w[10].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+      w[10].dstSet = set;
+      w[10].dstBinding = 10;
+      w[10].descriptorCount = 1;
+      w[10].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+      w[10].pImageInfo = &sourceDisplayInfo;
+      vkUpdateDescriptorSets(device_, 11, w, 0, nullptr);
 
       vkCmdBindPipeline(cmd_, VK_PIPELINE_BIND_POINT_COMPUTE,
                         postpassPipeline_);
@@ -2911,6 +3989,16 @@ Fsr4DispatchHarness::dispatchFrame(const FrameDispatchInput &in) {
                     (res_.outputHeight + 7u) / 8u, 1);
       // Reset after submit; do not free while the command buffer references it.
     }
+  }
+
+  // The optional presentation hook is deliberately placed after the FSR
+  // postpass and before the final command-buffer publication barrier. Its
+  // record-only work therefore has the exact ordering
+  // FSR postpass -> presentation scaler -> presentation publication.
+  if (in.appendPresentation && !in.appendPresentation(cmd_)) {
+    r.error = UpscaleError::DispatchFailed;
+    r.failReason = "append presentation scaler";
+    return r;
   }
 
   // Publish the two images that can be sampled by the Qt scene graph. The
@@ -3010,10 +4098,62 @@ Fsr4DispatchHarness::dispatchFrame(const FrameDispatchInput &in) {
     r.failReason = "queue submit";
     return r;
   }
-  vkWaitForFences(device_, 1, &fence_, VK_TRUE, UINT64_MAX);
+  r.cpuRecordMs = std::chrono::duration<double, std::milli>(
+                      std::chrono::steady_clock::now() - t0)
+                      .count();
+  if (dispatchTrace)
+    logInfo("Fsr4Harness dispatch trace: queue submitted");
+
+  // The asynchronous entry point returns here. The command buffer, fence,
+  // timestamp pool, descriptor sets, and every image named by `in` remain
+  // owned by this submitted frame until waitForFrame() retires them.
+  if (asyncDispatchRequested_) {
+    frameInFlight_ = true;
+    pendingDispatchStart_ = t0;
+    pendingDispatchResult_ = r;
+    pendingDispatchResult_.ok = true;
+    pendingDispatchResult_.dispatchMs =
+        std::chrono::duration<double, std::milli>(
+            std::chrono::steady_clock::now() - t0)
+            .count();
+    return pendingDispatchResult_;
+  }
+  // Normal playback keeps the historical blocking wait. Capture diagnostics
+  // can opt into a finite wait so a broken temporal submission is reported as
+  // a failed frame instead of hanging the entire campaign indefinitely.
+  uint64_t fenceTimeoutNs = UINT64_MAX;
+  if (const char *timeoutEnv = std::getenv("TFORGE_FSR4_FENCE_TIMEOUT_MS")) {
+    char *end = nullptr;
+    const unsigned long long timeoutMs = std::strtoull(timeoutEnv, &end, 10);
+    if (end != timeoutEnv && *end == '\0' && timeoutMs > 0) {
+      constexpr unsigned long long kNsPerMs = 1000000ull;
+      fenceTimeoutNs = timeoutMs > (UINT64_MAX / kNsPerMs)
+                           ? UINT64_MAX
+                           : static_cast<uint64_t>(timeoutMs * kNsPerMs);
+    }
+  }
+  const auto waitStart = std::chrono::steady_clock::now();
+  const VkResult fenceResult =
+      vkWaitForFences(device_, 1, &fence_, VK_TRUE, fenceTimeoutNs);
+  r.cpuWaitMs = std::chrono::duration<double, std::milli>(
+                    std::chrono::steady_clock::now() - waitStart)
+                    .count();
+  if (fenceResult == VK_TIMEOUT) {
+    logError("Fsr4Harness: temporal fence timeout after {} ms",
+             fenceTimeoutNs / 1000000ull);
+    r.error = UpscaleError::DispatchFailed;
+    r.failReason = "temporal fence timeout";
+    return r;
+  }
+  if (fenceResult != VK_SUCCESS) {
+    r.error = UpscaleError::DispatchFailed;
+    r.failReason = "temporal fence wait";
+    return r;
+  }
   vkResetFences(device_, 1, &fence_);
   vkResetCommandBuffer(cmd_, 0);
-  vkResetDescriptorPool(device_, descPool_, 0);
+  // Cached descriptor sets remain valid until allocateResources() replaces
+  // the target buffers and resets the pool.
 
   std::array<uint64_t, kTimestampQueryCount> timestamps{};
   if (vkGetQueryPoolResults(device_, timestampPool_, 0, endQuery + 1u,
@@ -3070,16 +4210,104 @@ Fsr4DispatchHarness::dispatchFrame(const FrameDispatchInput &in) {
   return r;
 }
 
+Fsr4DispatchResult
+Fsr4DispatchHarness::dispatchFrameAsync(const FrameDispatchInput &in) {
+  if (frameInFlight_) {
+    Fsr4DispatchResult r;
+    r.error = UpscaleError::DispatchFailed;
+    r.failReason = "previous asynchronous frame is still in flight";
+    return r;
+  }
+  asyncDispatchRequested_ = true;
+  auto result = dispatchFrame(in);
+  asyncDispatchRequested_ = false;
+  return result;
+}
+
+Fsr4DispatchResult Fsr4DispatchHarness::waitForFrame() {
+  if (!frameInFlight_) {
+    Fsr4DispatchResult r;
+    r.error = UpscaleError::DispatchFailed;
+    r.failReason = "no asynchronous frame is in flight";
+    return r;
+  }
+
+  Fsr4DispatchResult r = pendingDispatchResult_;
+  const auto waitStart = std::chrono::steady_clock::now();
+  if (vkWaitForFences(device_, 1, &fence_, VK_TRUE, UINT64_MAX) != VK_SUCCESS) {
+    r.ok = false;
+    r.error = UpscaleError::DispatchFailed;
+    r.failReason = "wait for asynchronous frame";
+    frameInFlight_ = false;
+    return r;
+  }
+  r.cpuWaitMs = std::chrono::duration<double, std::milli>(
+                    std::chrono::steady_clock::now() - waitStart)
+                    .count();
+
+  vkResetFences(device_, 1, &fence_);
+  vkResetCommandBuffer(cmd_, 0);
+  const bool profileStages =
+      std::getenv("TFORGE_FSR4_PROFILE_STAGES") != nullptr;
+  const uint32_t endQuery =
+      profileStages ? (nativeInt8Active_ ? 16u : 41u) : 1u;
+  std::array<uint64_t, kTimestampQueryCount> timestamps{};
+  if (vkGetQueryPoolResults(device_, timestampPool_, 0, endQuery + 1u,
+                            (endQuery + 1u) * sizeof(uint64_t),
+                            timestamps.data(), sizeof(uint64_t),
+                            VK_QUERY_RESULT_64_BIT) == VK_SUCCESS &&
+      timestamps[endQuery] >= timestamps[0]) {
+    r.gpuMs = double(timestamps[endQuery] - timestamps[0]) *
+              timestampPeriodNs_ / 1.0e6;
+  }
+  r.dispatchMs = std::chrono::duration<double, std::milli>(
+                     std::chrono::steady_clock::now() - pendingDispatchStart_)
+                     .count();
+  r.ok = true;
+  frameInFlight_ = false;
+  pendingDispatchResult_ = {};
+  return r;
+}
+
 bool Fsr4DispatchHarness::readbackFinalAccum(std::vector<float> &out) {
+  // Diagnostic-only pre-final readback: the last transpose reads the 16-channel
+  // tensor in scratch slot 0 and writes the 8-channel tensor separately. This
+  // lets the quality investigation distinguish an upstream graph failure from
+  // a final-transpose/write-binding failure without changing normal dispatch.
+  const bool preFinalProbe = std::getenv("TFORGE_FSR4_DUMP_PREFINAL") != nullptr;
+  const bool partialProbe =
+      preFinalProbe &&
+      (std::getenv("TFORGE_FSR4_MAX_STEPS") != nullptr ||
+       std::getenv("TFORGE_FSR4_MAX_REAL_STEPS") != nullptr);
+  const size_t readbackCount =
+      partialProbe
+          ? finalAccumFloatCount_
+          : preFinalProbe
+          ? static_cast<size_t>(res_.outputWidth / 2u) *
+                static_cast<size_t>(res_.outputHeight / 2u) * 16u
+          : finalAccumFloatCount_;
+  const VkDeviceSize readbackOffset =
+      std::getenv("TFORGE_FSR4_DUMP_PREPASS_INPUT")
+          ? 0
+          : partialProbe
+          ? finalAccumOffsetBytes_
+          : preFinalProbe
+          ? 0
+          : finalAccumOffsetBytes_;
   const VkBuffer sourceBuffer =
-      finalOutputInScratch_
+      std::getenv("TFORGE_FSR4_DUMP_PREPASS_INPUT")
+          ? res_.finalTensorBuffer
+          : partialProbe || preFinalProbe
           ? res_.sharedScratch
-          : (nativeInt8Active_ ? nativeInt8Output_ : res_.finalTensorBuffer);
+          : (finalOutputInScratch_
+                 ? res_.sharedScratch
+                 : (nativeInt8Active_ ? nativeInt8Output_
+                                       : res_.finalTensorBuffer));
   if (device_ == VK_NULL_HANDLE || sourceBuffer == VK_NULL_HANDLE ||
-      finalAccumFloatCount_ == 0)
+      readbackCount == 0)
     return false;
 
-  const VkDeviceSize bytes = finalAccumFloatCount_ * sizeof(uint16_t);
+  const VkDeviceSize bytes = readbackCount * sizeof(uint16_t);
   VkBuffer staging = VK_NULL_HANDLE;
   VkDeviceMemory stagingMemory = VK_NULL_HANDLE;
   if (!createGpuBuffer(bytes, VK_BUFFER_USAGE_TRANSFER_DST_BIT,
@@ -3095,18 +4323,20 @@ bool Fsr4DispatchHarness::readbackFinalAccum(std::vector<float> &out) {
   if (ok) {
     VkBufferMemoryBarrier readBarrier{};
     readBarrier.sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER;
-    readBarrier.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
+    readBarrier.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT |
+                                VK_ACCESS_TRANSFER_WRITE_BIT;
     readBarrier.dstAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
     readBarrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
     readBarrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
     readBarrier.buffer = sourceBuffer;
-    readBarrier.offset = finalAccumOffsetBytes_;
+    readBarrier.offset = readbackOffset;
     readBarrier.size = bytes;
-    vkCmdPipelineBarrier(cmd_, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+    vkCmdPipelineBarrier(cmd_, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT |
+                                     VK_PIPELINE_STAGE_TRANSFER_BIT,
                          VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, nullptr, 1,
                          &readBarrier, 0, nullptr);
     VkBufferCopy copy{};
-    copy.srcOffset = finalAccumOffsetBytes_;
+    copy.srcOffset = readbackOffset;
     copy.size = bytes;
     vkCmdCopyBuffer(cmd_, sourceBuffer, staging, 1, &copy);
     ok = vkEndCommandBuffer(cmd_) == VK_SUCCESS;
@@ -3129,9 +4359,9 @@ bool Fsr4DispatchHarness::readbackFinalAccum(std::vector<float> &out) {
     ok =
         vkMapMemory(device_, stagingMemory, 0, bytes, 0, &mapped) == VK_SUCCESS;
     if (ok) {
-      out.resize(finalAccumFloatCount_);
+      out.resize(readbackCount);
       const auto *halves = static_cast<const _Float16 *>(mapped);
-      for (size_t i = 0; i < finalAccumFloatCount_; ++i)
+      for (size_t i = 0; i < readbackCount; ++i)
         out[i] = static_cast<float>(halves[i]);
       vkUnmapMemory(device_, stagingMemory);
     }
@@ -3143,6 +4373,12 @@ bool Fsr4DispatchHarness::readbackFinalAccum(std::vector<float> &out) {
 void Fsr4DispatchHarness::destroy() {
   if (device_ == VK_NULL_HANDLE)
     return;
+  // An asynchronous submission owns the command buffer, descriptor sets, and
+  // all input/output resources until its fence signals. Retire it before any
+  // of those objects are destroyed, even if the caller is tearing down during
+  // a file switch or device shutdown.
+  if (frameInFlight_)
+    (void)waitForFrame();
   // Free per-source GPU buffers.
   freeGpuBuffer(res_.weightBuffer, res_.weightMemory);
   freeGpuBuffer(res_.sharedScratch, res_.sharedScratchMemory);
@@ -3209,8 +4445,14 @@ void Fsr4DispatchHarness::destroy() {
   for (auto *pack :
        {&nativeInt8QualityPipelines1080_, &nativeInt8QualityPipelines2160_,
         &nativeInt8UltraPipelines1080_, &nativeInt8UltraPipelines2160_,
-        &nativeInt8PerformancePipelines2160_,
-        &nativeInt8PerformancePipelines4320_})
+       &nativeInt8PerformancePipelines2160_,
+        &nativeInt8PerformancePipelines4320_,
+        &nativeInt8QualityFourThreePipelines1440_,
+        &nativeInt8UltraFourThreePipelines1440_,
+        &nativeInt8PerformanceFourThreePipelines1440_,
+        &nativeInt8QualityFourThreePipelines2880_,
+        &nativeInt8UltraFourThreePipelines2880_,
+        &nativeInt8PerformanceFourThreePipelines2880_})
     for (auto &pipeline : *pack) {
       if (pipeline)
         vkDestroyPipeline(device_, pipeline, nullptr);
@@ -3220,6 +4462,9 @@ void Fsr4DispatchHarness::destroy() {
     vkDestroyDescriptorPool(device_, nativeInt8DescPool_, nullptr);
   if (nativeInt8Layout_)
     vkDestroyPipelineLayout(device_, nativeInt8Layout_, nullptr);
+  persistGenericPipelineCache();
+  if (genericPipelineCache_)
+    vkDestroyPipelineCache(device_, genericPipelineCache_, nullptr);
   if (nativeInt8PipelineCache_)
     vkDestroyPipelineCache(device_, nativeInt8PipelineCache_, nullptr);
   if (nativeInt8DescLayout_)
@@ -3269,6 +4514,7 @@ void Fsr4DispatchHarness::destroy() {
   nativeInt8DescPool_ = VK_NULL_HANDLE;
   nativeInt8DescLayout_ = VK_NULL_HANDLE;
   nativeInt8Layout_ = VK_NULL_HANDLE;
+  genericPipelineCache_ = VK_NULL_HANDLE;
   nativeInt8PipelineCache_ = VK_NULL_HANDLE;
   nativeInt8Set_ = VK_NULL_HANDLE;
   nativeInt8PipelinesAvailable_ = false;
@@ -3278,6 +4524,12 @@ void Fsr4DispatchHarness::destroy() {
   nativeInt8UltraPipelines2160Available_ = false;
   nativeInt8PerformancePipelines2160Available_ = false;
   nativeInt8PerformancePipelines4320Available_ = false;
+  nativeInt8QualityFourThreePipelines1440Available_ = false;
+  nativeInt8UltraFourThreePipelines1440Available_ = false;
+  nativeInt8PerformanceFourThreePipelines1440Available_ = false;
+  nativeInt8QualityFourThreePipelines2880Available_ = false;
+  nativeInt8UltraFourThreePipelines2880Available_ = false;
+  nativeInt8PerformanceFourThreePipelines2880Available_ = false;
   nativeInt8Active_ = false;
   nativeInt8Graph_ = NativeInt8Graph::None;
   device_ = VK_NULL_HANDLE;

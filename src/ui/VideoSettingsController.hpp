@@ -43,7 +43,10 @@ public:
     float gamma() const       { return settings_ ? settings_->gamma       : 1.0f; }
     float sharpness() const    { return settings_ ? settings_->sharpness    : 0.3f; }
     float jitterStrength() const { return settings_ ? settings_->jitterStrength : 1.0f; }
-    int presentationScaler() const { return settings_ ? static_cast<int>(settings_->presentationScaler) : 0; }
+    int presentationScaler() const {
+        return settings_ ? static_cast<int>(settings_->presentationScaler) :
+                           static_cast<int>(PresentationScaler::Bicubic);
+    }
 
     void setBrightness(float v);
     void setContrast(float v);

@@ -250,10 +250,22 @@ bool VulkanContext::createLogicalDevice() {
 
     VkPhysicalDeviceFeatures2 feats2{};
     feats2.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2;
+    VkPhysicalDeviceFeatures supportedFeatures{};
+    vkGetPhysicalDeviceFeatures(physical_, &supportedFeatures);
     feats2.features.samplerAnisotropy = VK_TRUE;
     feats2.features.textureCompressionBC = VK_TRUE;
     feats2.features.shaderStorageImageWriteWithoutFormat = VK_TRUE;
+    // The FSR model input is VK_FORMAT_A2B10G10R10_UNORM_PACK32. Vulkan
+    // classifies that packed format as an extended storage-image format, so
+    // every shader that writes/reads the RGB10 image depends on this feature.
+    // Without it, RGBA8 paths still work while RGB10 writes can silently
+    // remain zero on RADV. Enable it only when the selected device advertises
+    // support; callers can then fall back if the packed model path is absent.
+    feats2.features.shaderStorageImageExtendedFormats =
+        supportedFeatures.shaderStorageImageExtendedFormats;
     feats2.features.imageCubeArray = VK_TRUE;
+    logInfo("Vulkan: shaderStorageImageExtendedFormats={}",
+            feats2.features.shaderStorageImageExtendedFormats == VK_TRUE);
 
     VkPhysicalDeviceVulkan12Features v12{};
     v12.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES;

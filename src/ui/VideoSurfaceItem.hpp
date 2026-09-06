@@ -120,7 +120,7 @@ private:
     float m_saturation = 0.0f;
     float m_hue = 0.0f;
     float m_gamma = 1.0f;
-    int m_presentationScaler = 0;
+    int m_presentationScaler = 2; // PresentationScaler::Bicubic
 
     // Compare mode.
     bool m_compareActive = false;

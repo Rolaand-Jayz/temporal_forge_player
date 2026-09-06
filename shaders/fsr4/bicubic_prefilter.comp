@@ -1,0 +1,70 @@
+// GPU bicubic prefilter for the multiplier-derived FSR input.
+// The source and destination are both the model's logarithmic RGB10 image.
+// Filtering this valid model-color image avoids depending on the optional raw
+// presentation image during normal playback.
+#version 450 core
+
+layout(local_size_x = 16, local_size_y = 16, local_size_z = 1) in;
+
+layout(push_constant) uniform Push {
+    uvec4 size; // sourceW, sourceH, destinationW, destinationH
+    uint transfer; // 0=SDR/sRGB, 1=PQ, 2=HLG
+} pc;
+
+layout(set = 0, binding = 0, rgb10_a2) readonly uniform image2D u_source;
+layout(set = 0, binding = 1, rgb10_a2) writeonly uniform image2D u_destination;
+
+float cubicWeight(float x) {
+    x = abs(x);
+    if (x <= 1.0)
+        return 1.5 * x * x * x - 2.5 * x * x + 1.0;
+    if (x < 2.0)
+        return -0.5 * x * x * x + 2.5 * x * x - 4.0 * x + 2.0;
+    return 0.0;
+}
+
+vec3 loadSource(ivec2 p, ivec2 size) {
+    return imageLoad(u_source, clamp(p, ivec2(0), size - ivec2(1))).rgb;
+}
+
+void main() {
+    const ivec2 sourceSize = ivec2(pc.size.xy);
+    const ivec2 destinationSize = ivec2(pc.size.zw);
+    const ivec2 dst = ivec2(gl_GlobalInvocationID.xy);
+    if (dst.x >= destinationSize.x || dst.y >= destinationSize.y ||
+        any(lessThanEqual(sourceSize, ivec2(0))))
+        return;
+
+    const vec2 sourcePos =
+        (vec2(dst) + vec2(0.5)) * vec2(sourceSize) /
+        vec2(destinationSize) - vec2(0.5);
+    const ivec2 base = ivec2(floor(sourcePos));
+    const vec2 f = fract(sourcePos);
+    const vec2 scale = vec2(destinationSize) / vec2(sourceSize);
+    vec3 result;
+    if (scale.x < 1.0 || scale.y < 1.0) {
+        // The cubic shrink footprint produces a periodic lattice on the
+        // semantic 1280x720 -> 960x540 path.  A linear resolve is stable for
+        // downsampling and keeps the same storage-image/barrier handoff.
+        vec3 p00 = loadSource(base, sourceSize);
+        vec3 p10 = loadSource(base + ivec2(1, 0), sourceSize);
+        vec3 p01 = loadSource(base + ivec2(0, 1), sourceSize);
+        vec3 p11 = loadSource(base + ivec2(1, 1), sourceSize);
+        result = mix(mix(p00, p10, f.x), mix(p01, p11, f.x), f.y);
+    } else {
+        // Preserve the existing Catmull-Rom path for enlargement.
+        result = vec3(0.0);
+        float total = 0.0;
+        for (int y = -1; y <= 2; ++y) {
+            const float wy = cubicWeight(float(y) - f.y);
+            for (int x = -1; x <= 2; ++x) {
+                const float weight = cubicWeight(float(x) - f.x) * wy;
+                result += loadSource(base + ivec2(x, y), sourceSize) * weight;
+                total += weight;
+            }
+        }
+        result /= max(abs(total), 1.0e-6);
+    }
+    result = clamp(result, vec3(0.0), vec3(1.0));
+    imageStore(u_destination, dst, vec4(result, 1.0));
+}

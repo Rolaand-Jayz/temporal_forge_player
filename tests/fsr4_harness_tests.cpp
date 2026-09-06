@@ -94,6 +94,8 @@ int main() {
     // Upload the RE weight blob (standard preset).
     std::string blobDir;
     for (const char* c : {
+        "/mnt/workdrive/fsr-re/extracted/v410_initializers",
+        "/mnt/workdrive/fsr-re/dist/fsr4-swap/extracted/v410_initializers",
         "RE-of-FSR-4.1.0-Upscaling-1.0/extracted/v410_initializers",
         "../RE-of-FSR-4.1.0-Upscaling-1.0/extracted/v410_initializers",
     }) {

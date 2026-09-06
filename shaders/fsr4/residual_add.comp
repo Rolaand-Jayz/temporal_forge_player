@@ -17,8 +17,10 @@ layout(set = 0, binding = 2, std430) buffer ScratchBuf {
 };
 
 float quantizeFp8(float x) {
-    return x;
-    if (isnan(x) || isinf(x)) return 0.0;
+    // FNB_CT2D_ADD ends its residual/skip sum with CopySat. Keep the Vulkan
+    // FP16 carrier, but quantize the result to the model's finite E4M3
+    // boundary before the next learned operator consumes it.
+    if (isnan(x) || isinf(x) || x == 0.0) return 0.0;
     const float sign = x < 0.0 ? -1.0 : 1.0;
     const float ax = abs(x);
     if (ax < exp2(-10.0)) return 0.0;
@@ -88,11 +90,14 @@ void main() {
         return;
     }
     const uint count = uint(slot0.z);
+    const bool disableQuantization = (mode & 0x40000000u) != 0u;
     for (uint lane = 0u; lane < 4u; ++lane) {
         const uint i = base + lane;
         if (i >= count) continue;
         const uint dst = uint(slot0.x) + i;
-        scratchData[dst] = float16_t(float(scratchData[dst]) +
-                                     float(residualData[uint(slot0.y) + i]));
+        const float sum = float(scratchData[dst]) +
+                          float(residualData[uint(slot0.y) + i]);
+        scratchData[dst] = float16_t(disableQuantization ? sum
+                                                         : quantizeFp8(sum));
     }
 }

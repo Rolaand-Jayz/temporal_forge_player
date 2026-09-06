@@ -17,6 +17,9 @@ if(NOT CMAKE_BUILD_TYPE)
 endif()
 
 # Qt + RHI prefer Ninja for faster, more deterministic builds.
+if(NINJA_EXE AND NOT EXISTS "${NINJA_EXE}")
+    unset(NINJA_EXE CACHE)
+endif()
 find_program(NINJA_EXE ninja REQUIRED)
 
 # --- dependencies ---
@@ -27,7 +30,21 @@ pkg_check_modules(FFMPEG REQUIRED
     libavcodec libavformat libavutil libswscale libswresample)
 
 # Vulkan
-pkg_check_modules(VULKAN REQUIRED vulkan)
+# The loader's pkg-config file is useful for diagnostics, but it is not the
+# source of truth for the headers.  Some systems ship the loader/ICD without
+# the SDK development package, and stale CMake caches can also retain a
+# `Vulkan_INCLUDE_DIR-NOTFOUND` value.
+pkg_check_modules(VULKAN QUIET vulkan)
+# Some runtime-only Vulkan installations provide the loader and ICD but not
+# the development headers.  This repository carries the matching public
+# headers needed to compile the player, so use them when CMake cannot find a
+# system Vulkan include directory (including a stale NOTFOUND cache entry).
+set(TFORGE_BUNDLED_VULKAN_INCLUDE
+    "${CMAKE_CURRENT_SOURCE_DIR}/external/vulkan_include")
+if(EXISTS "${TFORGE_BUNDLED_VULKAN_INCLUDE}/vulkan/vulkan.h")
+  set(Vulkan_INCLUDE_DIR "${TFORGE_BUNDLED_VULKAN_INCLUDE}" CACHE PATH
+      "Vulkan include directory" FORCE)
+endif()
 find_package(Vulkan REQUIRED)
 
 # FSR4 GLSL->SPIR-V shader compilation + embedding.
@@ -54,7 +71,19 @@ tforge_compile_shaders(
             ${CMAKE_CURRENT_SOURCE_DIR}/shaders/fsr4/scatter.comp
             ${CMAKE_CURRENT_SOURCE_DIR}/shaders/fsr4/postpass_composite.comp
             ${CMAKE_CURRENT_SOURCE_DIR}/shaders/fsr4/downscale_rgb10.comp
+            ${CMAKE_CURRENT_SOURCE_DIR}/shaders/fsr4/easu.comp
+            ${CMAKE_CURRENT_SOURCE_DIR}/shaders/fsr4/bicubic_prefilter.comp
             ${CMAKE_CURRENT_SOURCE_DIR}/shaders/fsr4/spd.comp)
+
+# Compile the real AMD FSR1 EASU probe into a separate generated directory.
+# It is not linked into the active player path yet: the runtime still needs a
+# dedicated sampled-image descriptor set and FSR1 constant generation before
+# this can be enabled safely. Building it here prevents the probe from
+# drifting or being mistaken for the local spatial fallback.
+tforge_compile_shaders(
+    OUT_VAR FSR1_SHADER_FILES
+    OUT_DIR ${CMAKE_BINARY_DIR}/shaders/fsr1
+    SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/shaders/fsr1/fsr1_easu.comp)
 
 # Qt6 (spec: Core/Gui/Quick/Qml/Widgets)
 find_package(Qt6 6.6 REQUIRED COMPONENTS Core Gui Quick Qml Widgets ShaderTools)
@@ -82,7 +111,8 @@ file(GLOB_RECURSE TFORGE_LIB_SOURCES CONFIGURE_DEPENDS
 list(FILTER TFORGE_LIB_SOURCES EXCLUDE REGEX "${CMAKE_CURRENT_SOURCE_DIR}/external/.*")
 list(FILTER TFORGE_LIB_SOURCES EXCLUDE REGEX "${CMAKE_CURRENT_SOURCE_DIR}/src/main\\.cpp$")
 
-add_library(temporal_forge_lib STATIC ${TFORGE_LIB_SOURCES} ${FSR4_SHADER_FILES})
+add_library(temporal_forge_lib STATIC ${TFORGE_LIB_SOURCES} ${FSR4_SHADER_FILES}
+    ${FSR1_SHADER_FILES})
 target_include_directories(temporal_forge_lib PUBLIC
     "${CMAKE_CURRENT_SOURCE_DIR}/src"
     "${CMAKE_CURRENT_SOURCE_DIR}/external"
@@ -102,6 +132,8 @@ target_link_directories(temporal_forge_lib PUBLIC ${FFMPEG_LIBRARY_DIRS})
 # them, so the shader sources must be part of the lib's build graph.
 target_include_directories(temporal_forge_lib PUBLIC
     "${CMAKE_BINARY_DIR}/shaders/fsr4")
+target_include_directories(temporal_forge_lib PUBLIC
+    "${CMAKE_BINARY_DIR}/shaders/fsr1")
 
 # --- main app target ---
 qt_add_executable(temporal_forge_player src/main.cpp)
