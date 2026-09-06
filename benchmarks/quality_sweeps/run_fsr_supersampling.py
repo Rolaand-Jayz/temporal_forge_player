@@ -80,6 +80,14 @@ def metric(label: str, path: Path) -> str:
     return values[-1]
 
 
+def require_gpu_timing(samples: list[str], scene_root: Path) -> None:
+    """Make missing GPU timing fatal only for an explicit performance gate."""
+    if not samples:
+        raise SystemExit(
+            f"performance qualification requires stage-timing GPU evidence: {scene_root}"
+        )
+
+
 def sha256_file(path: Path) -> str:
     digest = hashlib.sha256()
     with path.open("rb") as stream:
@@ -306,6 +314,8 @@ def main() -> int:
                         help="diagnostic temporal color-history admission")
     parser.add_argument("--recurrent", choices=("on", "off"), default="on",
                         help="diagnostic recurrent admission")
+    parser.add_argument("--require-gpu-timing", action="store_true",
+                        help="fail this run when a stage-timing GPU sample is absent")
     args = parser.parse_args()
     final_w, final_h = (int(x) for x in args.final.split("x"))
     root = args.repo.resolve()
@@ -517,6 +527,8 @@ def main() -> int:
             stage = next((p for p in timings if "stage-timing" in p.read_text(errors="replace")), None)
             stage_text = stage.read_text(errors="replace") if stage else ""
             gpu = re.findall(r"GPU=([0-9.]+)ms", stage_text)
+            if args.require_gpu_timing:
+                require_gpu_timing(gpu, scene_root)
             output_rows.append({
                 "scene": scene, "scale": f"{scale:.2f}",
                 "cas_strength": args.cas_strength if args.cas_placement != "none" else "0.00",

@@ -1,5 +1,8 @@
 # M6 current-path regression triage
 
+> Archived historical triage record. The active Quality Lab authority is
+> `docs/active/QUALITY_CAMPAIGN.md`; this document no longer gates M7.
+
 Status: **open; no renderer change made**
 
 ## Evidence

@@ -72,6 +72,13 @@ its media remains local and is not a campaign baseline. The reopened diagnostic,
 matched reference-resize ablation, prevalence matrix, and focused fix are
 recorded in [`LATTICE_CORRUPTION_DIAGNOSTIC.md`](../../docs/LATTICE_CORRUPTION_DIAGNOSTIC.md).
 
+The PR #1 review adjudication is recorded in
+[`QUALITY_LAB_REVIEW_ADJUDICATION_20260906.md`](../reports/QUALITY_LAB_REVIEW_ADJUDICATION_20260906.md).
+Historical image and metric rows remain evidence; rows without GPU timing or
+reliable contention provenance are explicitly performance-unqualified and are
+not used as clean performance gates. The CAS-enabled precampaign arm must be
+rerun after the environment-presence fix before any new campaign is promoted.
+
 ## Completion
 
 Do not promote a quality change from this plan without matching evidence,

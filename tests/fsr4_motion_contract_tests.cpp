@@ -51,6 +51,13 @@ int main() {
         readSource("shaders/fsr4/conv_spatial_fp16_direct.comp");
     const std::string harness = readSource("src/render/Fsr4DispatchHarness.cpp");
 
+    // Generic-aspect playback must promote the fitted display geometry to the
+    // neural target when nativeInt8FixedTarget() has no fixed mapping.
+    CHECK(playback.find("pair.neuralTargetW = fitted.first;") !=
+          std::string::npos);
+    CHECK(playback.find("pair.neuralTargetH = fitted.second;") !=
+          std::string::npos);
+
     CHECK(decoder.find("static_cast<int8_t>(std::clamp(") !=
           std::string::npos);
     // A B-picture's negative source index identifies a past reference list

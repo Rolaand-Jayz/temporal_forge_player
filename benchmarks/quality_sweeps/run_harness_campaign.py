@@ -279,11 +279,29 @@ class PausingRunner:
         started = time.monotonic()
         print(f"[{now()}] START {label}", flush=True)
         self.record("command_start", {"label": label, "command": command})
+        merged = os.environ.copy()
+        process = subprocess.Popen(command, cwd=cwd, env=merged)
         try:
-            run_renderer(command, cwd=cwd)
-            self.record("command_complete", {"label": label, "returncode": 0})
+            while process.poll() is None:
+                matches = self.games()
+                self.record("game_activity", {
+                    "label": label,
+                    "active": bool(matches),
+                    "matches": matches,
+                })
+                time.sleep(self.poll_seconds)
+            returncode = process.wait()
+            self.record("command_complete", {
+                "label": label,
+                "returncode": returncode,
+            })
+            if returncode:
+                raise subprocess.CalledProcessError(returncode, command)
             print(f"[{now()}] DONE  {label} ({time.monotonic() - started:.1f}s)", flush=True)
         except BaseException:
+            if process.poll() is None:
+                process.kill()
+                process.wait()
             raise
 
 
@@ -465,8 +483,9 @@ def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--player", type=Path, default=Path("build-fast/temporal_forge_player"))
     parser.add_argument("--artifact-root", type=Path,
-                        default=Path("benchmarks/quality_sweeps/quality_campaign_capture_canonical_v1"))
-    parser.add_argument("--harness-root", type=Path, default=Path("review_harness_canonical_v1"))
+                        help="fresh output root; defaults to a timestamped run directory")
+    parser.add_argument("--harness-root", type=Path,
+                        help="fresh harness root; defaults to a timestamped run directory")
     parser.add_argument("--only", action="append", metavar="INPUTxOUTPUT",
                         help="limit this invocation to selected pair(s); repeatable")
     parser.add_argument("--execute", action="store_true",
@@ -485,6 +504,11 @@ def main() -> int:
                         help="additional game process pattern; repeatable")
     parser.add_argument("--poll-seconds", type=float, default=2.0)
     args = parser.parse_args()
+    run_stamp = dt.datetime.now(dt.timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    if args.artifact_root is None:
+        args.artifact_root = Path("benchmarks/quality_sweeps") / f"quality_campaign_capture_{run_stamp}"
+    if args.harness_root is None:
+        args.harness_root = Path(f"review_harness_{run_stamp}")
     legal_pair_names = {f"{input_height}x{output_height}"
                         for input_height, _, output_height, _ in PAIRS}
     requested_pairs = set(args.only or legal_pair_names)
