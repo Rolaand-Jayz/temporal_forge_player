@@ -1521,11 +1521,18 @@ bool PlaybackEngine::initFsr4Path(int decodedW, int decodedH, int modelW,
       requested.back().height != targetSize.height)
     requested.push_back(targetSize);
 
+  // The second in-flight slot exists only when the feature is explicitly
+  // enabled (see the allocation below); resource reuse must not demand a
+  // slot that the current configuration does not want.
+  const bool inFlightWanted =
+      requested.size() == 1 &&
+      std::getenv("TFORGE_FSR4_ENABLE_INFLIGHT") != nullptr &&
+      std::getenv("TFORGE_FSR4_DISABLE_INFLIGHT") == nullptr;
   const bool resourcesPresent =
       fsr4Harness_ && fsr4Uploader_ &&
       fsr4IntermediateUploaders_.size() + 1 == requested.size() &&
       fsr4IntermediateHarnesses_.size() + 1 == requested.size() &&
-      (requested.size() != 1 ||
+      (requested.size() != 1 || !inFlightWanted ||
        (fsr4InFlightHarness_ && fsr4InFlightUploader_));
   const bool dimensionsMatch = resourcesPresent &&
       fsr4PassSizes_.size() == requested.size() &&
@@ -1638,18 +1645,24 @@ bool PlaybackEngine::initFsr4Path(int decodedW, int decodedH, int modelW,
     }
   }
 
-  // Keep a second complete single-pass resource set. Its color upload,
-  // output, history, recurrent state, command buffer, and fence are all
-  // independent from the published slot, allowing one CPU upload/recording
-  // interval to overlap the prior FSR submission. Progressive chains retain
-  // the serial path because their intermediate passes have explicit
-  // same-frame dependencies.
-  if (requested.size() == 1 &&
-      std::getenv("TFORGE_FSR4_DISABLE_INFLIGHT") == nullptr &&
+  // Keep a second complete single-pass resource set when the in-flight
+  // feature is explicitly enabled (the same predicate the decode loop's
+  // asyncSlots uses to dispatch it). Allocating it by default spent a full
+  // tensor/output/history/recurrent resource set that was never dispatched.
+  // Progressive chains retain the serial path because their intermediate
+  // passes have explicit same-frame dependencies.
+  if (inFlightWanted &&
       (!fsr4InFlightHarness_ || !fsr4InFlightUploader_)) {
+    // Match the primary single-pass geometry exactly: the primary pass is
+    // created with the decode-side model dimensions, not the aligned decoded
+    // size. Dispatch alternates the two slots, so a second slot sized from
+    // the decoded source would alternate geometries and break the
+    // motion/jitter contract whenever model dims differ from decoded dims.
     if (!createPass(static_cast<uint32_t>(decodedW),
-                    static_cast<uint32_t>(decodedH), sourceSize.width,
-                    sourceSize.height, targetSize, fsr4InFlightHarness_,
+                    static_cast<uint32_t>(decodedH),
+                    static_cast<uint32_t>(modelW),
+                    static_cast<uint32_t>(modelH), targetSize,
+                    fsr4InFlightHarness_,
                     fsr4InFlightUploader_)) {
       fsr4InFlightHarness_.reset();
       fsr4InFlightUploader_.reset();
