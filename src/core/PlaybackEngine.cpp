@@ -145,14 +145,30 @@ FsrJitterPair computeFsrJitterPair(uint32_t decodedW, uint32_t decodedH,
     pair.displayW = pair.neuralTargetW;
     pair.displayH = pair.neuralTargetH;
   } else {
-    const auto fitted = fitToViewport(pair.displayW, pair.displayH);
     // Generic playback has no fixed native INT8 target.  The fitted display
     // geometry is therefore also the neural target; leaving the target at the
     // zero dimensions returned by nativeInt8FixedTarget() collapses the model
     // input to the 2x2 safety clamp while initFsr4Path() still chooses a real
     // output size.
-    pair.neuralTargetW = fitted.first;
-    pair.neuralTargetH = fitted.second;
+    //
+    // The neural target must come from a stable sizing source: spec 02 says a
+    // window resize only affects presentation.  Where the fixed native INT8
+    // table applies, keep it (initFsr4Path() does the same for its output).
+    // Generic aspects fit the debounced target viewport — the exact source
+    // initFsr4Path() fits the generic output to — so a live window resize
+    // cannot change model dimensions and force an FSR path rebuild (the
+    // setFsrViewport contract).  Only displayW/displayH follow the live
+    // window; they feed the presentation scaler, which is presentation-only.
+    if (nativeTarget.width != 0 && nativeTarget.height != 0) {
+      pair.neuralTargetW = nativeTarget.width;
+      pair.neuralTargetH = nativeTarget.height;
+    } else {
+      const auto fitted = fitToViewport(std::max(2u, targetW),
+                                        std::max(2u, targetH));
+      pair.neuralTargetW = fitted.first;
+      pair.neuralTargetH = fitted.second;
+    }
+    const auto fitted = fitToViewport(pair.displayW, pair.displayH);
     pair.displayW = fitted.first;
     pair.displayH = fitted.second;
   }
