@@ -37,6 +37,7 @@ tforge_add_test(backend_tests
             ../src/backend/Fsr4Int8Backend.cpp
             ../src/backend/Fsr3FallbackBackend.cpp
             ../src/backend/BackendSelector.cpp
+            ../src/backend/Fsr4PostpassParams.cpp
             ../src/render/Fsr4DispatchHarness.cpp
             ../src/render/fsr4/Fsr4ConvSteps.cpp
             ../src/render/fsr4/Fsr4Memory.cpp
@@ -62,6 +63,7 @@ tforge_add_test(fsr4_tensormap_tests
     SOURCES fsr4_tensormap_tests.cpp
             ../src/backend/Fsr4TensorMap.cpp
             ../src/util/Log.cpp)
+set_tests_properties(fsr4_tensormap_tests PROPERTIES SKIP_RETURN_CODE 77)
 set_tests_properties(fsr4_tensormap_tests PROPERTIES
     WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
 
@@ -86,6 +88,7 @@ tforge_add_test(fsr4_harness_tests
             ../src/backend/GpuCapabilityProbe.cpp
             ../src/backend/WeightBlob.cpp
             ../src/backend/Fsr4ProofRunner.cpp
+            ../src/backend/Fsr4PostpassParams.cpp
             ../src/render/Fsr4DispatchHarness.cpp
             ../src/render/fsr4/Fsr4ConvSteps.cpp
             ../src/render/fsr4/Fsr4Memory.cpp
