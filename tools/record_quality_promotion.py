@@ -28,6 +28,15 @@ def fail(message: str) -> int:
     return 2
 
 
+def gate_passed(evidence: dict, gate: str, key: str = "passed") -> tuple[bool, str | None]:
+    payload = evidence.get(gate)
+    if not isinstance(payload, dict):
+        return False, f"{gate} gate payload is not an object"
+    if key == "passed":
+        return bool(payload.get("passed")), payload.get("reason")
+    return bool(payload.get(key)), payload.get("reason")
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--evidence", type=Path, required=True)
@@ -50,17 +59,26 @@ def main() -> int:
     if not isinstance(binary, dict) or not binary.get("path") or not binary.get("sha256"):
         return fail("binary path and sha256 are required")
 
+    quality_ok, quality_reason = gate_passed(evidence, "quality")
+    equivalence_ok, equivalence_reason = gate_passed(evidence, "equivalence")
+    performance_ok, performance_reason = gate_passed(evidence, "performance")
+    diagnostics_ok, diagnostics_reason = gate_passed(evidence, "diagnostics", key="disabledByDefault")
     gates = {
-        "quality": isinstance(evidence["quality"], dict) and bool(evidence["quality"].get("passed")),
-        "equivalence": isinstance(evidence["equivalence"], dict) and bool(evidence["equivalence"].get("passed")),
-        "performance": isinstance(evidence["performance"], dict) and bool(evidence["performance"].get("passed")),
-        "diagnostics": isinstance(evidence["diagnostics"], dict) and bool(evidence["diagnostics"].get("disabledByDefault")),
+        "quality": quality_ok,
+        "equivalence": equivalence_ok,
+        "performance": performance_ok,
+        "diagnostics": diagnostics_ok,
+    }
+    gate_reasons = {
+        "quality": quality_reason,
+        "equivalence": equivalence_reason,
+        "performance": performance_reason,
+        "diagnostics": diagnostics_reason,
     }
     reasons = []
     for name, passed in gates.items():
         if not passed:
-            detail = evidence[name].get("reason") if isinstance(evidence[name], dict) else None
-            reasons.append(detail or f"{name} gate did not pass")
+            reasons.append(gate_reasons.get(name) or f"{name} gate did not pass")
 
     promoted = not reasons
     record = {
