@@ -130,7 +130,11 @@ float MotionEstimator::aggregateConfidence(const std::vector<MvEntry>& mvs,
     // uploader still preserves each block's local confidence in its validity
     // texture. Including both geometry and local confidence prevents sparse,
     // weakly matched fields from being promoted by coverage alone.
-    const float empty = std::clamp(emptyConfidence, 0.0f, 1.0f);
+    // std::clamp leaves NaN unchanged; reject a non-finite override before it
+    // can bypass low-confidence checks and contaminate history weighting.
+    const float empty = std::isfinite(emptyConfidence)
+        ? std::clamp(emptyConfidence, 0.0f, 1.0f)
+        : 0.5f;
     if (width <= 0 || height <= 0 || mvs.empty())
         return empty;
 
