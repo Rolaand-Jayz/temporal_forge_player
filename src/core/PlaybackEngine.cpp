@@ -4901,6 +4901,13 @@ void PlaybackEngine::audioDecodeLoop() {
       }
       audio_.push(chunk.samples.data(), chunk.samples.size());
     }
+    if (pkt.isEof) {
+      // The audio decoder has drained. Audio-only items have no video decode
+      // loop to raise the end-of-media flag, so mark it here; onPollTick
+      // paces the actual advancement on the audio clock and ring drain.
+      if (running_.load() && !seekPending_.load())
+        endOfMediaPending_.store(true, std::memory_order_release);
+    }
   }
 }
 
@@ -5013,8 +5020,31 @@ void PlaybackEngine::onPollTick() {
   // The decoder can drain a short tail before the UI has consumed the final
   // frame. Wait until the last displayed PTS is close to the container end so
   // automatic advancement never cuts off the last visible frame.
-  if (duration > 0 && (lastPts < 0 || lastPts + 250'000 < duration))
+  // Audio is the master clock (spec 01) and frequently outlives the last
+  // video frame (audio tail). Once the video decoder drained, lastPts can
+  // never advance again, so pacing the tail on the video PTS would stall
+  // advancement forever on files whose container duration extends past the
+  // last video-frame PTS. Pace the tail on the audio clock instead; with no
+  // audio clock, a drained video queue means the final frame is already on
+  // screen and no PTS will arrive to change lastPts.
+  const qint64 audioClock = audio_.clockUs();
+  // Either side may own the tail: audio frequently outlives the last video
+  // frame, and video can outlive a shorter audio track (the audio clock
+  // freezes once its ring drains because only real samples advance it).
+  // Pace on whichever clock has progressed furthest, so EOF never waits
+  // forever for a PTS that side can no longer produce.
+  qint64 pacedUs = -1;
+  if (audioClock >= 0)
+    pacedUs = audioClock;
+  if (lastPts > pacedUs)
+    pacedUs = lastPts;
+  if (pacedUs < 0)
+    return; // nothing has been displayed yet
+  const qint64 endUs = duration > 0 ? duration : pacedUs;
+  if (pacedUs + 250'000 < endUs)
     return;
+  if (duration <= 0 && audioClock >= 0 && audio_.bufferedFrames() > 0)
+    return; // unknown duration: wait until the buffered audio tail has played
   advancePlaylistAtEnd();
 }
 
