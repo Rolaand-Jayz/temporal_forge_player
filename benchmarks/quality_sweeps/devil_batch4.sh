@@ -2,7 +2,7 @@
 # devil_batch4.sh — 360p tier completion (all four campaign tiers covered).
 set -uo pipefail
 QS_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
-LUNA=/home/rolaandjayz/ZCodeProject/temporal_forge_player
+LUNA=/mnt/workdrive/ZCodeProject/temporal_forge_player
 IN="$LUNA/benchmarks/video_corpus/clips/sintel_rooftop_640x360_high_crf12.mp4"
 REF="$LUNA/benchmarks/video_corpus/references/sintel_rooftop_2160p_lossless.mkv"
 OUTROOT="$QS_DIR/.devil_batch4"

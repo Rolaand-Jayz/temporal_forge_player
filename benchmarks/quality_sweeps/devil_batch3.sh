@@ -5,7 +5,7 @@ set -uo pipefail
 
 QS_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd -- "$QS_DIR/../.." && pwd)"
-LUNA=/home/rolaandjayz/ZCodeProject/temporal_forge_player
+LUNA=/mnt/workdrive/ZCodeProject/temporal_forge_player
 CLIPS="$LUNA/benchmarks/video_corpus/clips"
 REFS="$LUNA/benchmarks/video_corpus/references"
 OUTROOT="$QS_DIR/.devil_batch3"
