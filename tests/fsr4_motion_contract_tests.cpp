@@ -29,6 +29,8 @@ int main() {
     const std::string decoder = readSource("src/media/VideoDecoder.cpp");
     const std::string decoderHeader = readSource("src/media/VideoDecoder.hpp");
     const std::string playback = readSource("src/core/PlaybackEngine.cpp");
+    const std::string motionEstimator =
+        readSource("src/motion/MotionEstimator.cpp");
     const std::string playbackHeader = readSource("src/core/PlaybackEngine.hpp");
     const std::string mainSource = readSource("src/main.cpp");
     const std::string runner =
@@ -649,7 +651,17 @@ int main() {
     CHECK(sideSynth.find("std::hypot(correctionX, correctionY)") !=
           std::string::npos);
     CHECK(playback.find("maxCorrectionPixels") != std::string::npos);
-    CHECK(playback.find("TFORGE_FSR4_EXPERIMENTAL_EMPTY_MOTION_CONFIDENCE") !=
+    // The empty-motion fallback has one parse/sanitize point in the estimator
+    // (non-finite values rejected before clamping); the production caller
+    // delegates to it instead of parsing the environment itself.
+    CHECK(motionEstimator.find(
+              "TFORGE_FSR4_EXPERIMENTAL_EMPTY_MOTION_CONFIDENCE") !=
+          std::string::npos);
+    CHECK(motionEstimator.find(
+              "float MotionEstimator::emptyMotionConfidenceFromEnvironment()") !=
+          std::string::npos);
+    CHECK(playback.find(
+              "MotionEstimator::emptyMotionConfidenceFromEnvironment()") !=
           std::string::npos);
     CHECK(playback.find("frameIndex == 0 ? std::vector<MvEntry>{}") !=
           std::string::npos);

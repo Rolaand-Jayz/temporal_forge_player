@@ -116,6 +116,24 @@ float parseFloat(const char* value, float fallback, float minValue,
 
 } // namespace
 
+float MotionEstimator::emptyMotionConfidenceFromEnvironment() {
+    // One parse point for the empty/uncovered-motion confidence fallback so
+    // every caller (empty-field early return and aggregateConfidence) sees
+    // the same value. Non-finite input must be rejected before clamping:
+    // std::clamp propagates NaN and saturates infinities to 0.0/1.0, which
+    // would let a malformed override grant or destroy history trust instead
+    // of failing safe to the documented default.
+    constexpr float kDefaultEmptyConfidence = 0.5f;
+    const char* value =
+        std::getenv("TFORGE_FSR4_EXPERIMENTAL_EMPTY_MOTION_CONFIDENCE");
+    if (!value || !*value) return kDefaultEmptyConfidence;
+    char* end = nullptr;
+    const float parsed = std::strtof(value, &end);
+    if (end == value || *end != '\0' || !std::isfinite(parsed))
+        return kDefaultEmptyConfidence;
+    return std::clamp(parsed, 0.0f, 1.0f);
+}
+
 void MotionEstimator::beginFrame(bool sceneCut) {
     stats_ = {};
     stats_.sceneCut = sceneCut;
@@ -130,7 +148,11 @@ float MotionEstimator::aggregateConfidence(const std::vector<MvEntry>& mvs,
     // uploader still preserves each block's local confidence in its validity
     // texture. Including both geometry and local confidence prevents sparse,
     // weakly matched fields from being promoted by coverage alone.
-    const float empty = std::clamp(emptyConfidence, 0.0f, 1.0f);
+    // std::clamp leaves NaN unchanged; reject a non-finite override before it
+    // can bypass low-confidence checks and contaminate history weighting.
+    const float empty = std::isfinite(emptyConfidence)
+        ? std::clamp(emptyConfidence, 0.0f, 1.0f)
+        : 0.5f;
     if (width <= 0 || height <= 0 || mvs.empty())
         return empty;
 
@@ -160,7 +182,12 @@ float MotionEstimator::aggregateConfidence(const std::vector<MvEntry>& mvs,
         weightedMagnitudeSq += area * magnitude * magnitude;
         weightedConfidence += area * std::clamp(mv.confidence, 0.0f, 1.0f);
     }
-    if (covered <= 0.0) return 0.25f;
+    // A nonempty list can still contain only out-of-frame or malformed
+    // entries. Treat that the same as an empty field and preserve the caller's
+    // explicit fallback policy; a hard-coded value here silently bypasses the
+    // empty-motion confidence experiment and makes invalid metadata look
+    // more trustworthy (or less trustworthy) than configured.
+    if (covered <= 0.0) return empty;
 
     const double coverage = std::clamp(covered / frameArea, 0.0, 1.0);
     const double mean = weightedMagnitude / covered;

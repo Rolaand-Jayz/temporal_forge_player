@@ -724,12 +724,14 @@ bool makeMotionCompensatedMidpointFrame(
 
 float codecMotionConfidence(const std::vector<MvEntry> &mvs, int width,
                             int height) {
-  float emptyMotionConfidence = 0.5f;
-  if (const char *value =
-          std::getenv("TFORGE_FSR4_EXPERIMENTAL_EMPTY_MOTION_CONFIDENCE")) {
-    emptyMotionConfidence =
-        std::clamp(std::strtof(value, nullptr), 0.0f, 1.0f);
-  }
+  // Single parse/sanitize point: rejects malformed and non-finite env values
+  // to the documented 0.5 default BEFORE clamping, and feeds the same
+  // sanitized value to both the empty-field early return below and
+  // aggregateConfidence. A local strtof+clamp here would propagate NaN and
+  // saturate infinities to 1.0/0.0, bypassing the aggregateConfidence guard
+  // on the empty-motion path.
+  const float emptyMotionConfidence =
+      MotionEstimator::emptyMotionConfidenceFromEnvironment();
   if (width <= 0 || height <= 0 || mvs.empty())
     return mvs.empty() ? emptyMotionConfidence : 0.0f;
   // Keep the baseline arm reproducible: it must not inherit the newly
