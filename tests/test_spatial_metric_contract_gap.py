@@ -105,6 +105,10 @@ def _write_class_attributed_result(root: Path, campaign: dict) -> Path:
         "lanczos_ssim",
         "custom_source_metric",
         "class",
+        # The runner's current CSV contract carries control-source provenance
+        # for every spatial row; the validator rejects rows without it.
+        "control_source_path",
+        "control_source_sha256",
     ]
     row = {
         "clip_id": "tos_daylight",
@@ -121,6 +125,8 @@ def _write_class_attributed_result(root: Path, campaign: dict) -> Path:
         "lanczos_ssim": "0.701234",
         "custom_source_metric": "0.42",
         "class": "faces-hair-skin",
+        "control_source_path": "/corpus/tos_daylight_426x240_high_crf12.mp4",
+        "control_source_sha256": "0" * 64,
     }
     with csv_path.open("w", newline="", encoding="utf-8") as stream:
         writer = csv.DictWriter(stream, fieldnames=fields)
@@ -248,7 +254,8 @@ class SpatialMetricContractGapTests(unittest.TestCase):
                 csv_path = root / f"{candidate['id']}.csv"
                 fields = ["clip_id", "width", "height", "output_width", "output_height",
                           "quality", "crf", "frame", *PRIMARY_SOURCE_METRICS,
-                          "fsr_lowfreq_luma_mae", "fsr_lowfreq_luma_bias", "class"]
+                          "fsr_lowfreq_luma_mae", "fsr_lowfreq_luma_bias", "class",
+                          "control_source_path", "control_source_sha256"]
                 with csv_path.open("w", newline="", encoding="utf-8") as stream:
                     writer = csv.DictWriter(stream, fieldnames=fields)
                     writer.writeheader()
@@ -267,6 +274,8 @@ class SpatialMetricContractGapTests(unittest.TestCase):
                                 "fsr_lowfreq_luma_mae": "0.018085",
                                 "fsr_lowfreq_luma_bias": "0.003483",
                                 "class": quality_class,
+                                "control_source_path": f"/corpus/{scene}_426x240_high_crf12.mp4",
+                                "control_source_sha256": "0" * 64,
                             })
                 result_entries.append({
                     "candidateId": candidate["id"],
@@ -341,7 +350,7 @@ class SpatialMetricContractGapTests(unittest.TestCase):
             results = json.loads(result_path.read_text(encoding="utf-8"))
             csv_path = Path(results[0]["csv"])
             text = csv_path.read_text(encoding="utf-8").replace(
-                "faces-hair-skin\n", "__whole_scene__\n"
+                ",faces-hair-skin,", ",__whole_scene__,"
             )
             csv_path.write_text(text, encoding="utf-8")
             with self.assertRaisesRegex(Exception, "unexpected class|whole.scene|selected"):
