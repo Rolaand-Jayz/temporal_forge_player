@@ -1,3 +1,7 @@
+// conv_downscale_fp16_coop.comp — cooperative-matrix downscale convolution.
+// It consumes the previous tensor and recovered weights, writes the next
+// tensor at the reduced spatial scale, and is selected by Fsr4ConvSteps when a
+// tensor-table row uses FP16 cooperative math and a scale boundary.
 #version 450 core
 #extension GL_KHR_cooperative_matrix : require
 #extension GL_KHR_memory_scope_semantics : require

@@ -15,7 +15,7 @@ layout(local_size_x = 32, local_size_y = 1, local_size_z = 1) in;
 layout(set = 0, binding = 0) uniform ConvCB {
     ivec4 slot0; // (featBase_words, accumBase_words, weightBase_bytes, cin|strideFlag)
     ivec4 slot1; // (dispatchW, dispatchH, kernelSize, cout_biaspacked)
-    ivec4 slot2; // (fp8 scale bits, _, _, _)
+    ivec4 slot2; // (fp8 scale bits, rounding mode, _, _)
 };
 layout(set = 0, binding = 1, std430) readonly buffer WeightBlob { uint8_t weightU8[]; };
 layout(set = 0, binding = 2, std430) readonly buffer ScratchBuf { float16_t scratchData[]; };
@@ -45,24 +45,31 @@ float decodeFp8(uint b) {
     const uint sign = b >> 7u;
     const uint exponent = (b >> 3u) & 0xFu;
     const uint mantissa = b & 0x7u;
+    const int exponentBias = (slot2.z & 4) != 0 ? 7 : 8;
     if (exponent == 0u)
-        return (sign != 0u ? -1.0 : 1.0) * float(mantissa) * exp2(-10.0);
+        return (sign != 0u ? -1.0 : 1.0) * float(mantissa) *
+               exp2(float(1 - exponentBias - 3));
     if (b == 0x80u)
         return 0.0;
-    const float value = (1.0 + float(mantissa) / 8.0) * exp2(float(exponent) - 8.0);
+    const float value = (1.0 + float(mantissa) / 8.0) *
+                        exp2(float(exponent) - float(exponentBias));
     return sign != 0u ? -value : value;
 }
 
 float quantizeFp8(float x) {
-    return x;
+    // slot2.y bit 0 is an opt-in capture probe. Zero preserves the current
+    // FP16 scratch behavior; one uses the existing nearest E4M3 quantizer.
+    if (slot2.y == 0) return x;
     if (isnan(x) || isinf(x)) return 0.0;
     const float sign = x < 0.0 ? -1.0 : 1.0;
     const float ax = abs(x);
-    if (ax < exp2(-10.0)) return 0.0;
+    const int exponentBias = (slot2.z & 4) != 0 ? 7 : 8;
+    const float subnormalScale = exp2(float(1 - exponentBias - 3));
+    if (ax < subnormalScale) return 0.0;
     float exponent = floor(log2(ax));
-    int exponentBits = int(exponent) + 8;
+    int exponentBits = int(exponent) + exponentBias;
     if (exponentBits <= 0) {
-        const float subnormal = clamp(round(ax * exp2(10.0)), 0.0, 7.0) * exp2(-10.0);
+        const float subnormal = clamp(round(ax / subnormalScale), 0.0, 7.0) * subnormalScale;
         return sign * subnormal;
     }
     if (exponentBits >= 16) return sign * 240.0;
@@ -72,7 +79,8 @@ float quantizeFp8(float x) {
         exponentBits += 1;
     }
     if (exponentBits >= 16) return sign * 240.0;
-    return sign * (1.0 + mantissa / 8.0) * exp2(float(exponentBits) - 8.0);
+    return sign * (1.0 + mantissa / 8.0) *
+           exp2(float(exponentBits) - float(exponentBias));
 }
 
 float loadPackedFloat(uint byteOffset) {
@@ -128,6 +136,7 @@ void main() {
     const uint accumBase = uint(slot0.y);
     const uint weightBase = uint(slot0.z); // physical tensor offset in the blob
     const float fp8Scale = (slot2.x != 0) ? uintBitsToFloat(uint(slot2.x)) : 1.0;
+    const bool saturateFp16 = (slot2.z & 1) != 0;
     const uint packedWeightBase = 131072u;
     const uint packedScaleBase = 262144u;
     // FasterNet's partial spatial mixer is grouped: output channels 0..15
@@ -250,8 +259,16 @@ void main() {
 
     if (hasRelu) acc = relu(acc);
     uint outPixelBase = accumBase + (py * dispatchW + px) * uint(COUT);
-    if (outputFp16)
-        edgeData[(py * dispatchW + px) * uint(COUT) + oc] = float16_t(acc);
-    else
-        accumData[outPixelBase + oc] = float16_t(quantizeFp8(acc));
+    if (outputFp16) {
+        const float storedValue = (isnan(acc) || isinf(acc))
+            ? 0.0 : clamp(acc, -65504.0, 65504.0);
+        edgeData[(py * dispatchW + px) * uint(COUT) + oc] =
+            float16_t(storedValue);
+    } else {
+        float storedValue = quantizeFp8(acc);
+        if (saturateFp16)
+            storedValue = (isnan(storedValue) || isinf(storedValue))
+                ? 0.0 : clamp(storedValue, -65504.0, 65504.0);
+        accumData[outPixelBase + oc] = float16_t(storedValue);
+    }
 }

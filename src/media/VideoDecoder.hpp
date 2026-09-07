@@ -35,6 +35,7 @@ struct MvEntry {
     uint8_t w = 0;          // block width
     uint8_t h = 0;          // block height
     int8_t  source = 0;     // <0 = backward (past ref), >0 = forward (future ref)
+    float confidence = 1.0f; // optional history trust, 1.0 for ordinary codec vectors
 };
 
 struct DecodedVideoFrame {
@@ -50,7 +51,16 @@ struct DecodedVideoFrame {
     int avFormat = 0;           // AVPixelFormat
     int colorRange = 0;         // AVColorRange
     int colorSpace = 0;         // AVColorSpace
+    int colorTransfer = 0;      // AVColorTransferCharacteristic
+    int colorPrimaries = 0;     // AVColorPrimaries
+    int chromaLocation = 0;     // AVChromaLocation
+    int bitDepth = 8;            // decoded component depth, not container depth
     bool hwFrame = false;       // true when backed by GPU hardware surfaces
+    // True for an FFmpeg B-picture. A negative AVMotionVector::source only
+    // says that a vector points to a past reference-list picture; it does not
+    // prove that the picture is the immediately previous displayed frame.
+    // PlaybackEngine uses this marker for the integrated causal-history guard.
+    bool bFrame = false;
     int hwFrameFormat = -1;     // AVPixelFormat for the hardware frame, if any
     // Retains mapped DRM PRIME descriptors and their DMA-BUF file descriptors
     // until the Vulkan uploader has imported the frame.
@@ -102,6 +112,15 @@ public:
     //            VAAPI device is available.
     // Returns:   false on failure (codec_ left null).
     bool open(AVFormatContext* fmt, int streamIndex);
+
+    // setMotionMetadataRequested: request software decode before open() when
+    // a typed quality configuration needs FFmpeg codec motion side-data.
+    // Upstream: PlaybackEngine's resolved QualityLabConfig. Downstream:
+    // VideoDecoder's VAAPI choice and DecodedVideoFrame::motionVectors.
+    // Environment-based benchmark requests remain supported independently.
+    void setMotionMetadataRequested(bool requested) {
+        motionMetadataRequested_ = requested;
+    }
 
     // close: free the codec context + frame (idempotent).
     //        Called by: PlaybackEngine::close, ::openUrl (re-open), dtor.
@@ -158,6 +177,7 @@ private:
     int pixFmt_ = 0;
     uint64_t frameCounter_ = 0;
     bool hwaccelEnabled_ = false;
+    bool motionMetadataRequested_ = false;
 };
 
 } // namespace temporal_forge

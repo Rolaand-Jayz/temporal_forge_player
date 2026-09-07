@@ -1,3 +1,6 @@
+// conv_spatial_fp16_direct.comp — spatial/direct convolution used where the
+// recovered graph needs non-cooperative arithmetic. It consumes the same
+// tensor metadata and produces a graph-compatible output for the next pass.
 #version 450 core
 #extension GL_EXT_shader_explicit_arithmetic_types_int8 : require
 #extension GL_EXT_shader_explicit_arithmetic_types_float16 : require
@@ -30,7 +33,10 @@ float loadBias(uint byteOffset, bool fp16Bias) {
 }
 
 float quantizeFp8(float x) {
-    return x;
+    // Mode 2 is the explicit quality probe for the recovered FP8 boundary;
+    // the normal direct FP16 fallback keeps its historical unquantized
+    // carrier behavior.
+    if (slot2.y != 2) return x;
     if (isnan(x) || isinf(x) || x == 0.0) return 0.0;
     const uint sign = x < 0.0 ? 0x80000000u : 0u;
     const float ax = abs(x);

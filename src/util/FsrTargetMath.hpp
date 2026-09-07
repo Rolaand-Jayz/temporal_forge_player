@@ -83,6 +83,34 @@ inline Size2D nativeInt8UltraPerformanceTarget(uint32_t sourceWidth,
     return sourceHeight <= 360 ? Size2D{1920, 1080} : Size2D{3840, 2160};
 }
 
+inline Size2D nativeInt8FourThreeTarget(uint32_t sourceWidth,
+                                        uint32_t sourceHeight) {
+    if (sourceWidth == 0 || sourceHeight == 0 || sourceHeight > 1080)
+        return {0, 0};
+    const uint64_t wide = static_cast<uint64_t>(sourceWidth) * 3u;
+    const uint64_t tall = static_cast<uint64_t>(sourceHeight) * 4u;
+    const uint64_t aspectError = wide > tall ? wide - tall : tall - wide;
+    if (aspectError * 100u > tall)
+        return {0, 0};
+    return sourceHeight <= 540 ? Size2D{1440, 1080} : Size2D{2880, 2160};
+}
+
+inline Size2D nativeInt8FixedTarget(uint32_t sourceWidth,
+                                    uint32_t sourceHeight) {
+    const Size2D wide = nativeInt8UltraPerformanceTarget(sourceWidth,
+                                                         sourceHeight);
+    return wide.width != 0 ? wide
+                           : nativeInt8FourThreeTarget(sourceWidth, sourceHeight);
+}
+
+// Fixed native INT8 graphs are generated for 16:9 tensors. Keep this policy
+// reusable at every selection boundary, including callers that construct a
+// dispatch harness directly instead of going through PlaybackEngine.
+inline bool nativeInt8SourceAspectSupported(uint32_t sourceWidth,
+                                             uint32_t sourceHeight) {
+    return nativeInt8FixedTarget(sourceWidth, sourceHeight).width != 0;
+}
+
 struct PresetInfo {
     UpscalePreset preset;
     const char* displayName;

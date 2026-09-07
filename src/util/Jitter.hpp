@@ -2,6 +2,7 @@
 // spec 03 section 2: "Use FSR query/helper functions where available, or
 // implement Halton 2,3 equivalent." This is the standalone equivalent.
 #pragma once
+#include <algorithm>
 #include <cstdint>
 
 namespace temporal_forge {
@@ -56,6 +57,23 @@ constexpr uint32_t jitterPhaseCount(uint32_t renderWidth, uint32_t renderHeight)
     uint32_t c = 1;
     while (d > 1) { d >>= 1; ++c; }
     return c;
+}
+
+// fsrJitterPhaseCount: the FidelityFX temporal-upscaler phase count for a
+// render/presentation pair. This mirrors the SDK helper's
+// ceil(8 * (displayWidth / renderWidth)^2) rule and uses the horizontal ratio
+// exactly as the FSR API does. It is separate from the legacy two-dimensional
+// diagnostic helper above so existing callers remain source-compatible.
+constexpr uint32_t fsrJitterPhaseCount(uint32_t renderWidth,
+                                       uint32_t displayWidth) {
+    if (renderWidth == 0 || displayWidth == 0) return 1u;
+    using Wide = unsigned __int128;
+    const Wide numerator = Wide{8} * displayWidth * displayWidth;
+    const Wide denominator = Wide{renderWidth} * renderWidth;
+    const Wide roundedUp = (numerator + denominator - 1) / denominator;
+    const Wide bounded = std::min<Wide>(
+        std::max<Wide>(Wide{1}, roundedUp), Wide{UINT32_MAX});
+    return static_cast<uint32_t>(bounded);
 }
 
 // jitterAmplitudeScale: tapers jitter amplitude for small render sizes.

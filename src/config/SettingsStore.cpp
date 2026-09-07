@@ -160,7 +160,8 @@ PresentationScaler parsePresentation(std::string_view s) {
     if (s == "Bicubic") return PresentationScaler::Bicubic;
     if (s == "Lanczos") return PresentationScaler::Lanczos;
     if (s == "Easu") return PresentationScaler::Easu;
-    return PresentationScaler::Auto;
+    // Auto and unknown/legacy values now select the quality-first default.
+    return PresentationScaler::Bicubic;
 }
 const char* presentationKey(PresentationScaler p) {
     switch (p) {
@@ -170,7 +171,7 @@ const char* presentationKey(PresentationScaler p) {
         case PresentationScaler::Lanczos: return "Lanczos";
         case PresentationScaler::Easu: return "Easu";
     }
-    return "Auto";
+    return "Bicubic";
 }
 
 } // namespace

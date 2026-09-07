@@ -1,3 +1,7 @@
+// conv_downscale_fp16_direct.comp — direct-matrix fallback for a downscale
+// convolution when cooperative-matrix dispatch is unavailable or not selected.
+// The C++ harness binds the same tensor/weight contract as the cooperative
+// variant; only the arithmetic implementation differs.
 #version 450 core
 #extension GL_KHR_cooperative_matrix : require
 #extension GL_KHR_memory_scope_semantics : require

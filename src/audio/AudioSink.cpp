@@ -26,6 +26,10 @@ AudioSink::AudioSink()
 // ~AudioSink: stop the device before members are destroyed (header contract).
 AudioSink::~AudioSink() { stop(); }
 
+// start: create and start the miniaudio playback device, then clear the ring
+// and audio clock. Upstream AudioDecoder/PlaybackEngine push decoded samples;
+// downstream the realtime callback drains them and defines the primary A/V
+// clock. A failure leaves no live device and returns false to the caller.
 bool AudioSink::start(int channels, int sampleRate) {
     stop();
     channels_ = channels;
@@ -58,10 +62,17 @@ bool AudioSink::start(int channels, int sampleRate) {
     return true;
 }
 
+// stop: destroy the device through deviceDeleter. This is safe from repeated
+// playlist changes and destructor cleanup; the ring remains allocated so a
+// subsequent start can reuse it.
 void AudioSink::stop() {
     if (device_) device_.reset(); // calls deleter -> uninit + delete
 }
 
+// push: enqueue decoded interleaved float samples without blocking the decode
+// thread. If the realtime device has not drained enough data, the remainder is
+// dropped intentionally; audio owns the clock and blocking here would stall
+// video decode and temporal frame production.
 void AudioSink::push(const float* samples, size_t count) {
     if (!ring_) return;
     size_t off = 0;
@@ -76,12 +87,17 @@ void AudioSink::push(const float* samples, size_t count) {
     }
 }
 
+// setStartPts: align the audio clock with the first decoded audio PTS and reset
+// consumed-sample accounting. PlaybackEngine calls this after a seek/new file.
 void AudioSink::setStartPts(int64_t ptsUs) {
     std::lock_guard lock(startMutex_);
     startPtsUs_.store(ptsUs, std::memory_order_relaxed);
     consumedTotal_.store(0, std::memory_order_relaxed);
 }
 
+// clockUs: derive presentation time from the immutable start PTS plus samples
+// actually consumed by the device. PlaybackEngine compares video PTS against
+// this value for pacing; it is deliberately not based on queue depth.
 int64_t AudioSink::clockUs() const {
     const int64_t start = startPtsUs_.load(std::memory_order_acquire);
     if (start < 0) return -1;
@@ -91,12 +107,19 @@ int64_t AudioSink::clockUs() const {
     return start + static_cast<int64_t>(seconds * 1e6);
 }
 
+// setVolume: clamp a UI value before publishing it to the realtime callback.
+// The atomic avoids taking a mutex in the audio thread.
 void AudioSink::setVolume(float v) {
     v = v < 0.0f ? 0.0f : (v > 1.0f ? 1.0f : v);
     volume_.store(v, std::memory_order_relaxed);
 }
+// setMuted: publish the mute switch read by dataCallback without interrupting
+// the audio device.
 void AudioSink::setMuted(bool m) { muted_.store(m, std::memory_order_relaxed); }
 
+// dataCallback: realtime miniaudio boundary. It must remain allocation-free
+// and non-blocking: read queued samples, advance the audio clock, and apply the
+// current volume/mute atomics before handing the buffer to the device.
 void AudioSink::dataCallback(ma_device* device, void* output, const void* /*input*/,
                              uint32_t frameCount) {
     auto* self = static_cast<AudioSink*>(device->pUserData);

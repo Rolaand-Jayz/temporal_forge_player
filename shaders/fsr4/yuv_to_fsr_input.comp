@@ -13,6 +13,8 @@ layout(push_constant) uniform Push {
     vec4 params;       // width, height, sharpness, compareEnabled
     vec4 range;        // yOffset, yScale, chromaOffset, chromaScale
     vec4 matrix;       // rV, gU, gV, bU
+    vec4 chroma;       // chromaPhase x/y, source bit depth, reserved
+    vec4 jitter;       // render-pixel x/y, enabled, reserved
 } pc;
 
 layout(set = 0, binding = 0, r8) readonly uniform image2D u_y;
@@ -21,8 +23,15 @@ layout(set = 0, binding = 2, r8) readonly uniform image2D u_v;
 layout(set = 0, binding = 3, rgb10_a2) writeonly uniform image2D u_color;
 layout(set = 0, binding = 4, rgba8) writeonly uniform image2D u_raw;
 
+const uint YUV_FLAG_REC709_INPUT_EOTF = 1u;
+const uint YUV_FLAG_LINEAR_INPUT_EOTF = 2u;
+const uint YUV_FLAG_CHROMA_BILINEAR = 4u;
+const uint YUV_FLAG_PRE_CAS = 8u;
 const int Y_TILE_WIDTH = 18;
-const int UV_TILE_WIDTH = 10;
+// Centered chroma puts the first luma pixel at UV -0.25, so the four-tap
+// cubic footprint reaches two texels before the workgroup and nine after its
+// origin. A 12x12 tile covers that complete [-2,+9] range.
+const int UV_TILE_WIDTH = 12;
 shared float yTile[Y_TILE_WIDTH * Y_TILE_WIDTH];
 shared vec2 uvTile[UV_TILE_WIDTH * UV_TILE_WIDTH];
 
@@ -31,27 +40,72 @@ float loadYCached(ivec2 p, ivec2 tileBase) {
     return yTile[local.y * Y_TILE_WIDTH + local.x];
 }
 
+// Sample the decoded luma at a subpixel phase. The source image is already at
+// the FSR render size, so this is the single pre-FSR resampling operation that
+// realizes the reported synthetic jitter. Coordinates clamp at the border;
+// they never wrap across the frame.
+float loadYJittered(vec2 position, ivec2 size, ivec2 tileBase) {
+    position = clamp(position, vec2(0.0), vec2(size - ivec2(1)));
+    ivec2 base = ivec2(floor(position));
+    vec2 f = fract(position);
+    float a = loadYCached(base, tileBase);
+    float b = loadYCached(min(base + ivec2(1, 0), size - ivec2(1)), tileBase);
+    float c = loadYCached(min(base + ivec2(0, 1), size - ivec2(1)), tileBase);
+    float d = loadYCached(min(base + ivec2(1), size - ivec2(1)), tileBase);
+    return mix(mix(a, b, f.x), mix(c, d, f.x), f.y);
+}
+
 vec2 loadUvCached(ivec2 p, ivec2 tileBase) {
     const ivec2 local = p - tileBase;
     return uvTile[local.y * UV_TILE_WIDTH + local.x];
 }
 
-vec2 loadUvBilinear(ivec2 p, ivec2 size, ivec2 uvSize) {
-    // Reconstruct 4:2:0 chroma at the luma pixel center. Nearest-cell
-    // chroma creates a fixed 2x2 lattice that the neural pass can sharpen
-    // into a visible screen-door pattern on low-resolution video.
-    vec2 uvPos = (vec2(p) + vec2(0.5)) * 0.5 - vec2(0.5);
+vec4 catmullRomWeights(float f) {
+    float f2 = f * f;
+    float f3 = f2 * f;
+    return vec4(-0.5 * f3 + f2 - 0.5 * f,
+                 1.5 * f3 - 2.5 * f2 + 1.0,
+                -1.5 * f3 + 2.0 * f2 + 0.5 * f,
+                 0.5 * f3 - 0.5 * f2);
+}
+
+vec2 loadUvBicubic(vec2 p, ivec2 size, ivec2 uvSize, ivec2 tileBase) {
+    // Reconstruct 4:2:0 chroma at the luma pixel center. The cubic footprint
+    // avoids the soft 2x2 bilinear chroma cells that are especially visible
+    // around text and high-contrast screen-recording edges.
+    vec2 uvPos = (vec2(p) + vec2(0.5)) * 0.5 - pc.chroma.xy;
     ivec2 base = ivec2(floor(uvPos));
     vec2 f = fract(uvPos);
-    base = clamp(base, ivec2(0), uvSize - ivec2(1));
-    ivec2 right = min(base + ivec2(1, 0), uvSize - ivec2(1));
-    ivec2 down = min(base + ivec2(0, 1), uvSize - ivec2(1));
-    ivec2 diag = min(base + ivec2(1, 1), uvSize - ivec2(1));
-    vec2 a = vec2(imageLoad(u_u, base).r, imageLoad(u_v, base).r);
-    vec2 b = vec2(imageLoad(u_u, right).r, imageLoad(u_v, right).r);
-    vec2 c = vec2(imageLoad(u_u, down).r, imageLoad(u_v, down).r);
-    vec2 d = vec2(imageLoad(u_u, diag).r, imageLoad(u_v, diag).r);
-    return mix(mix(a, b, f.x), mix(c, d, f.x), f.y);
+    vec4 wx = catmullRomWeights(f.x);
+    vec4 wy = catmullRomWeights(f.y);
+    vec2 result = vec2(0.0);
+    for (int y = 0; y < 4; ++y) {
+        int sy = clamp(base.y + y - 1, 0, uvSize.y - 1);
+        for (int x = 0; x < 4; ++x) {
+            int sx = clamp(base.x + x - 1, 0, uvSize.x - 1);
+            vec2 sampleUv = loadUvCached(ivec2(sx, sy), tileBase);
+            result += sampleUv * (wx[x] * wy[y]);
+        }
+    }
+    return clamp(result, 0.0, 1.0);
+}
+
+vec2 loadUvBilinear(vec2 p, ivec2 uvSize, ivec2 tileBase) {
+    vec2 uvPos = (vec2(p) + vec2(0.5)) * 0.5 - pc.chroma.xy;
+    ivec2 base = ivec2(floor(uvPos));
+    vec2 f = fract(uvPos);
+    vec2 c00 = loadUvCached(clamp(base, ivec2(0), uvSize - ivec2(1)), tileBase);
+    vec2 c10 = loadUvCached(clamp(base + ivec2(1, 0), ivec2(0), uvSize - ivec2(1)), tileBase);
+    vec2 c01 = loadUvCached(clamp(base + ivec2(0, 1), ivec2(0), uvSize - ivec2(1)), tileBase);
+    vec2 c11 = loadUvCached(clamp(base + ivec2(1), ivec2(0), uvSize - ivec2(1)), tileBase);
+    return mix(mix(c00, c10, f.x), mix(c01, c11, f.x), f.y);
+}
+
+vec2 loadUvFiltered(vec2 p, ivec2 size, ivec2 uvSize, ivec2 tileBase) {
+    const uint flags = floatBitsToUint(pc.chroma.w);
+    return (flags & YUV_FLAG_CHROMA_BILINEAR) != 0u
+        ? loadUvBilinear(p, uvSize, tileBase)
+        : loadUvBicubic(p, size, uvSize, tileBase);
 }
 
 float sharpenMask(ivec2 p, ivec2 size, ivec2 tileBase,
@@ -67,6 +121,30 @@ float sharpenMask(ivec2 p, ivec2 size, ivec2 tileBase,
     return clamp(1.0 + detail * (sharpness * 0.25), 0.0, 4.0);
 }
 
+// applyPreCas: opt-in luma CAS before the neural input is written.
+// Upstream: decoded YUV luma and the converted RGB pixel. Downstream: the
+// model input image. The default path does not call this; Candidate #2 uses
+// it together with the existing final postpass CAS so both sharpening stages
+// are explicit and independently reproducible.
+vec3 applyPreCas(ivec2 p, ivec2 size, ivec2 tileBase, vec3 rgb,
+                 float strength, float luma) {
+    ivec2 l = ivec2(max(p.x - 1, 0), p.y);
+    ivec2 r = ivec2(min(p.x + 1, size.x - 1), p.y);
+    ivec2 t = ivec2(p.x, max(p.y - 1, 0));
+    ivec2 b = ivec2(p.x, min(p.y + 1, size.y - 1));
+    float left = loadYCached(l, tileBase);
+    float right = loadYCached(r, tileBase);
+    float up = loadYCached(t, tileBase);
+    float down = loadYCached(b, tileBase);
+    float low = min(luma, min(min(left, right), min(up, down)));
+    float high = max(luma, max(max(left, right), max(up, down)));
+    float range = high - low;
+    float detail = luma - (left + right + up + down) * 0.25;
+    float adaptive = detail * strength / max(luma, 1.0e-4);
+    float gate = smoothstep(0.002, 0.08, range);
+    return clamp(rgb + vec3(adaptive * gate), vec3(0.0), vec3(1.0));
+}
+
 vec3 yuvToRgb(float y, float u, float v) {
     float c = (y - pc.range.x) * pc.range.y;
     float d = u - pc.range.z;
@@ -77,19 +155,36 @@ vec3 yuvToRgb(float y, float u, float v) {
     return clamp(vec3(r, g, b), vec3(0.0), vec3(1.0));
 }
 
-vec3 toModelColor(vec3 srgb) {
-    vec3 lo = srgb / 12.92;
-    vec3 hi = pow((srgb + 0.055) / 1.055, vec3(2.4));
-    vec3 linear = mix(hi, lo, lessThan(srgb, vec3(0.04045)));
+float rec709InverseOetf(float encoded) {
+    return encoded < 0.081
+        ? encoded / 4.5
+        : pow((encoded + 0.099) / 1.099, 1.0 / 0.45);
+}
+
+vec3 toModelColor(vec3 encoded) {
+    vec3 linear;
+    const uint flags = floatBitsToUint(pc.chroma.w);
+    if ((flags & YUV_FLAG_LINEAR_INPUT_EOTF) != 0u) {
+        linear = encoded;
+    } else if ((flags & YUV_FLAG_REC709_INPUT_EOTF) != 0u) {
+        linear = vec3(rec709InverseOetf(encoded.r),
+                      rec709InverseOetf(encoded.g),
+                      rec709InverseOetf(encoded.b));
+    } else {
+        // Preserve the established sRGB EOTF for the default path.
+        vec3 lo = encoded / 12.92;
+        vec3 hi = pow((encoded + 0.055) / 1.055, vec3(2.4));
+        linear = mix(hi, lo, lessThan(encoded, vec3(0.04045)));
+    }
     return max(0.1174 * log(1.0 + 150.0 * linear), vec3(0.0));
 }
 
 void main() {
     ivec2 size = ivec2(int(pc.params.x), int(pc.params.y));
-    ivec2 uvSize = max(size / 2, ivec2(1));
+    ivec2 uvSize = max((size + ivec2(1)) / 2, ivec2(1));
     const ivec2 groupCoord = ivec2(gl_WorkGroupID.xy) * 16;
     const ivec2 yTileBase = groupCoord - ivec2(1);
-    const ivec2 uvTileBase = groupCoord / 2 - ivec2(1);
+    const ivec2 uvTileBase = groupCoord / 2 - ivec2(2);
     const uint localIndex = gl_LocalInvocationID.y * 16u +
                             gl_LocalInvocationID.x;
     for (uint i = localIndex; i < uint(Y_TILE_WIDTH * Y_TILE_WIDTH); i += 256u) {
@@ -109,22 +204,33 @@ void main() {
     ivec2 p = ivec2(gl_GlobalInvocationID.xy);
     if (p.x >= size.x || p.y >= size.y) return;
 
-    float y = loadYCached(p, yTileBase);
-    vec2 uv = loadUvBilinear(p, size, uvSize);
+    // The official-ordering experiment keeps this upload grid unjittered;
+    // the prepass then applies the phase to its model-space resolve. The
+    // normal path still realizes synthetic jitter here.
+    const vec2 samplePosition = vec2(p) +
+        ((pc.jitter.z > 0.5) ? pc.jitter.xy : vec2(0.0));
+    float y = loadYJittered(samplePosition, size, yTileBase);
+    // Chroma follows the same source position. Bilinear chroma is the default
+    // for jittered input; the existing integer-path filter remains unchanged
+    // when jitter is disabled.
+    vec2 uv = loadUvFiltered(samplePosition, size, uvSize, uvTileBase);
     float u = uv.x;
     float v = uv.y;
     vec3 rgb = yuvToRgb(y, u, v);
 
     float sharpness = clamp(pc.params.z, 0.0, 1.0);
-    float mask = sharpenMask(p, size, yTileBase, sharpness, y);
-    vec3 sharpened = clamp(rgb * mask, vec3(0.0), vec3(1.0));
+    uint yuvFlags = floatBitsToUint(pc.chroma.w);
+    vec3 sharpened = (yuvFlags & YUV_FLAG_PRE_CAS) != 0u
+        ? applyPreCas(p, size, yTileBase, rgb, sharpness, y)
+        : clamp(rgb * sharpenMask(p, size, yTileBase, sharpness, y),
+                vec3(0.0), vec3(1.0));
 
     // Cache the network's nonlinear color transform once on the source grid.
     // The 3x upscale pre/post passes reuse these values instead of evaluating
     // the same transform 4 and 9 times per output pixel respectively.
     imageStore(u_color, p, vec4(toModelColor(sharpened), 1.0));
-    // Comparison toggles are applied before this dispatch, so populate the raw
-    // image only on frames where the UI can consume it.
-    if (pc.params.w > 0.5)
-        imageStore(u_raw, p, vec4(rgb, 1.0));
+    // The bicubic prefilter consumes this display-space image before the FSR
+    // model pass. Keep it populated for normal playback as well as A/B
+    // compare; leaving it zero when compare is off makes the FSR input black.
+    imageStore(u_raw, p, vec4(rgb, 1.0));
 }

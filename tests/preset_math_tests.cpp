@@ -94,6 +94,26 @@ static void test_native_int8_ultraperformance_targets() {
     CHECK(nativeInt8UltraPerformanceTarget(2560, 1440).width == 0);
 }
 
+static void test_arbitrary_aspect_targets_stay_native() {
+    const Size2D quality =
+        fsrTargetSize(640, 480, UpscalePreset::Quality, 2);
+    CHECK(quality.width == 960 && quality.height == 720);
+    CHECK(nativeInt8UltraPerformanceTarget(640, 480).width == 0);
+    CHECK(nativeInt8FourThreeTarget(640, 480).width == 1440);
+    CHECK(nativeInt8FourThreeTarget(640, 480).height == 1080);
+    CHECK(nativeInt8FixedTarget(640, 480).width == 1440);
+    CHECK(nativeInt8FourThreeTarget(1280, 960).width == 2880);
+    CHECK(nativeInt8FourThreeTarget(1280, 960).height == 2160);
+    CHECK(nativeInt8FixedTarget(1280, 960).width == 2880);
+
+    const Size2D performance =
+        fsrTargetSize(1280, 960, UpscalePreset::Performance, 2);
+    CHECK(performance.width == 2560 && performance.height == 1920);
+    CHECK(nativeInt8UltraPerformanceTarget(1280, 960).height == 0);
+    CHECK(nativeInt8SourceAspectSupported(640, 480));
+    CHECK(nativeInt8SourceAspectSupported(1280, 720));
+}
+
 static void test_progressive_chain() {
     const auto passes = fsrProgressivePassSizes(240, 135, 1920, 1080);
     CHECK(passes.size() == 6);
@@ -115,6 +135,7 @@ int main() {
     test_8px_alignment();
     test_auto_match();
     test_native_int8_ultraperformance_targets();
+    test_arbitrary_aspect_targets_stay_native();
     test_progressive_chain();
     if (g_failures == 0) { std::printf("preset_math_tests: OK\n"); return 0; }
     std::fprintf(stderr, "preset_math_tests: %d FAILURES\n", g_failures);

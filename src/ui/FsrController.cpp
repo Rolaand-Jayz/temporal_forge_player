@@ -75,7 +75,12 @@ QString FsrController::chainLabel() const {
 //            Off). setFsr4Enabled(preset != Off && experimental) tears the
 //            harness down immediately on Off.
 void FsrController::setPreset(UpscalePreset p) {
-    if (p == preset_) return;
+    // The controller starts with a UI-side default, while PlaybackEngine has
+    // its own scale cache.  The first synchronization must therefore reach
+    // the engine even when the selected preset equals preset_.  Otherwise a
+    // saved Quality/NativeAA selection can silently leave the engine at its
+    // constructor scale (historically Performance/2.0x).
+    const bool samePreset = p == preset_;
     const UpscalePreset oldPreset = preset_;
     preset_ = p;
     if (engine_) {
@@ -86,7 +91,7 @@ void FsrController::setPreset(UpscalePreset p) {
         // ratio is identical but the preset differs.
         const float newRatio = presetRatio(preset_);
         const float oldRatio = presetRatio(oldPreset);
-        if (newRatio != oldRatio) {
+        if (newRatio != oldRatio || samePreset) {
             engine_->setFsrViewport(static_cast<uint32_t>(std::max(2, winW_)),
                                     static_cast<uint32_t>(std::max(2, winH_)),
                                     newRatio);
@@ -108,8 +113,10 @@ void FsrController::setPreset(UpscalePreset p) {
         engine_->setFsr4Enabled(preset_ != UpscalePreset::Off &&
                                  backend_ == BackendKind::Fsr4ReExperimental);
     }
-    emit presetChanged();
-    emit scalingChanged();
+    if (!samePreset) {
+        emit presetChanged();
+        emit scalingChanged();
+    }
 }
 
 // setBackend: apply a new backend kind, aligning the live FSR4 enable state.

@@ -6,6 +6,11 @@ namespace temporal_forge {
 
 Fsr4DispatchHarness::ConvPassConfig makeConvConfig(const Fsr4ConvStep &s,
                                                    const Fsr4ConvStep *next) {
+  // Translate one recovered tensor-table row into the descriptor values used
+  // by Fsr4DispatchHarness. The table is the upstream source of truth; the
+  // returned config is consumed by the shader-dispatch loop. Special cases
+  // below preserve physical lane padding, depthwise fusion, signed decoder
+  // tensors, and the final FP16 boundary discovered during RE validation.
   Fsr4DispatchHarness::ConvPassConfig cfg{};
   cfg.weightOffset = s.weightOff;
   cfg.biasOffset = s.biasOff;
@@ -49,12 +54,17 @@ Fsr4DispatchHarness::ConvPassConfig makeConvConfig(const Fsr4ConvStep &s,
 }
 
 bool isResidualBlockStart(size_t step) {
+  // The recovered graph groups these pass indices into residual blocks. The
+  // dispatch harness uses the boundary to choose whether a pass reads the
+  // block input or the previous pass output.
   return step == 1 || step == 4 || step == 8 || step == 11 || step == 15 ||
          step == 18 || step == 21 || step == 25 || step == 28 || step == 32 ||
          step == 35;
 }
 
 bool isResidualBlockEnd(size_t step) {
+  // Paired with isResidualBlockStart: these are the last passes whose output
+  // is added back to the block input before the graph advances downstream.
   return step == 3 || step == 6 || step == 10 || step == 13 || step == 17 ||
          step == 20 || step == 23 || step == 27 || step == 30 || step == 34 ||
          step == 37;

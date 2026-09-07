@@ -1,0 +1,56 @@
+{
+  "schemaVersion": 1,
+  "runId": "m0-control-20260822",
+  "candidateId": "current",
+  "gitCommit": "7fdf43c",
+  "binary": {
+    "path": "build-fast/temporal_forge_player",
+    "sha256": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+  },
+  "configuration": {
+    "path": "benchmarks/quality_sweeps/stage_a/current.json",
+    "sha256": "abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789"
+  },
+  "settings": {
+    "preset": "Quality",
+    "quality": "high",
+    "frame": 48,
+    "clipRegex": "^(tos_daylight)$"
+  },
+  "dimensions": {
+    "source": {"width": 426, "height": 240},
+    "model": {"width": 1280, "height": 720},
+    "history": {"width": 1280, "height": 720},
+    "display": {"width": 1920, "height": 1080}
+  },
+  "corpus": {
+    "manifestPath": "benchmarks/video_corpus/manifest.csv",
+    "selection": ["tos_daylight"],
+    "inputPath": "benchmarks/video_corpus/clips/tos_daylight_426x240_high_crf12.mp4",
+    "referencePath": "benchmarks/video_corpus/references/tos_daylight_2160p_lossless.mkv"
+  },
+  "timing": {
+    "path": "timing.json",
+    "pipelineCpuMs": 1.2,
+    "dispatchCpuMs": 0.4,
+    "gpuMs": 2.1
+  },
+  "artifacts": [
+    {
+      "stage": "D0",
+      "path": "stages/D0-input.bin",
+      "width": 426,
+      "height": 240,
+      "format": "rgba16f",
+      "finiteChecked": true
+    },
+    {
+      "stage": "D8",
+      "path": "stages/D8-display.bin",
+      "width": 1920,
+      "height": 1080,
+      "format": "rgba8",
+      "finiteChecked": true
+    }
+  ]
+}

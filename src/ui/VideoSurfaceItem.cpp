@@ -1,3 +1,11 @@
+// VideoSurfaceItem.cpp — Qt Quick scene-graph adapter for Vulkan images.
+//
+// Upstream: QML calls refresh(), while PlaybackEngine publishes the current
+// raw and reconstructed VkImage handles. Downstream: Qt's render thread wraps
+// those handles as QSG textures and draws the aspect/zoom/compare geometry.
+// This file must not perform decode or neural work; its performance-sensitive
+// job is presentation and its lifetime safety comes from PlaybackEngine's
+// queue-idle teardown contract.
 #include "ui/VideoSurfaceItem.hpp"
 
 #include <QQuickWindow>
@@ -11,15 +19,22 @@
 
 namespace temporal_forge {
 
+// Constructor: opt the item into scene-graph content so Qt invokes
+// updatePaintNode on the render thread after refresh() schedules an update.
 VideoSurfaceItem::VideoSurfaceItem(QQuickItem* parent) : QQuickItem(parent) {
     setFlag(ItemHasContents, true);
 }
 
+// Destructor: release only the QSG texture wrappers owned by this item. The
+// underlying VkImages remain owned by PlaybackEngine/GpuImageUploader.
 VideoSurfaceItem::~VideoSurfaceItem() {
     delete m_nativeTexture;
     delete m_rawTexture;
 }
 
+// setPresentationScaler: choose the presentation-only filter and request a
+// scene-graph refresh. It must not recreate the FSR target; source/preset
+// scaling belongs to PlaybackEngine and the backend selector.
 void VideoSurfaceItem::setPresentationScaler(int v) {
     v = std::max(0, std::min(4, v));
     if (v == m_presentationScaler) return;
@@ -111,14 +126,15 @@ QSGNode* VideoSurfaceItem::updatePaintNode(QSGNode* oldNode, UpdatePaintNodeData
     }
 
     const QRectF bounds = boundingRect();
-    if (m_rawOnly && m_rawTexture) {
-        if (!node) node = new QSGSimpleTextureNode;
-        node->setTexture(m_rawTexture);
-        node->setRect(bounds);
-        return node;
-    }
-    if (!haveFsr || !m_nativeTexture) return oldNode;
-    const qreal srcAspect = qreal(fsrW) / qreal(fsrH);
+    const bool showRawOnly = m_rawOnly && m_rawTexture;
+    if (!showRawOnly && (!haveFsr || !m_nativeTexture)) return oldNode;
+    // Compare panes must preserve the source image aspect ratio.  The raw
+    // compare surface is intentionally rawOnly, so it used to return the
+    // full item bounds here and stretch the left half to the window aspect.
+    // Use the actual texture dimensions for that path as well.
+    const qreal srcAspect = showRawOnly
+                                ? qreal(rawW) / std::max(1u, rawH)
+                                : qreal(fsrW) / std::max(1u, fsrH);
     qreal targetAspect = srcAspect;
     switch (m_aspectMode) {
         case Aspect_16_9: targetAspect = 16.0 / 9.0; break;
@@ -141,6 +157,12 @@ QSGNode* VideoSurfaceItem::updatePaintNode(QSGNode* oldNode, UpdatePaintNodeData
     const qreal cy = bounds.center().y() + m_panY * bounds.height() * 0.5;
     const QRectF imageRect(cx - drawnW * 0.5, cy - drawnH * 0.5, drawnW, drawnH);
 
+    if (showRawOnly) {
+        if (!node) node = new QSGSimpleTextureNode;
+        node->setTexture(m_rawTexture);
+        node->setRect(imageRect);
+        return node;
+    }
     if (m_compareActive && m_rawTexture) {
         auto* root = oldNode;
         if (!root || !root->firstChild()) {
