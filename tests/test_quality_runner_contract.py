@@ -89,6 +89,11 @@ class QualityRunnerContractTests(unittest.TestCase):
         from benchmarks.quality_sweeps.run_fsr_supersampling import validate_runtime_trace
 
         evidence = ROOT / "benchmarks/quality_sweeps/lattice_p0_recurrent_qualification_20260903/candidate_cave720.runtime_pipeline.json"
+        if not evidence.is_file():
+            self.skipTest(
+                "runtime-pipeline evidence is locally generated campaign output, "
+                f"not a committed artifact: {evidence}"
+            )
         trace = json.loads(evidence.read_text(encoding="utf-8"))
         trace["prepass_resolve_source"] = "source_display"
         with tempfile.TemporaryDirectory() as directory:
