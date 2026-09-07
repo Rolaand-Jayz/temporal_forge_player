@@ -1,0 +1,35 @@
+{
+  "schema": "temporal_forge.quality_campaign_capture_plan.v2",
+  "campaignId": "quality-campaign-20260904-canonical-v1",
+  "campaignGeneration": "post_lattice_fix_canonical_v1",
+  "pipelineRevision": "temporal_lattice_fix_closeout",
+  "status": "ready_not_started",
+  "frame": 48,
+  "casStrength": 0.2,
+  "downsamplingArms": [
+    {"id": "resolve_cas20", "rendererCas": 0.2, "afterDownsamplingCas": 0.0, "label": "CAS 0.20 before downsampling"},
+    {"id": "external_post_cas20", "rendererCas": 0.0, "afterDownsamplingCas": 0.2, "label": "CAS 0.20 after downsampling"},
+    {"id": "no_cas", "rendererCas": 0.0, "afterDownsamplingCas": 0.0, "label": "No CAS sharpening"}
+  ],
+  "profile": "AMD_SEMANTIC_BASELINE",
+  "scenes": [
+    "tos_daylight",
+    "tos_debris",
+    "sintel_rooftop",
+    "sintel_cave"
+  ],
+  "scales": [2.0, 2.25, 2.5, 2.75, 3.0],
+  "pairs": [
+    {"inputHeight": 360, "source": "640x360", "outputHeight": 480, "delivery": "854x480", "uses": ["quality_campaign", "review_harness"]},
+    {"inputHeight": 360, "source": "640x360", "outputHeight": 720, "delivery": "1280x720", "uses": ["quality_campaign", "review_harness"]},
+    {"inputHeight": 360, "source": "640x360", "outputHeight": 1080, "delivery": "1920x1080", "uses": ["quality_campaign", "review_harness"]},
+    {"inputHeight": 480, "source": "854x480", "outputHeight": 720, "delivery": "1280x720", "uses": ["quality_campaign", "review_harness"]},
+    {"inputHeight": 480, "source": "854x480", "outputHeight": 1080, "delivery": "1920x1080", "uses": ["quality_campaign", "review_harness"]},
+    {"inputHeight": 480, "source": "854x480", "outputHeight": 1440, "delivery": "2560x1440", "uses": ["quality_campaign", "review_harness"]},
+    {"inputHeight": 720, "source": "1280x720", "outputHeight": 1080, "delivery": "1920x1080", "uses": ["quality_campaign", "review_harness"]},
+    {"inputHeight": 720, "source": "1280x720", "outputHeight": 1440, "delivery": "2560x1440", "uses": ["quality_campaign", "review_harness"]},
+    {"inputHeight": 720, "source": "1280x720", "outputHeight": 2160, "delivery": "3840x2160", "uses": ["quality_campaign", "review_harness"]},
+    {"inputHeight": 1080, "source": "1920x1080", "outputHeight": 1440, "delivery": "2560x1440", "uses": ["quality_campaign", "review_harness"]},
+    {"inputHeight": 1080, "source": "1920x1080", "outputHeight": 2160, "delivery": "3840x2160", "uses": ["quality_campaign", "review_harness"]}
+  ]
+}
