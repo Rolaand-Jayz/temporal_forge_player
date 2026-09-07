@@ -152,19 +152,23 @@ The accepted motion-confidence fallback remains a separate final PR on top of
 the corrected Quality Lab head. Adaptive learned-strength, motion-anchor,
 timescale, and other competition/R&D changes are excluded.
 
-The constructed local review graph is:
+The production review stack is (heads recorded 2026-09-06, after the
+independent audit/fix pass; the earlier `codex/*` graph was reconstructed
+onto the `quality-lab/*` branches because the original branches had
+duplicated lower-layer commits and stale stacked bases):
 
 ```text
-main
-└─ codex/quality-lab-runtime-reviewable  (current runtime head)
-   └─ codex/quality-lab-tooling-reviewable  3cd285c50
-      └─ codex/quality-lab-docs-reviewable  (current docs head)
-         └─ codex/quality-lab-confidence-fallback-final  (separate head)
+main  45272e22
+└─ quality-lab/runtime-reviewable        a1b9e119 + review fixes  0a49611d8
+   └─ quality-lab/tooling-reviewable                              625bae68
+      └─ quality-lab/docs-reviewable        (this branch, dated head)
+         └─ quality-lab/confidence-fallback-final  (final layer, dated head)
 ```
 
-The approximate clean edge sizes are 15.5K additions/92 files for runtime,
-23.5K additions/122 files for tooling, and 1.6K additions/7 files for
-documentation. The fallback edge is 29 additions/one deletion in three files.
+The approximate clean edge sizes are 15.6K additions/93 files for runtime,
+24.1K additions/128 files for tooling, and 1.7K additions/8 files for
+documentation. The fallback edge is 156 additions/8 deletions in five files
+(the caller-boundary sanitizer plus its regression tests and policy doc).
 The production stack deliberately excludes generated capture payloads and
 historical evidence dumps; those remain available from immutable PR #1.
 The reviewable replacement PRs are #3 (runtime), #4 (tooling), #5
@@ -191,3 +195,16 @@ focused CTest passed its one
 registered `motion_estimator_tests` test. All four isolated worktrees were
 clean after validation apart from the intentionally temporary dependency links,
 which were removed and are not tracked.
+
+Addendum (2026-09-06, independent audit/fix pass on the `quality-lab/*`
+stack): runtime rebuilt fresh and CTest again passed all runnable tests
+(19/19, one SKIP-77, four disabled by design) with a real RDNA3 headless FSR4
+run producing a 1920x1080 output frame; the run used the generated
+cooperative-matrix graph because the gitignored native INT8 shader pack was
+absent from the clean tree, and that backend identity is recorded rather than
+assumed. The tooling suite on a clean checkout is fully green (264 passed,
+28 intentional artifact-dependent skips, 0 failed/0 errors) after the review
+fixes for warmup alignment, dense-flow consistency domain, fail-closed
+configs, and clean-checkout test hygiene. The fallback layer gained
+caller-boundary sanitization of non-finite `TFORGE_FSR4_EXPERIMENTAL_EMPTY_MOTION_CONFIDENCE`
+values with explicit nan/inf/-inf/malformed regression tests.
