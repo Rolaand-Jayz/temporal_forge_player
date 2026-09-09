@@ -28,12 +28,14 @@ than machine-local paths:
 ## Native INT8 FSR4 pack data (tracked)
 
 Paths:
-`resources/fsr4/native_i8/<pack>/initializers.bin` (12 files: `native_2160`,
-`performance_2160`, `performance_4320`, `performance_4x3_1440`,
-`performance_4x3_2880`, `quality_1080`, `quality_2160`, `quality_4x3_1440`,
-`quality_4x3_2880`, `ultraperf_2160`'s siblings), plus
-`*/pack.sha256` (6) and `performance_4320/workgroup_overrides.txt`.
-Per-pack `README.md` files document each graph's shape and pairing rules.
+`resources/fsr4/native_i8/<pack>/initializers.bin` (12 packs:
+`native_2160`, `performance_2160`, `performance_4320`,
+`performance_4x3_1440`, `performance_4x3_2880`, `quality_1080`,
+`quality_2160`, `quality_4x3_1440`, `quality_4x3_2880`, `ultraperf_2160`,
+`ultraperf_4x3_1440`, `ultraperf_4x3_2880`), plus `*/pack.sha256` (6) and
+`performance_4320/workgroup_overrides.txt`. Per-pack `README.md` files
+document each graph's shape and pairing rules; `ultraperf_1080` ships a
+README only.
 
 Origin:
 Generated in `Rolaand-Jayz/fsr4-rdna3-optimization` at commit `49015b7`
