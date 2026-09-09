@@ -70,8 +70,13 @@ FSR4 native INT8 packs and generic weight blobs are **not redistributable
 in-tree**. Provision them as described in
 [`resources/fsr4/native_i8/README.md`](resources/fsr4/native_i8/README.md)
 and [`tools/build_native_int8_pack.sh`](tools/build_native_int8_pack.sh).
-When the assets are absent, the engine falls back down the backend chain and
-logs the gap.
+At runtime the engine looks for native packs next to the executable
+(`<exe_dir>/../resources/fsr4`, then `./resources/fsr4`) and for generic
+weight blobs under `$TFORGE_FSR4_RE_ROOT` or
+`$XDG_DATA_HOME/temporal-forge-player/fsr4/` (see
+[`docs/reference/environment.md`](docs/reference/environment.md)). When the
+assets are absent, the engine falls back down the backend chain and logs the
+searched locations.
 
 ## Requirements
 

@@ -3,6 +3,7 @@
 #include "backend/GpuCapabilityProbe.hpp"
 #include "backend/WeightBlob.hpp"
 #include "util/FsrTargetMath.hpp"
+#include "util/Fsr4Paths.hpp"
 #include "util/Log.hpp"
 #include "util/TemporalFrameContinuity.hpp"
 
@@ -1399,35 +1400,21 @@ bool PlaybackEngine::initFsr4Path(int decodedW, int decodedH, int modelW,
     fsr4Blob_ = {};
     const std::string blobName =
         WeightBlobLoader::presetFileName(blobFilePreset);
-    const char *reRoot = std::getenv("TFORGE_FSR4_RE_ROOT");
-    std::filesystem::path blobFile;
-    std::vector<std::filesystem::path> candidates;
-    if (reRoot && *reRoot) {
-      candidates.emplace_back(
-          std::filesystem::path(reRoot) /
-          ("extracted/v410_initializers/" + blobName));
-    }
-    for (auto p : {
-             std::filesystem::path(
-                 "/home/rolaandjayz/ZCodeProject/RE-of-FSR-4.1.0-Upscaling-1.0/"
-                 "extracted/v410_initializers/") / blobName,
-             std::filesystem::path(
-                 "/mnt/workdrive/fsr-re/extracted/v410_initializers/") / blobName,
-             std::filesystem::path(
-                 "/mnt/workdrive/fsr-re/dist/fsr4-swap/extracted/"
-                 "v410_initializers/") / blobName,
-             std::filesystem::path("RE-of-FSR-4.1.0-Upscaling-1.0/extracted/"
-                                   "v410_initializers/") / blobName,
-             std::filesystem::path("../RE-of-FSR-4.1.0-Upscaling-1.0/extracted/"
-                                   "v410_initializers/") / blobName})
-      candidates.push_back(std::move(p));
-    for (const auto &p : candidates) {
-      if (std::filesystem::exists(p)) { blobFile = p; break; }
-    }
-    if (blobFile.empty()) {
-      logWarn("PlaybackEngine: FSR4 weight blob not found; upscaling disabled");
+    const auto resolved = tforge::fsr4paths::resolveWeightBlob(blobName);
+    if (!resolved.found()) {
+      std::string searched;
+      for (const auto &p : resolved.searched)
+        searched += (searched.empty() ? "" : ", ") + p.string();
+      if (searched.empty())
+        searched = "<no search locations: TFORGE_FSR4_RE_ROOT, XDG_DATA_HOME "
+                   "and HOME are all unset>";
+      logWarn("PlaybackEngine: FSR4 weight blob '{}' not found; upscaling "
+              "disabled (searched: {}; override: point TFORGE_FSR4_RE_ROOT "
+              "at the RE tree root containing extracted/v410_initializers/)",
+              blobName, searched);
       return false;
     }
+    const std::filesystem::path blobFile = resolved.path;
     auto loaded = WeightBlobLoader::load(blobFilePreset, blobFile.string());
     if (!loaded.ok) {
       logWarn("PlaybackEngine: FSR4 weight blob load failed ({}); upscaling disabled",

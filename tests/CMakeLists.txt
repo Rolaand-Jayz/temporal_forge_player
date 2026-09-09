@@ -28,6 +28,14 @@ tforge_add_test(quality_lab_config_tests
     SOURCES quality_lab_config_tests.cpp
             ../src/config/QualityLabConfig.cpp)
 target_link_libraries(quality_lab_config_tests PRIVATE Qt6::Core)
+target_compile_definitions(quality_lab_config_tests PRIVATE
+    TFORGE_SOURCE_ROOT="${CMAKE_SOURCE_DIR}")
+
+# Host-independent FSR4 asset-resolution contract (native packs + weight
+# blobs). Hermetic: env overrides + temp dirs, no machine paths.
+tforge_add_test(fsr4_paths_contract_tests
+    SOURCES fsr4_paths_contract_tests.cpp
+            ../src/util/Fsr4Paths.cpp)
 
 tforge_add_test(jitter_tests
     SOURCES jitter_tests.cpp)
@@ -61,6 +69,7 @@ tforge_add_test(backend_tests
             ../src/backend/BackendSelector.cpp
             ../src/backend/Fsr4PostpassParams.cpp
             ../src/render/Fsr4DispatchHarness.cpp
+            ../src/util/Fsr4Paths.cpp
             ../src/render/fsr4/Fsr4ConvSteps.cpp
             ../src/render/fsr4/Fsr4Memory.cpp
             ../src/util/Log.cpp)
@@ -179,6 +188,7 @@ tforge_add_test(fsr4_harness_tests
             ../src/backend/WeightBlob.cpp
             ../src/backend/Fsr4ProofRunner.cpp
             ../src/render/Fsr4DispatchHarness.cpp
+            ../src/util/Fsr4Paths.cpp
             ../src/render/fsr4/Fsr4ConvSteps.cpp
             ../src/render/fsr4/Fsr4Memory.cpp
             ../src/util/Log.cpp)

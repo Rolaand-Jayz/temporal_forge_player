@@ -9,6 +9,7 @@
 #include "render/fsr4/Fsr4ConvSteps.hpp"
 #include "render/fsr4/Fsr4Memory.hpp"
 #include "util/FsrTargetMath.hpp"
+#include "util/Fsr4Paths.hpp"
 #include "util/Log.hpp"
 
 #include <algorithm>
@@ -808,13 +809,24 @@ bool Fsr4DispatchHarness::ensureNativeInt8Pipelines(NativeInt8Graph graph) {
   if (*available)
     return true;
 
-  const std::string assetDir =
-      std::string(TFORGE_SOURCE_ROOT) + "/resources/fsr4/native_i8/" + name;
+  const auto packDir = tforge::fsr4paths::resolveNativePackDir(name);
+  if (!packDir.found()) {
+    std::string searched;
+    for (const auto &p : packDir.searched)
+      searched += (searched.empty() ? "" : ", ") + p.string();
+    logWarn("Fsr4Harness: native INT8 pack directory not found: {} "
+            "(searched: {})", name, searched);
+    return false;
+  }
+  const std::string assetDir = packDir.path.string();
   for (uint32_t i = 0; i < pipelines->size(); ++i) {
     const std::string path = assetDir + "/pass" + std::to_string(i) + ".spv";
     std::ifstream file(path, std::ios::binary | std::ios::ate);
     if (!file) {
-      logWarn("Fsr4Harness: cannot open native INT8 shader {}", path);
+      logWarn("Fsr4Harness: native INT8 pack '{}' present but incomplete: "
+              "pass{}.spv missing (provisioning required — see "
+              "resources/fsr4/native_i8/README.md); looked at {}",
+              name, i, path);
       return false;
     }
     const auto byteCount = static_cast<size_t>(file.tellg());
@@ -1214,12 +1226,28 @@ bool Fsr4DispatchHarness::prepareNativeInt8Resources() {
     initializerPack = "ultraperf_4x3_2880";
   else if (nativeInt8Graph_ == NativeInt8Graph::PerformanceFourThree2880)
     initializerPack = "performance_4x3_2880";
-  const std::string path = std::string(TFORGE_SOURCE_ROOT) +
-                           "/resources/fsr4/native_i8/" + initializerPack +
-                           "/initializers.bin";
+  const auto packDir = tforge::fsr4paths::resolveNativePackDir(initializerPack);
+  if (!packDir.found()) {
+    std::string searched;
+    for (const auto &p : packDir.searched)
+      searched += (searched.empty() ? "" : ", ") + p.string();
+    logError("Fsr4Harness: native INT8 pack directory not found: {} "
+             "(searched: {})", initializerPack, searched);
+    return false;
+  }
+  const std::string path = packDir.path.string() + "/initializers.bin";
   std::ifstream file(path, std::ios::binary | std::ios::ate);
-  if (!file || static_cast<VkDeviceSize>(file.tellg()) != initializerSize) {
-    logError("Fsr4Harness: invalid native INT8 initializer {}", path);
+  if (!file) {
+    logError("Fsr4Harness: native INT8 pack '{}' present but incomplete: "
+             "initializers.bin missing (provisioning required — see "
+             "resources/fsr4/native_i8/README.md); looked at {}",
+             initializerPack, path);
+    return false;
+  }
+  if (static_cast<VkDeviceSize>(file.tellg()) != initializerSize) {
+    logError("Fsr4Harness: native INT8 initializer invalid (expected {} "
+             "bytes, got {}) at {}", static_cast<uint64_t>(initializerSize),
+             static_cast<uint64_t>(file.tellg()), path);
     return false;
   }
   std::vector<uint8_t> data(initializerSize);

@@ -10,7 +10,14 @@ set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
-add_compile_definitions(TFORGE_SOURCE_ROOT="${CMAKE_CURRENT_SOURCE_DIR}")
+# NOTE: TFORGE_SOURCE_ROOT is intentionally NOT defined globally. Baking the
+# build-host source path into shipped binaries made runtime FSR4 asset
+# resolution host-dependent. Test targets that need the source root define
+# it per-target in tests/CMakeLists.txt; runtime resolution is
+# host-independent (see src/util/Fsr4Paths.hpp).
+# Likewise strip the build-host source prefix from __FILE__ diagnostics so no
+# absolute build-machine path is baked into shipped binaries.
+add_compile_options("-ffile-prefix-map=${CMAKE_CURRENT_SOURCE_DIR}=.")
 
 if(NOT CMAKE_BUILD_TYPE)
     set(CMAKE_BUILD_TYPE Release CACHE STRING "" FORCE)

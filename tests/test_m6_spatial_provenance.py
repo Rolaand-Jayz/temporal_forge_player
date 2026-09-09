@@ -27,6 +27,16 @@ def _load() -> tuple[dict, list]:
 
 
 class M6SpatialProvenanceTests(unittest.TestCase):
+    # The results fixture lives in a dated /tmp capture directory that only
+    # exists on the machine that ran the campaign; skip (not error) when it
+    # is absent so pytest discovery stays clean elsewhere.
+    @unittest.skipUnless(
+        RESULTS_PATH.exists(),
+        f"M6 spatial results fixture absent: {RESULTS_PATH}",
+    )
+    def setUp(self) -> None:
+        pass
+
     def test_retry_results_equal_campaign_and_on_disk_binary_config_provenance(self) -> None:
         campaign, results = _load()
         validate_execution_provenance(campaign, results, ROOT)

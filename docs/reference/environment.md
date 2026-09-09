@@ -39,6 +39,24 @@ experiment parameter:
   composition is honored at every scale; when unset, the checked-in
   `config/quality_lab.json` profile is the shipped default playback policy
   (applied only at ≥3x scale — scale-aware — via `PlaybackEngine`).
+- `TFORGE_FSR4_RE_ROOT` — overrides where the generic FSR4 RE weight blob
+  (`v410_*.bin`, 131072 bytes) is looked up. Point it at the root of the
+  reverse-engineering tree; the engine reads
+  `$TFORGE_FSR4_RE_ROOT/extracted/v410_initializers/<blob>`. Without it the
+  blob is searched under the XDG data location:
+  `$XDG_DATA_HOME/temporal-forge-player/fsr4/extracted/v410_initializers/`
+  (or `$HOME/.local/share/...`). Native INT8 packs are resolved separately
+  (see below) and are not affected by this variable.
+
+## FSR4 asset lookup (host-independent)
+
+Runtime asset resolution never uses paths baked in at build time. Native
+INT8 packs (`resources/fsr4/native_i8/<pack>/`) resolve from
+`<exe_dir>/../resources/fsr4` first (in-tree build layouts such as `build/`
+or `build-fast/`), then `./resources/fsr4`. Generic weight blobs resolve via
+`TFORGE_FSR4_RE_ROOT` (see above), then the XDG data location. Absence of an
+asset logs the searched locations and falls down the backend chain — it is
+never fatal.
 
 ## Settings file location
 

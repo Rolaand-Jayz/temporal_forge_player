@@ -128,13 +128,6 @@ std::filesystem::path qualityLabConfigPath() {
     if (std::filesystem::exists(relative))
         return relative;
 
-#ifdef TFORGE_SOURCE_ROOT
-    const auto sourceRoot = std::filesystem::path(TFORGE_SOURCE_ROOT) /
-                            "config" / "quality_lab.json";
-    if (std::filesystem::exists(sourceRoot))
-        return sourceRoot;
-#endif
-
     if (const char *xdg = std::getenv("XDG_CONFIG_HOME")) {
         if (*xdg)
             return std::filesystem::path(xdg) / "temporal-forge-player" /
