@@ -139,6 +139,9 @@ VulkanDeviceRequestPlan planVulkanDeviceRequests(
     plan.enableShaderFloat16 = availability.shaderFloat16;
     plan.enableShaderInt8 = availability.shaderInt8;
     plan.enableShaderIntegerDotProduct = availability.shaderIntegerDotProduct;
+    // N-3: uint8_t SSBO access is an fsr4-shader requirement (uint8_t
+    // std430 WeightBlob buffers); absence degrades FSR4 cleanly.
+    plan.enableStorageBuffer8BitAccess = availability.storageBuffer8BitAccess;
     plan.enableSubgroupSizeControl =
         hasSubgroupSizeControl && availability.subgroupSizeControl;
     plan.enableComputeFullSubgroups =
@@ -146,7 +149,9 @@ VulkanDeviceRequestPlan planVulkanDeviceRequests(
     plan.enableCooperativeMatrix = hasCoopMatrix && availability.cooperativeMatrix;
     plan.fsr4ClassFeaturesPresent =
         plan.enableShaderFloat16 && plan.enableShaderInt8 &&
-        plan.enableShaderIntegerDotProduct && plan.enableSubgroupSizeControl &&
+        plan.enableShaderIntegerDotProduct &&
+        plan.enableStorageBuffer8BitAccess &&
+        plan.enableSubgroupSizeControl &&
         plan.enableComputeFullSubgroups && plan.enableCooperativeMatrix &&
         plan.enableShaderSubgroupExtendedTypes;
 
@@ -472,6 +477,7 @@ bool VulkanContext::createLogicalDevice() {
             v12.shaderSubgroupExtendedTypes == VK_TRUE;
         avail.shaderFloat16 = v12.shaderFloat16 == VK_TRUE;
         avail.shaderInt8 = v12.shaderInt8 == VK_TRUE;
+        avail.storageBuffer8BitAccess = v12.storageBuffer8BitAccess == VK_TRUE;
         avail.shaderIntegerDotProduct = v13.shaderIntegerDotProduct == VK_TRUE;
         avail.subgroupSizeControl = ssc.subgroupSizeControl == VK_TRUE;
         avail.computeFullSubgroups = ssc.computeFullSubgroups == VK_TRUE;
@@ -526,6 +532,8 @@ bool VulkanContext::createLogicalDevice() {
     v12.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES;
     v12.shaderFloat16 = plan.enableShaderFloat16 ? VK_TRUE : VK_FALSE;
     v12.shaderInt8 = plan.enableShaderInt8 ? VK_TRUE : VK_FALSE;
+    v12.storageBuffer8BitAccess =
+        plan.enableStorageBuffer8BitAccess ? VK_TRUE : VK_FALSE;
     v12.timelineSemaphore = plan.enableTimelineSemaphore ? VK_TRUE : VK_FALSE;
     v12.shaderSubgroupExtendedTypes =
         plan.enableShaderSubgroupExtendedTypes ? VK_TRUE : VK_FALSE;
@@ -565,6 +573,35 @@ bool VulkanContext::createLogicalDevice() {
 
     logInfo("Vulkan: enabled device extensions ({}):", devExt.size());
     for (const char* e : devExt) logInfo("Vulkan:   ext {}", e);
+    // N-3 invariant: log the exact enabled feature set so pre/post-change
+    // diffs are verifiable from runtime output.
+    logInfo("Vulkan: enabled device features ({}): baseline["
+            "samplerAnisotropy={} textureCompressionBC={} "
+            "shaderStorageImageWriteWithoutFormat={} imageCubeArray={} "
+            "shaderStorageImageExtendedFormats={} timelineSemaphore={} "
+            "shaderSubgroupExtendedTypes={}] fsr4[shaderFloat16={} shaderInt8={} "
+            "shaderIntegerDotProduct={} storageBuffer8BitAccess={} "
+            "subgroupSizeControl={} "
+            "computeFullSubgroups={} cooperativeMatrix={}]",
+            plan.enableSamplerAnisotropy + plan.enableTextureCompressionBC +
+                plan.enableShaderStorageImageWriteWithoutFormat +
+                plan.enableImageCubeArray +
+                plan.enableShaderStorageImageExtendedFormats +
+                plan.enableTimelineSemaphore + plan.enableShaderSubgroupExtendedTypes +
+                plan.enableShaderFloat16 + plan.enableShaderInt8 +
+                plan.enableShaderIntegerDotProduct +
+                plan.enableStorageBuffer8BitAccess +
+                plan.enableSubgroupSizeControl + plan.enableComputeFullSubgroups +
+                plan.enableCooperativeMatrix,
+            plan.enableSamplerAnisotropy, plan.enableTextureCompressionBC,
+            plan.enableShaderStorageImageWriteWithoutFormat,
+            plan.enableImageCubeArray, plan.enableShaderStorageImageExtendedFormats,
+            plan.enableTimelineSemaphore, plan.enableShaderSubgroupExtendedTypes,
+            plan.enableShaderFloat16, plan.enableShaderInt8,
+            plan.enableShaderIntegerDotProduct,
+            plan.enableStorageBuffer8BitAccess,
+            plan.enableSubgroupSizeControl, plan.enableComputeFullSubgroups,
+            plan.enableCooperativeMatrix);
     logInfo("Vulkan: fsr4ClassExtensions={} fsr4ClassFeatures={} "
             "requireSubgroupSize64={} (bounds {}..{})",
             caps_.fsr4ClassExtensions, caps_.fsr4ClassFeatures,

@@ -48,6 +48,7 @@ VulkanFeatureAvailability fullAvailability() {
     a.shaderFloat16 = true;
     a.shaderInt8 = true;
     a.shaderIntegerDotProduct = true;
+    a.storageBuffer8BitAccess = true;
     a.subgroupSizeControl = true;
     a.computeFullSubgroups = true;
     a.cooperativeMatrix = true;
@@ -86,7 +87,9 @@ void testAllPresent() {
               plan.enableShaderSubgroupExtendedTypes,
           "all-present: baseline features enabled");
     check(plan.enableShaderFloat16 && plan.enableShaderInt8 &&
-              plan.enableShaderIntegerDotProduct && plan.enableSubgroupSizeControl &&
+              plan.enableShaderIntegerDotProduct &&
+              plan.enableStorageBuffer8BitAccess &&
+              plan.enableSubgroupSizeControl &&
               plan.enableComputeFullSubgroups && plan.enableCooperativeMatrix,
           "all-present: FSR4-class features enabled");
     check(plan.fsr4ClassExtensionsPresent && plan.fsr4ClassFeaturesPresent,
@@ -95,8 +98,34 @@ void testAllPresent() {
     check(plan.warnings.empty(), "all-present: no warnings");
 }
 
-void testNoCoopMatrix() {
-    auto exts = fullExtensions();
+// N-3: missing uint8_t storage-buffer access must degrade FSR4 cleanly —
+// fsr4-class features off, storage enable off, device still created with
+// the full baseline set (not fatal, no blind requests).
+void testMissing8BitStorage() {
+    auto avail = fullAvailability();
+    avail.storageBuffer8BitAccess = false;
+    const auto plan =
+        planVulkanDeviceRequests(fullExtensions(), avail, rdna3Bounds());
+    check(!plan.fatal, "missing-8bit-storage: not fatal (baseline device)");
+    check(!plan.fsr4ClassFeaturesPresent,
+          "missing-8bit-storage: fsr4ClassFeatures false");
+    // Extensions are still available (and still requested — e.g.
+    // subgroup-size-control is used by the baseline-adjacent pipelines);
+    // only the fsr4-class FEATURE summary degrades.
+    check(plan.fsr4ClassExtensionsPresent,
+          "missing-8bit-storage: fsr4ClassExtensions still present (extension-only flag)");
+    check(!plan.enableStorageBuffer8BitAccess,
+          "missing-8bit-storage: storage feature not requested");
+    check(plan.enableSamplerAnisotropy && plan.enableShaderStorageImageWriteWithoutFormat,
+          "missing-8bit-storage: baseline features still enabled");
+    check(plan.enableShaderFloat16 && plan.enableShaderInt8,
+          "missing-8bit-storage: available fsr4 arithmetic features still enabled");
+    check(plan.enableSubgroupSizeControl && plan.enableComputeFullSubgroups &&
+              plan.enableCooperativeMatrix,
+          "missing-8bit-storage: other available fsr4 features still requested");
+}
+
+void testNoCoopMatrix() {    auto exts = fullExtensions();
     exts.erase(VK_KHR_COOPERATIVE_MATRIX_EXTENSION_NAME);
     const auto plan = planVulkanDeviceRequests(exts, fullAvailability(),
                                                 rdna3Bounds());
@@ -196,6 +225,7 @@ void testAmdRadvPreference() {
 
 int main() {
     testAllPresent();
+    testMissing8BitStorage();
     testNoCoopMatrix();
     testNoExternalMemory();
     testNoSubgroupControl();

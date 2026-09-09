@@ -5,6 +5,7 @@
 #extension GL_EXT_shader_explicit_arithmetic_types_int8 : require
 #extension GL_EXT_shader_explicit_arithmetic_types_float16 : require
 #extension GL_EXT_shader_16bit_storage : require
+#extension GL_EXT_shader_8bit_storage : require
 
 // Vectorized FP16-carrier spatial convolution. One 64-lane workgroup covers
 // 16 pixels and one 16-channel output group; each lane computes four output

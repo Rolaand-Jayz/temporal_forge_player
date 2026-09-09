@@ -40,6 +40,17 @@ struct VulkanFeatureAvailability {
     bool shaderFloat16 = false;
     bool shaderInt8 = false;
     bool shaderIntegerDotProduct = false;
+    // N-3: the FSR4 shaders declare uint8_t members in std430 storage
+    // buffers under GL_EXT_shader_16bit_storage (WeightBlob uint8_t[] in
+    // every conv_*_dot4 / *_coop shader). Per Vulkan 1.2 spec this requires
+    // the explicitly-enabled storageBuffer8BitAccess feature (which also
+    // requires shaderInt8). float16_t SSBO access needs NO enable: 16-bit
+    // storage was promoted to core and made mandatory in Vulkan 1.1, so
+    // VkPhysicalDeviceVulkan12Features has no 16-bit-storage member. No
+    // uniform buffer uses 16/8-bit members, so the uniformAndStorage*
+    // sibling is NOT required, and no shader uses a `scalar` layout, so
+    // scalarBlockLayout is NOT required.
+    bool storageBuffer8BitAccess = false;
     bool subgroupSizeControl = false;
     bool computeFullSubgroups = false;
     bool cooperativeMatrix = false;
@@ -74,6 +85,8 @@ struct VulkanDeviceRequestPlan {
     bool enableShaderFloat16 = false;
     bool enableShaderInt8 = false;
     bool enableShaderIntegerDotProduct = false;
+    // N-3: fsr4-shader requirement (uint8_t SSBO access), not baseline.
+    bool enableStorageBuffer8BitAccess = false;
     bool enableSubgroupSizeControl = false;
     bool enableComputeFullSubgroups = false;
     bool enableCooperativeMatrix = false;

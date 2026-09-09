@@ -218,14 +218,36 @@ GpuCapability GpuCapabilityProbe::probe(VkPhysicalDevice device, VkInstance inst
         VkPhysicalDeviceSubgroupSizeControlFeatures ssc{};
         ssc.sType =
             VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SUBGROUP_SIZE_CONTROL_FEATURES;
+        VkPhysicalDeviceVulkan13Features v13{};
+        v13.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_FEATURES;
         f2.pNext = &v12;
         v12.pNext = &ssc;
+        ssc.pNext = &v13;
         vkGetPhysicalDeviceFeatures2(device, &f2);
         if (v12.shaderFloat16 != VK_TRUE || v12.shaderInt8 != VK_TRUE ||
             v12.shaderSubgroupExtendedTypes != VK_TRUE) {
             g.failReason =
                 "FSR4-class features unavailable (shaderFloat16/shaderInt8/"
                 "shaderSubgroupExtendedTypes)";
+            logWarn("GpuCapabilityProbe: {} — {}", g.deviceName, g.failReason);
+            return g;
+        }
+        // N-3: FSR4 shaders declare uint8_t members in std430 storage
+        // buffers (GL_EXT_shader_16bit_storage WeightBlob), so the Vulkan 1.2
+        // storageBuffer8BitAccess feature is a hard requirement. float16_t
+        // SSBO access needs no enable (16-bit storage is core-mandatory since
+        // Vulkan 1.1). Mirrors the planner's fsr4ClassFeaturesPresent.
+        if (v12.storageBuffer8BitAccess != VK_TRUE) {
+            g.failReason =
+                "FSR4-class storage feature unavailable (storageBuffer8BitAccess)";
+            logWarn("GpuCapabilityProbe: {} — {}", g.deviceName, g.failReason);
+            return g;
+        }
+        // N-4: the planner counts shaderIntegerDotProduct in
+        // fsr4ClassFeaturesPresent; the probe must check it too so planner
+        // and probe cannot disagree (over-strict is the safe direction).
+        if (v13.shaderIntegerDotProduct != VK_TRUE) {
+            g.failReason = "FSR4-class feature unavailable (shaderIntegerDotProduct)";
             logWarn("GpuCapabilityProbe: {} — {}", g.deviceName, g.failReason);
             return g;
         }
