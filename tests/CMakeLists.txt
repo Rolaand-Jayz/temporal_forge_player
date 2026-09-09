@@ -267,3 +267,11 @@ if(TARGET temporal_forge_lib AND TARGET tforge_sample_mp4)
     # skip instead of a hard failure on machines without ffmpeg).
     set_tests_properties(file_switch_tests PROPERTIES SKIP_RETURN_CODE 77)
 endif()
+
+# M-05 device-request planner contract test. Hermetic: pure functions over
+# fabricated extension/feature availability; no GPU or Vulkan calls.
+tforge_add_test(vulkan_capability_plan_tests
+    SOURCES vulkan_capability_plan_tests.cpp
+            ../src/render/VulkanContext.cpp
+            ../src/util/Log.cpp)
+target_link_libraries(vulkan_capability_plan_tests PRIVATE ${VULKAN_LIBRARIES})

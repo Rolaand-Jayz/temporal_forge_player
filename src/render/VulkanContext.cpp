@@ -25,18 +25,152 @@ VKAPI_ATTR VkBool32 VKAPI_CALL debugCallback(
     return VK_FALSE;
 }
 
-bool isAmdRadv(std::string_view name, uint32_t vendorId, std::string_view driverName) {
-    // AMD vendor id 0x1002. RADV driver name surfaces in driver properties.
-    if (vendorId == 0x1002) {
-        // We can't query VkPhysicalDeviceDriverProperties before creating a
-        // device; rely on device name heuristics in addition to vendor id.
-        return true;
+} // namespace
+
+// ---------------------------------------------------------------------------
+// Pure request planning (defect M-05). No Vulkan calls below this point
+// until the next anonymous namespace; exercised directly by contract tests.
+// ---------------------------------------------------------------------------
+
+VulkanDeviceRequestPlan planVulkanDeviceRequests(
+    const std::set<std::string>& availableDeviceExtensions,
+    const VulkanFeatureAvailability& availability,
+    const VulkanSubgroupSizeBounds& subgroupBounds) {
+    VulkanDeviceRequestPlan plan;
+
+    auto has = [&](const char* ext) {
+        return availableDeviceExtensions.count(ext) != 0;
+    };
+    auto missing = [&](const char* ext, const char* why) {
+        plan.fatal = true;
+        plan.fatalMessage = std::string("Vulkan: required device extension ") +
+                            ext + " is not supported by the selected device. " +
+                            why +
+                            " The player cannot run without it; ensure the "
+                            "Vulkan driver (Mesa RADV or AMD proprietary) is "
+                            "installed and up to date.";
+    };
+
+    // --- BASELINE extensions: the floor for a video player on this platform.
+    if (has(VK_KHR_SWAPCHAIN_EXTENSION_NAME))
+        plan.baselineExtensions.push_back(VK_KHR_SWAPCHAIN_EXTENSION_NAME);
+    else
+        missing(VK_KHR_SWAPCHAIN_EXTENSION_NAME, "Presentation requires it.");
+    if (has(VK_KHR_EXTERNAL_MEMORY_FD_EXTENSION_NAME))
+        plan.baselineExtensions.push_back(VK_KHR_EXTERNAL_MEMORY_FD_EXTENSION_NAME);
+    else
+        missing(VK_KHR_EXTERNAL_MEMORY_FD_EXTENSION_NAME,
+                "Zero-copy video frame import (DMABUF) requires it.");
+    if (has(VK_EXT_IMAGE_DRM_FORMAT_MODIFIER_EXTENSION_NAME))
+        plan.baselineExtensions.push_back(VK_EXT_IMAGE_DRM_FORMAT_MODIFIER_EXTENSION_NAME);
+    else
+        missing(VK_EXT_IMAGE_DRM_FORMAT_MODIFIER_EXTENSION_NAME,
+                "Zero-copy video frame import (DMABUF) requires it.");
+
+    // --- FSR4-CLASS extensions: absence is fine (baseline-only device).
+    const bool hasCoopMatrix = has(VK_KHR_COOPERATIVE_MATRIX_EXTENSION_NAME);
+    if (hasCoopMatrix)
+        plan.fsr4ClassExtensions.push_back(VK_KHR_COOPERATIVE_MATRIX_EXTENSION_NAME);
+    // Fixes the pre-existing internal inconsistency: the subgroup-size-control
+    // features were requested while the extension was never enabled.
+    const bool hasSubgroupSizeControl = has(VK_EXT_SUBGROUP_SIZE_CONTROL_EXTENSION_NAME);
+    if (hasSubgroupSizeControl)
+        plan.fsr4ClassExtensions.push_back(VK_EXT_SUBGROUP_SIZE_CONTROL_EXTENSION_NAME);
+    plan.fsr4ClassExtensionsPresent = hasCoopMatrix;
+
+    // --- BASELINE features, availability-gated with per-feature tolerance.
+    // Tolerable (disable + warn): the compute shaders never use cube arrays,
+    // never sample anisotropically (GpuImageUploader sets anisotropyEnable =
+    // VK_FALSE), and never decode BC-compressed textures — video frames are
+    // uploaded uncompressed.
+    plan.enableSamplerAnisotropy = availability.samplerAnisotropy;
+    if (!plan.enableSamplerAnisotropy)
+        plan.warnings.push_back(
+            "samplerAnisotropy unavailable; disabling (no shader uses anisotropic sampling)");
+    plan.enableTextureCompressionBC = availability.textureCompressionBC;
+    if (!plan.enableTextureCompressionBC)
+        plan.warnings.push_back(
+            "textureCompressionBC unavailable; disabling (no BC textures are decoded)");
+    plan.enableImageCubeArray = availability.imageCubeArray;
+    if (!plan.enableImageCubeArray)
+        plan.warnings.push_back(
+            "imageCubeArray unavailable; disabling (no shader uses cube maps)");
+
+    // Fatal: every FSR/spatial kernel writes storage images, and the model
+    // input/output path uses the packed rgb10_a2 extended storage format
+    // (easu.comp, postpass_composite.comp bind rgba8/rgb10_a2/rgba16f images).
+    plan.enableShaderStorageImageWriteWithoutFormat =
+        availability.shaderStorageImageWriteWithoutFormat;
+    if (!plan.enableShaderStorageImageWriteWithoutFormat) {
+        plan.fatal = true;
+        plan.fatalMessage =
+            "Vulkan: shaderStorageImageWriteWithoutFormat is not supported by the "
+            "selected device. Every compute kernel in the player writes storage "
+            "images; the player cannot run without this feature.";
     }
-    const std::string lower(name);
-    (void)lower;
-    return driverName.find("radv") != std::string_view::npos ||
-           driverName.find("RADV") != std::string_view::npos;
+    plan.enableShaderStorageImageExtendedFormats =
+        availability.shaderStorageImageExtendedFormats;
+    if (!plan.enableShaderStorageImageExtendedFormats) {
+        plan.fatal = true;
+        plan.fatalMessage =
+            "Vulkan: shaderStorageImageExtendedFormats is not supported by the "
+            "selected device. The FSR model input/output uses the packed "
+            "rgb10_a2 storage format; the player cannot run without this feature.";
+    }
+
+    // Tolerable: timelineSemaphore is requested for forward compatibility but
+    // no code path currently creates a timeline semaphore (verified: only this
+    // request site references it).
+    plan.enableTimelineSemaphore = availability.timelineSemaphore;
+    if (!plan.enableTimelineSemaphore)
+        plan.warnings.push_back(
+            "timelineSemaphore unavailable; disabling (no timeline semaphores are created)");
+
+    // Baseline-requested but FSR4-relevant: cooperative-matrix shaders rely on
+    // subgroup extended types. Tolerable for the spatial path (disable+warn),
+    // but its absence flips the FSR4-class feature summary off.
+    plan.enableShaderSubgroupExtendedTypes = availability.shaderSubgroupExtendedTypes;
+    if (!plan.enableShaderSubgroupExtendedTypes)
+        plan.warnings.push_back(
+            "shaderSubgroupExtendedTypes unavailable; disabling (also disables the "
+            "FSR4-class feature set)");
+
+    // --- FSR4-CLASS features.
+    plan.enableShaderFloat16 = availability.shaderFloat16;
+    plan.enableShaderInt8 = availability.shaderInt8;
+    plan.enableShaderIntegerDotProduct = availability.shaderIntegerDotProduct;
+    plan.enableSubgroupSizeControl =
+        hasSubgroupSizeControl && availability.subgroupSizeControl;
+    plan.enableComputeFullSubgroups =
+        hasSubgroupSizeControl && availability.computeFullSubgroups;
+    plan.enableCooperativeMatrix = hasCoopMatrix && availability.cooperativeMatrix;
+    plan.fsr4ClassFeaturesPresent =
+        plan.enableShaderFloat16 && plan.enableShaderInt8 &&
+        plan.enableShaderIntegerDotProduct && plan.enableSubgroupSizeControl &&
+        plan.enableComputeFullSubgroups && plan.enableCooperativeMatrix &&
+        plan.enableShaderSubgroupExtendedTypes;
+
+    // GLM-NEW-04: only pin requiredSubgroupSize=64 when the control features
+    // are enabled and 64 lies within the device's supported bounds.
+    plan.requireSubgroupSize64 =
+        plan.enableSubgroupSizeControl && plan.enableComputeFullSubgroups &&
+        subgroupBounds.known &&
+        subgroupBounds.minSize <= 64 && 64 <= subgroupBounds.maxSize;
+    if (plan.enableSubgroupSizeControl && !plan.requireSubgroupSize64)
+        plan.warnings.push_back(
+            "subgroup size control enabled but required size 64 is out of device "
+            "bounds; native INT8 pipelines will be built without a required size");
+
+    return plan;
 }
+
+bool planAmdRadvPreference(bool driverPropsKnown, bool driverIsRadv,
+                           uint32_t vendorId) {
+    if (driverPropsKnown) return driverIsRadv; // AMD-but-not-RADV gets no bias
+    return vendorId == 0x1002; // ancient-loader fallback (warned at call site)
+}
+
+namespace {
 
 uint32_t findQueueFamily(VkPhysicalDevice pd, VkQueueFlags required) {
     uint32_t count = 0;
@@ -98,6 +232,21 @@ bool VulkanContext::init(bool enableValidation, VkInstance sharedInstance) {
     }
     // --- instance ---
     std::vector<const char*> layers;
+    // GLM-NEW-07: enumerate instance extensions first. The surface extensions
+    // are the platform floor (deliberately unconditional — a missing surface
+    // extension makes vkCreateInstance fail with its own actionable error);
+    // debug-utils is optional and requested only when actually present.
+    std::set<std::string> availInstanceExt;
+    {
+        uint32_t ec = 0;
+        if (vkEnumerateInstanceExtensionProperties(nullptr, &ec, nullptr) ==
+            VK_SUCCESS) {
+            std::vector<VkExtensionProperties> exts(ec);
+            if (vkEnumerateInstanceExtensionProperties(nullptr, &ec, exts.data()) ==
+                VK_SUCCESS)
+                for (const auto& e : exts) availInstanceExt.insert(e.extensionName);
+        }
+    }
     std::vector<const char*> instanceExt = {
         VK_KHR_SURFACE_EXTENSION_NAME,
 #if defined(VK_USE_PLATFORM_XLIB_KHR)
@@ -106,8 +255,12 @@ bool VulkanContext::init(bool enableValidation, VkInstance sharedInstance) {
 #if defined(VK_USE_PLATFORM_WAYLAND_KHR)
         VK_KHR_WAYLAND_SURFACE_EXTENSION_NAME,
 #endif
-        VK_EXT_DEBUG_UTILS_EXTENSION_NAME,
     };
+    if (availInstanceExt.count(VK_EXT_DEBUG_UTILS_EXTENSION_NAME) != 0)
+        instanceExt.push_back(VK_EXT_DEBUG_UTILS_EXTENSION_NAME);
+    else
+        logInfo("Vulkan: {} not available; debug messenger disabled",
+                VK_EXT_DEBUG_UTILS_EXTENSION_NAME);
     if (enableValidation) {
         uint32_t lc = 0;
         vkEnumerateInstanceLayerProperties(&lc, nullptr);
@@ -193,11 +346,32 @@ bool VulkanContext::pickPhysicalDevice() {
         d.transferFamily = findQueueFamily(pd, VK_QUEUE_TRANSFER_BIT);
 
         std::string driverName;
-#if defined(VK_KHR_driver_properties)
-        // Driver properties need the extension struct chained; probe via
-        // property2 if available, otherwise fall back to vendor/name heuristics.
-#endif
-        d.amdRadv = isAmdRadv(d.name, d.vendorId, driverName);
+        bool driverPropsKnown = false;
+        bool driverIsRadv = false;
+        {
+            // VkPhysicalDeviceDriverProperties is promotable core since
+            // Vulkan 1.2 and the instance is 1.3, so properties2 + the
+            // chained driver struct resolves without any extension
+            // (GpuCapabilityProbe uses the same working pattern).
+            VkPhysicalDeviceProperties2 p2{};
+            p2.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2;
+            VkPhysicalDeviceDriverProperties dp{};
+            dp.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DRIVER_PROPERTIES;
+            p2.pNext = &dp;
+            vkGetPhysicalDeviceProperties2(pd, &p2);
+            driverName = dp.driverName;
+            if (dp.driverID != 0) { // 0 == VK_DRIVER_ID_NONE-equivalent (not exposed by this header)
+                driverPropsKnown = true;
+                driverIsRadv = dp.driverID == VK_DRIVER_ID_MESA_RADV;
+            } else {
+                logWarn("Vulkan: driver properties unavailable for '{}'; "
+                        "falling back to vendor-ID RADV heuristic",
+                        d.name);
+            }
+        }
+        // +1000 selection bias applies only to an actual RADV driver;
+        // AMD-but-not-RADV (e.g. proprietary) deliberately gets no bias.
+        d.amdRadv = planAmdRadvPreference(driverPropsKnown, driverIsRadv, d.vendorId);
 
         candidates.push_back(d);
         logDebug("Vulkan: candidate '{}' vendor={:#x} type={} vram={}MiB{}",
@@ -239,55 +413,162 @@ bool VulkanContext::createLogicalDevice() {
         queueInfoCount = 2;
     }
 
-    std::vector<const char*> devExt = {
-        VK_KHR_SWAPCHAIN_EXTENSION_NAME,
-        VK_KHR_COOPERATIVE_MATRIX_EXTENSION_NAME,
-        VK_KHR_EXTERNAL_MEMORY_FD_EXTENSION_NAME,
-        VK_EXT_IMAGE_DRM_FORMAT_MODIFIER_EXTENSION_NAME,
-    };
-    // Optional: timeline semaphores, dynamic rendering (core in 1.2+, but keep
-    // the extension name out since we request api 1.3).
+    // ------------------------------------------------------------------
+    // M-05 remediation: enumerate before requesting. Every extension and
+    // feature handed to vkCreateDevice below is either verified present or
+    // deliberately absent. The decision itself is the pure
+    // planVulkanDeviceRequests() above (hermetically contract-tested).
+    // ------------------------------------------------------------------
+    std::set<std::string> availDevExt;
+    {
+        uint32_t ec = 0;
+        if (vkEnumerateDeviceExtensionProperties(physical_, nullptr, &ec,
+                                                 nullptr) != VK_SUCCESS ||
+            ec == 0) {
+            logError("Vulkan: vkEnumerateDeviceExtensionProperties failed on "
+                     "'{}'; cannot verify baseline extensions",
+                     info_.name);
+            return false;
+        }
+        std::vector<VkExtensionProperties> exts(ec);
+        if (vkEnumerateDeviceExtensionProperties(physical_, nullptr, &ec,
+                                                 exts.data()) != VK_SUCCESS) {
+            logError("Vulkan: device extension enumeration failed on '{}'",
+                     info_.name);
+            return false;
+        }
+        for (const auto& e : exts) availDevExt.insert(e.extensionName);
+        logInfo("Vulkan: enumerated {} device extensions on '{}'",
+                availDevExt.size(), info_.name);
+    }
+
+    // Query what the device supports via one features2 chain.
+    VulkanFeatureAvailability avail{};
+    {
+        VkPhysicalDeviceFeatures2 core{};
+        core.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2;
+        VkPhysicalDeviceVulkan12Features v12{};
+        v12.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES;
+        VkPhysicalDeviceSubgroupSizeControlFeatures ssc{};
+        ssc.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SUBGROUP_SIZE_CONTROL_FEATURES;
+        VkPhysicalDeviceVulkan13Features v13{};
+        v13.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_FEATURES;
+        VkPhysicalDeviceCooperativeMatrixFeaturesKHR coop{};
+        coop.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_COOPERATIVE_MATRIX_FEATURES_KHR;
+        core.pNext = &v12;
+        v12.pNext = &ssc;
+        ssc.pNext = &v13;
+        v13.pNext = &coop;
+        vkGetPhysicalDeviceFeatures2(physical_, &core);
+        avail.samplerAnisotropy = core.features.samplerAnisotropy == VK_TRUE;
+        avail.textureCompressionBC = core.features.textureCompressionBC == VK_TRUE;
+        avail.shaderStorageImageWriteWithoutFormat =
+            core.features.shaderStorageImageWriteWithoutFormat == VK_TRUE;
+        avail.imageCubeArray = core.features.imageCubeArray == VK_TRUE;
+        avail.shaderStorageImageExtendedFormats =
+            core.features.shaderStorageImageExtendedFormats == VK_TRUE;
+        avail.timelineSemaphore = v12.timelineSemaphore == VK_TRUE;
+        avail.shaderSubgroupExtendedTypes =
+            v12.shaderSubgroupExtendedTypes == VK_TRUE;
+        avail.shaderFloat16 = v12.shaderFloat16 == VK_TRUE;
+        avail.shaderInt8 = v12.shaderInt8 == VK_TRUE;
+        avail.shaderIntegerDotProduct = v13.shaderIntegerDotProduct == VK_TRUE;
+        avail.subgroupSizeControl = ssc.subgroupSizeControl == VK_TRUE;
+        avail.computeFullSubgroups = ssc.computeFullSubgroups == VK_TRUE;
+        avail.cooperativeMatrix = coop.cooperativeMatrix == VK_TRUE;
+    }
+    VulkanSubgroupSizeBounds bounds{};
+    if (availDevExt.count(VK_EXT_SUBGROUP_SIZE_CONTROL_EXTENSION_NAME) != 0) {
+        VkPhysicalDeviceProperties2 p2{};
+        p2.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2;
+        VkPhysicalDeviceSubgroupSizeControlProperties sp{};
+        sp.sType =
+            VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SUBGROUP_SIZE_CONTROL_PROPERTIES;
+        p2.pNext = &sp;
+        vkGetPhysicalDeviceProperties2(physical_, &p2);
+        bounds.known = true;
+        bounds.minSize = sp.minSubgroupSize;
+        bounds.maxSize = sp.maxSubgroupSize;
+    }
+
+    const VulkanDeviceRequestPlan plan =
+        planVulkanDeviceRequests(availDevExt, avail, bounds);
+    if (plan.fatal) {
+        logError("{}", plan.fatalMessage);
+        return false;
+    }
+    for (const auto& w : plan.warnings) logWarn("Vulkan: {}", w);
+
+    std::vector<const char*> devExt = plan.baselineExtensions;
+    devExt.insert(devExt.end(), plan.fsr4ClassExtensions.begin(),
+                  plan.fsr4ClassExtensions.end());
 
     VkPhysicalDeviceFeatures2 feats2{};
     feats2.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2;
-    VkPhysicalDeviceFeatures supportedFeatures{};
-    vkGetPhysicalDeviceFeatures(physical_, &supportedFeatures);
-    feats2.features.samplerAnisotropy = VK_TRUE;
-    feats2.features.textureCompressionBC = VK_TRUE;
-    feats2.features.shaderStorageImageWriteWithoutFormat = VK_TRUE;
+    feats2.features.samplerAnisotropy =
+        plan.enableSamplerAnisotropy ? VK_TRUE : VK_FALSE;
+    feats2.features.textureCompressionBC =
+        plan.enableTextureCompressionBC ? VK_TRUE : VK_FALSE;
+    feats2.features.shaderStorageImageWriteWithoutFormat =
+        plan.enableShaderStorageImageWriteWithoutFormat ? VK_TRUE : VK_FALSE;
     // The FSR model input is VK_FORMAT_A2B10G10R10_UNORM_PACK32. Vulkan
     // classifies that packed format as an extended storage-image format, so
     // every shader that writes/reads the RGB10 image depends on this feature.
     // Without it, RGBA8 paths still work while RGB10 writes can silently
-    // remain zero on RADV. Enable it only when the selected device advertises
-    // support; callers can then fall back if the packed model path is absent.
+    // remain zero on RADV. Availability-gated; absence is fatal because the
+    // model path has no RGBA8 substitute for its packed I/O.
     feats2.features.shaderStorageImageExtendedFormats =
-        supportedFeatures.shaderStorageImageExtendedFormats;
-    feats2.features.imageCubeArray = VK_TRUE;
-    logInfo("Vulkan: shaderStorageImageExtendedFormats={}",
-            feats2.features.shaderStorageImageExtendedFormats == VK_TRUE);
+        plan.enableShaderStorageImageExtendedFormats ? VK_TRUE : VK_FALSE;
+    feats2.features.imageCubeArray =
+        plan.enableImageCubeArray ? VK_TRUE : VK_FALSE;
 
     VkPhysicalDeviceVulkan12Features v12{};
     v12.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES;
-    v12.shaderFloat16 = VK_TRUE;
-    v12.shaderInt8 = VK_TRUE;
-    v12.timelineSemaphore = VK_TRUE;
-    v12.shaderSubgroupExtendedTypes = VK_TRUE;
+    v12.shaderFloat16 = plan.enableShaderFloat16 ? VK_TRUE : VK_FALSE;
+    v12.shaderInt8 = plan.enableShaderInt8 ? VK_TRUE : VK_FALSE;
+    v12.timelineSemaphore = plan.enableTimelineSemaphore ? VK_TRUE : VK_FALSE;
+    v12.shaderSubgroupExtendedTypes =
+        plan.enableShaderSubgroupExtendedTypes ? VK_TRUE : VK_FALSE;
     VkPhysicalDeviceSubgroupSizeControlFeatures subgroup{};
     subgroup.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SUBGROUP_SIZE_CONTROL_FEATURES;
-    subgroup.subgroupSizeControl = VK_TRUE;
-    subgroup.computeFullSubgroups = VK_TRUE;
+    subgroup.subgroupSizeControl = plan.enableSubgroupSizeControl ? VK_TRUE : VK_FALSE;
+    subgroup.computeFullSubgroups = plan.enableComputeFullSubgroups ? VK_TRUE : VK_FALSE;
     VkPhysicalDeviceVulkan13Features v13{};
     v13.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_FEATURES;
-    v13.shaderIntegerDotProduct = VK_TRUE;
-    feats2.pNext = &v12;
-
+    v13.shaderIntegerDotProduct =
+        plan.enableShaderIntegerDotProduct ? VK_TRUE : VK_FALSE;
     VkPhysicalDeviceCooperativeMatrixFeaturesKHR cooperative{};
     cooperative.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_COOPERATIVE_MATRIX_FEATURES_KHR;
-    cooperative.cooperativeMatrix = VK_TRUE;
-    v12.pNext = &subgroup;
-    subgroup.pNext = &v13;
-    v13.pNext = &cooperative;
+    cooperative.cooperativeMatrix = plan.enableCooperativeMatrix ? VK_TRUE : VK_FALSE;
+
+    // Chain only structs whose extension is enabled: chaining a feature
+    // struct for a non-enabled extension is invalid usage.
+    feats2.pNext = &v12;
+    if (availDevExt.count(VK_EXT_SUBGROUP_SIZE_CONTROL_EXTENSION_NAME) != 0) {
+        v12.pNext = &subgroup;
+        subgroup.pNext = &v13;
+    } else {
+        v12.pNext = &v13;
+    }
+    if (availDevExt.count(VK_KHR_COOPERATIVE_MATRIX_EXTENSION_NAME) != 0)
+        v13.pNext = &cooperative;
+
+    // Capability summary for downstream backend gating.
+    caps_ = VulkanCaps{};
+    caps_.fsr4ClassExtensions = plan.fsr4ClassExtensionsPresent;
+    caps_.fsr4ClassFeatures = plan.fsr4ClassFeaturesPresent;
+    caps_.requireSubgroupSize64 = plan.requireSubgroupSize64;
+    caps_.subgroupBounds = bounds;
+    caps_.amdVendor = info_.vendorId == 0x1002;
+    caps_.amdRadvDriver = info_.amdRadv;
+    caps_.driverPropsKnown = true;
+
+    logInfo("Vulkan: enabled device extensions ({}):", devExt.size());
+    for (const char* e : devExt) logInfo("Vulkan:   ext {}", e);
+    logInfo("Vulkan: fsr4ClassExtensions={} fsr4ClassFeatures={} "
+            "requireSubgroupSize64={} (bounds {}..{})",
+            caps_.fsr4ClassExtensions, caps_.fsr4ClassFeatures,
+            caps_.requireSubgroupSize64, bounds.minSize, bounds.maxSize);
 
     VkDeviceCreateInfo dci{};
     dci.sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO;

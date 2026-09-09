@@ -848,6 +848,20 @@ bool Fsr4DispatchHarness::ensureNativeInt8Pipelines(NativeInt8Graph graph) {
         VK_SUCCESS)
       return false;
     const std::string entry = "fsr4_model_v07_i8_pass" + std::to_string(i);
+    // GLM-NEW-04: pin requiredSubgroupSize=64 only when the subgroup-size-
+    // control features were enabled and 64 lies within the device's
+    // min/max required-subgroup-size bounds; otherwise build the pipeline
+    // without a required size (degradation logged once per pack load).
+    const bool useRequired64 =
+        cap_.hasSubgroupSizeControl &&
+        cap_.subgroupMinSize <= 64 && 64 <= cap_.subgroupMaxSize;
+    if (!useRequired64 && !subgroupSizeDegradationLogged_) {
+      subgroupSizeDegradationLogged_ = true;
+      logWarn("Fsr4Harness: subgroup size control unavailable or required "
+              "size 64 out of bounds [{}..{}]; native INT8 pipelines are "
+              "built without a required subgroup size",
+              cap_.subgroupMinSize, cap_.subgroupMaxSize);
+    }
     VkPipelineShaderStageRequiredSubgroupSizeCreateInfo subgroupSize{};
     subgroupSize.sType =
         VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_REQUIRED_SUBGROUP_SIZE_CREATE_INFO;
@@ -859,7 +873,7 @@ bool Fsr4DispatchHarness::ensureNativeInt8Pipelines(NativeInt8Graph graph) {
     pipelineInfo.stage.stage = VK_SHADER_STAGE_COMPUTE_BIT;
     pipelineInfo.stage.module = module;
     pipelineInfo.stage.pName = entry.c_str();
-    pipelineInfo.stage.pNext = &subgroupSize;
+    pipelineInfo.stage.pNext = useRequired64 ? &subgroupSize : nullptr;
     pipelineInfo.layout = nativeInt8Layout_;
     const VkResult result =
         vkCreateComputePipelines(device_, nativeInt8PipelineCache_, 1,
