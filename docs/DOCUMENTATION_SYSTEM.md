@@ -424,6 +424,9 @@ If `docs/reference/ARCHITECTURE.md` remains the authoritative document, maintain
 
 If a more logical set of current-reference documents replaces it, clearly identify the replacement.
 
+In this tree the authoritative current-architecture home is
+[`reference/ARCHITECTURE.md`](reference/ARCHITECTURE.md).
+
 Architecture documentation should emphasize durable structure and invariants rather than dated experiment results.
 
 Experiment results belong in reports/history and may be cited as the reason an architectural decision exists.
@@ -762,7 +765,9 @@ The initial cleanup must explicitly inspect:
 
 - `current/STATE.md`
 - `reference/ARCHITECTURE.md` and current contracts;
-- `active/QUALITY_CAMPAIGN.md` and active status;
+- `active/QUALITY_CAMPAIGN.md` as the single active quality authority, with
+  `active/progress-state.md` classified as a supporting progress log rather
+  than a second active authority;
 - `decisions/TECHNICAL_HISTORY.md`
 - `reports/` and `reports/audits/`
 - `research/`

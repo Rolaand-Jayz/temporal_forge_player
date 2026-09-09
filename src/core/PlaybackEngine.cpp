@@ -146,6 +146,29 @@ FsrJitterPair computeFsrJitterPair(uint32_t decodedW, uint32_t decodedH,
     pair.displayW = pair.neuralTargetW;
     pair.displayH = pair.neuralTargetH;
   } else {
+    // Generic playback has no fixed native INT8 target.  The fitted display
+    // geometry is therefore also the neural target; leaving the target at the
+    // zero dimensions returned by nativeInt8FixedTarget() collapses the model
+    // input to the 2x2 safety clamp while initFsr4Path() still chooses a real
+    // output size.
+    //
+    // The neural target must come from a stable sizing source: spec 02 says a
+    // window resize only affects presentation.  Where the fixed native INT8
+    // table applies, keep it (initFsr4Path() does the same for its output).
+    // Generic aspects fit the debounced target viewport — the exact source
+    // initFsr4Path() fits the generic output to — so a live window resize
+    // cannot change model dimensions and force an FSR path rebuild (the
+    // setFsrViewport contract).  Only displayW/displayH follow the live
+    // window; they feed the presentation scaler, which is presentation-only.
+    if (nativeTarget.width != 0 && nativeTarget.height != 0) {
+      pair.neuralTargetW = nativeTarget.width;
+      pair.neuralTargetH = nativeTarget.height;
+    } else {
+      const auto fitted = fitToViewport(std::max(2u, targetW),
+                                        std::max(2u, targetH));
+      pair.neuralTargetW = fitted.first;
+      pair.neuralTargetH = fitted.second;
+    }
     const auto fitted = fitToViewport(pair.displayW, pair.displayH);
     pair.displayW = fitted.first;
     pair.displayH = fitted.second;
@@ -702,12 +725,14 @@ bool makeMotionCompensatedMidpointFrame(
 
 float codecMotionConfidence(const std::vector<MvEntry> &mvs, int width,
                             int height) {
-  float emptyMotionConfidence = 0.5f;
-  if (const char *value =
-          std::getenv("TFORGE_FSR4_EXPERIMENTAL_EMPTY_MOTION_CONFIDENCE")) {
-    emptyMotionConfidence =
-        std::clamp(std::strtof(value, nullptr), 0.0f, 1.0f);
-  }
+  // Single parse/sanitize point: rejects malformed and non-finite env values
+  // to the documented 0.5 default BEFORE clamping, and feeds the same
+  // sanitized value to both the empty-field early return below and
+  // aggregateConfidence. A local strtof+clamp here would propagate NaN and
+  // saturate infinities to 1.0/0.0, bypassing the aggregateConfidence guard
+  // on the empty-motion path.
+  const float emptyMotionConfidence =
+      MotionEstimator::emptyMotionConfidenceFromEnvironment();
   if (width <= 0 || height <= 0 || mvs.empty())
     return mvs.empty() ? emptyMotionConfidence : 0.0f;
   // Keep the baseline arm reproducible: it must not inherit the newly
@@ -1485,11 +1510,18 @@ bool PlaybackEngine::initFsr4Path(int decodedW, int decodedH, int modelW,
       requested.back().height != targetSize.height)
     requested.push_back(targetSize);
 
+  // The second in-flight slot exists only when the feature is explicitly
+  // enabled (see the allocation below); resource reuse must not demand a
+  // slot that the current configuration does not want.
+  const bool inFlightWanted =
+      requested.size() == 1 &&
+      std::getenv("TFORGE_FSR4_ENABLE_INFLIGHT") != nullptr &&
+      std::getenv("TFORGE_FSR4_DISABLE_INFLIGHT") == nullptr;
   const bool resourcesPresent =
       fsr4Harness_ && fsr4Uploader_ &&
       fsr4IntermediateUploaders_.size() + 1 == requested.size() &&
       fsr4IntermediateHarnesses_.size() + 1 == requested.size() &&
-      (requested.size() != 1 ||
+      (requested.size() != 1 || !inFlightWanted ||
        (fsr4InFlightHarness_ && fsr4InFlightUploader_));
   const bool dimensionsMatch = resourcesPresent &&
       fsr4PassSizes_.size() == requested.size() &&
@@ -1602,18 +1634,24 @@ bool PlaybackEngine::initFsr4Path(int decodedW, int decodedH, int modelW,
     }
   }
 
-  // Keep a second complete single-pass resource set. Its color upload,
-  // output, history, recurrent state, command buffer, and fence are all
-  // independent from the published slot, allowing one CPU upload/recording
-  // interval to overlap the prior FSR submission. Progressive chains retain
-  // the serial path because their intermediate passes have explicit
-  // same-frame dependencies.
-  if (requested.size() == 1 &&
-      std::getenv("TFORGE_FSR4_DISABLE_INFLIGHT") == nullptr &&
+  // Keep a second complete single-pass resource set when the in-flight
+  // feature is explicitly enabled (the same predicate the decode loop's
+  // asyncSlots uses to dispatch it). Allocating it by default spent a full
+  // tensor/output/history/recurrent resource set that was never dispatched.
+  // Progressive chains retain the serial path because their intermediate
+  // passes have explicit same-frame dependencies.
+  if (inFlightWanted &&
       (!fsr4InFlightHarness_ || !fsr4InFlightUploader_)) {
+    // Match the primary single-pass geometry exactly: the primary pass is
+    // created with the decode-side model dimensions, not the aligned decoded
+    // size. Dispatch alternates the two slots, so a second slot sized from
+    // the decoded source would alternate geometries and break the
+    // motion/jitter contract whenever model dims differ from decoded dims.
     if (!createPass(static_cast<uint32_t>(decodedW),
-                    static_cast<uint32_t>(decodedH), sourceSize.width,
-                    sourceSize.height, targetSize, fsr4InFlightHarness_,
+                    static_cast<uint32_t>(decodedH),
+                    static_cast<uint32_t>(modelW),
+                    static_cast<uint32_t>(modelH), targetSize,
+                    fsr4InFlightHarness_,
                     fsr4InFlightUploader_)) {
       fsr4InFlightHarness_.reset();
       fsr4InFlightUploader_.reset();
@@ -4852,6 +4890,13 @@ void PlaybackEngine::audioDecodeLoop() {
       }
       audio_.push(chunk.samples.data(), chunk.samples.size());
     }
+    if (pkt.isEof) {
+      // The audio decoder has drained. Audio-only items have no video decode
+      // loop to raise the end-of-media flag, so mark it here; onPollTick
+      // paces the actual advancement on the audio clock and ring drain.
+      if (running_.load() && !seekPending_.load())
+        endOfMediaPending_.store(true, std::memory_order_release);
+    }
   }
 }
 
@@ -4964,8 +5009,31 @@ void PlaybackEngine::onPollTick() {
   // The decoder can drain a short tail before the UI has consumed the final
   // frame. Wait until the last displayed PTS is close to the container end so
   // automatic advancement never cuts off the last visible frame.
-  if (duration > 0 && (lastPts < 0 || lastPts + 250'000 < duration))
+  // Audio is the master clock (spec 01) and frequently outlives the last
+  // video frame (audio tail). Once the video decoder drained, lastPts can
+  // never advance again, so pacing the tail on the video PTS would stall
+  // advancement forever on files whose container duration extends past the
+  // last video-frame PTS. Pace the tail on the audio clock instead; with no
+  // audio clock, a drained video queue means the final frame is already on
+  // screen and no PTS will arrive to change lastPts.
+  const qint64 audioClock = audio_.clockUs();
+  // Either side may own the tail: audio frequently outlives the last video
+  // frame, and video can outlive a shorter audio track (the audio clock
+  // freezes once its ring drains because only real samples advance it).
+  // Pace on whichever clock has progressed furthest, so EOF never waits
+  // forever for a PTS that side can no longer produce.
+  qint64 pacedUs = -1;
+  if (audioClock >= 0)
+    pacedUs = audioClock;
+  if (lastPts > pacedUs)
+    pacedUs = lastPts;
+  if (pacedUs < 0)
+    return; // nothing has been displayed yet
+  const qint64 endUs = duration > 0 ? duration : pacedUs;
+  if (pacedUs + 250'000 < endUs)
     return;
+  if (duration <= 0 && audioClock >= 0 && audio_.bufferedFrames() > 0)
+    return; // unknown duration: wait until the buffered audio tail has played
   advancePlaylistAtEnd();
 }
 

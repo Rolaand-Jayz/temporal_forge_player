@@ -67,12 +67,13 @@ constexpr uint32_t jitterPhaseCount(uint32_t renderWidth, uint32_t renderHeight)
 constexpr uint32_t fsrJitterPhaseCount(uint32_t renderWidth,
                                        uint32_t displayWidth) {
     if (renderWidth == 0 || displayWidth == 0) return 1u;
-    const uint64_t numerator = 8ull * displayWidth * displayWidth;
-    const uint64_t denominator = static_cast<uint64_t>(renderWidth) * renderWidth;
-    const uint64_t quotient = numerator / denominator;
-    const uint64_t remainder = numerator % denominator;
-    const uint64_t roundedUp = quotient + (remainder != 0 ? 1ull : 0ull);
-    return static_cast<uint32_t>(std::max<uint64_t>(1ull, roundedUp));
+    using Wide = unsigned __int128;
+    const Wide numerator = Wide{8} * displayWidth * displayWidth;
+    const Wide denominator = Wide{renderWidth} * renderWidth;
+    const Wide roundedUp = (numerator + denominator - 1) / denominator;
+    const Wide bounded = std::min<Wide>(
+        std::max<Wide>(Wide{1}, roundedUp), Wide{UINT32_MAX});
+    return static_cast<uint32_t>(bounded);
 }
 
 // jitterAmplitudeScale: tapers jitter amplitude for small render sizes.

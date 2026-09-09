@@ -64,13 +64,22 @@ contract and operating instructions are in
 
 The older all-purpose reconstruction plan is preserved as
 [`../archive/plans/QUALITY_RECONSTRUCTION_PLAN_20260822-20260902.md`](../archive/plans/QUALITY_RECONSTRUCTION_PLAN_20260822-20260902.md).
-It is historical context, not an active instruction source.
+The prior M6 triage gate record is preserved as
+[`../archive/plans/M6_REGRESSION_TRIAGE_20260902.md`](../archive/plans/M6_REGRESSION_TRIAGE_20260902.md).
+Both are historical context, not an active instruction source.
 
 The previously published `quality-campaign-20260904-canonical-v1` metadata is
 now historical/invalidated after human review of a visible periodic lattice;
 its media remains local and is not a campaign baseline. The reopened diagnostic,
 matched reference-resize ablation, prevalence matrix, and focused fix are
-recorded in [`LATTICE_CORRUPTION_DIAGNOSTIC.md`](../../docs/LATTICE_CORRUPTION_DIAGNOSTIC.md).
+recorded in [`LATTICE_CORRUPTION_DIAGNOSTIC.md`](../../docs/LATTICE_CORRUPTION_DIAGNOSTIC.md)
+and adjudicated in
+[`../reports/QUALITY_LAB_REVIEW_ADJUDICATION_20260906.md`](../reports/QUALITY_LAB_REVIEW_ADJUDICATION_20260906.md).
+
+Historical image and metric rows remain evidence; rows without GPU timing or
+reliable contention provenance are explicitly performance-unqualified and are
+not used as clean performance gates. The CAS-enabled precampaign arm must be
+rerun after the environment-presence fix before any new campaign is promoted.
 
 ## Completion
 

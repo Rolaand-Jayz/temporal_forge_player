@@ -29,6 +29,8 @@ int main() {
     const std::string decoder = readSource("src/media/VideoDecoder.cpp");
     const std::string decoderHeader = readSource("src/media/VideoDecoder.hpp");
     const std::string playback = readSource("src/core/PlaybackEngine.cpp");
+    const std::string motionEstimator =
+        readSource("src/motion/MotionEstimator.cpp");
     const std::string playbackHeader = readSource("src/core/PlaybackEngine.hpp");
     const std::string mainSource = readSource("src/main.cpp");
     const std::string runner =
@@ -50,6 +52,54 @@ int main() {
     const std::string fp16Spatial =
         readSource("shaders/fsr4/conv_spatial_fp16_direct.comp");
     const std::string harness = readSource("src/render/Fsr4DispatchHarness.cpp");
+
+    // Generic-aspect playback must promote the fitted display geometry to the
+    // neural target when nativeInt8FixedTarget() has no fixed mapping.
+    CHECK(playback.find("pair.neuralTargetW = fitted.first;") !=
+          std::string::npos);
+    CHECK(playback.find("pair.neuralTargetH = fitted.second;") !=
+          std::string::npos);
+    // The generic neural target must come from the stable/debounced target
+    // viewport, not the live window: a presentation-only resize (spec 02 /
+    // setFsrViewport contract) must not change model dimensions and rebuild
+    // the FSR path. The fixed native INT8 table stays authoritative where it
+    // applies, exactly like initFsr4Path()'s output sizing.
+    CHECK(playback.find(
+              "const auto fitted = fitToViewport(std::max(2u, targetW),") !=
+          std::string::npos);
+    CHECK(playback.find("pair.neuralTargetW = nativeTarget.width;") !=
+          std::string::npos);
+    // Only the presentation scaler target may follow the live window.
+    CHECK(playback.find(
+              "const auto fitted = fitToViewport(pair.displayW, pair.displayH);") !=
+          std::string::npos);
+
+    // The second FSR4 slot must only be allocated when the in-flight feature
+    // is explicitly enabled: the decode loop dispatches it only under that
+    // predicate, so allocating by default wastes a full resource set.
+    CHECK(playback.find("const bool inFlightWanted =") != std::string::npos);
+    CHECK(playback.find("if (inFlightWanted &&") != std::string::npos);
+    CHECK(playback.find(
+              "std::getenv(\"TFORGE_FSR4_ENABLE_INFLIGHT\") != nullptr &&\n"
+              "      std::getenv(\"TFORGE_FSR4_DISABLE_INFLIGHT\") == nullptr;") !=
+          std::string::npos);
+    // The secondary in-flight slot must share the primary single-pass geometry
+    // (decode-side model dims), not the aligned decoded size: dispatch
+    // alternates slots, so mismatched sizes alternate geometries and break
+    // the motion/jitter contract.
+    CHECK(playback.find(
+              "static_cast<uint32_t>(modelW),\n"
+              "                    static_cast<uint32_t>(modelH), targetSize,") !=
+          std::string::npos);
+
+    // Audio-only media has no video decode loop to raise end-of-media; the
+    // audio loop must arm the flag after its decoder drains. Advancement is
+    // paced on whichever clock owns the tail (audio clock or last video PTS),
+    // so an audio tail cannot stall EOF waiting for a video PTS that can no
+    // longer arrive.
+    CHECK(playback.find("The audio decoder has drained.") != std::string::npos);
+    CHECK(playback.find("pacedUs") != std::string::npos);
+    CHECK(playback.find("audio_.bufferedFrames()") != std::string::npos);
 
     CHECK(decoder.find("static_cast<int8_t>(std::clamp(") !=
           std::string::npos);
@@ -601,7 +651,17 @@ int main() {
     CHECK(sideSynth.find("std::hypot(correctionX, correctionY)") !=
           std::string::npos);
     CHECK(playback.find("maxCorrectionPixels") != std::string::npos);
-    CHECK(playback.find("TFORGE_FSR4_EXPERIMENTAL_EMPTY_MOTION_CONFIDENCE") !=
+    // The empty-motion fallback has one parse/sanitize point in the estimator
+    // (non-finite values rejected before clamping); the production caller
+    // delegates to it instead of parsing the environment itself.
+    CHECK(motionEstimator.find(
+              "TFORGE_FSR4_EXPERIMENTAL_EMPTY_MOTION_CONFIDENCE") !=
+          std::string::npos);
+    CHECK(motionEstimator.find(
+              "float MotionEstimator::emptyMotionConfidenceFromEnvironment()") !=
+          std::string::npos);
+    CHECK(playback.find(
+              "MotionEstimator::emptyMotionConfidenceFromEnvironment()") !=
           std::string::npos);
     CHECK(playback.find("frameIndex == 0 ? std::vector<MvEntry>{}") !=
           std::string::npos);

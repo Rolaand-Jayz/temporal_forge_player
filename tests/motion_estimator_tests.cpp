@@ -6,6 +6,8 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
+#include <cstdlib>
+#include <limits>
 
 using namespace temporal_forge;
 
@@ -72,6 +74,76 @@ int main() {
     outOfFrame.dstX = 32;
     CHECK(std::fabs(MotionEstimator::aggregateConfidence(
                         {outOfFrame}, 32, 16, 0.8f) - 0.8f) < 1e-6f);
+    CHECK(std::fabs(MotionEstimator::aggregateConfidence(
+                        {outOfFrame}, 32, 16,
+                        std::numeric_limits<float>::quiet_NaN()) - 0.5f) < 1e-6f);
+
+    // The production caller (codecMotionConfidence) reads the env fallback
+    // and returns it directly on the empty-motion early return WITHOUT
+    // entering aggregateConfidence. The shared parser must therefore reject
+    // non-finite and malformed values itself: std::clamp leaves NaN unchanged
+    // (NaN reaches SideBufferSynth) and saturates +inf/-inf to 1.0/0.0 (a
+    // malformed override grants or destroys full history trust). All such
+    // inputs must fail safe to the documented 0.5 default instead.
+    unsetenv("TFORGE_FSR4_EXPERIMENTAL_EMPTY_MOTION_CONFIDENCE");
+    CHECK(std::fabs(MotionEstimator::emptyMotionConfidenceFromEnvironment() -
+                    0.5f) < 1e-6f);
+    const char* nonFiniteValues[] = {
+        "nan", "-nan", "inf", "-inf", "NAN", "INFINITY"};
+    for (const char* bad : nonFiniteValues) {
+        setenv("TFORGE_FSR4_EXPERIMENTAL_EMPTY_MOTION_CONFIDENCE", bad, 1);
+        const float parsed =
+            MotionEstimator::emptyMotionConfidenceFromEnvironment();
+        if (!std::isfinite(parsed) || std::fabs(parsed - 0.5f) >= 1e-6f) {
+            std::fprintf(stderr,
+                         "FAIL non-finite env value '%s' yielded %f (want "
+                         "finite 0.5 default)\n",
+                         bad, parsed);
+            ++failures;
+        }
+    }
+    // Malformed strings and trailing garbage must fail safe to the default,
+    // not clamp strtof's partial/zero parse into a bogus confidence.
+    const char* malformedValues[] = {"abc", "0.5x", "1,0"};
+    for (const char* bad : malformedValues) {
+        setenv("TFORGE_FSR4_EXPERIMENTAL_EMPTY_MOTION_CONFIDENCE", bad, 1);
+        const float parsed =
+            MotionEstimator::emptyMotionConfidenceFromEnvironment();
+        if (!std::isfinite(parsed) || std::fabs(parsed - 0.5f) >= 1e-6f) {
+            std::fprintf(stderr,
+                         "FAIL malformed env value '%s' yielded %f (want "
+                         "finite 0.5 default)\n",
+                         bad, parsed);
+            ++failures;
+        }
+    }
+    // Valid values pass through, and out-of-range finite values clamp.
+    setenv("TFORGE_FSR4_EXPERIMENTAL_EMPTY_MOTION_CONFIDENCE", "0.5", 1);
+    CHECK(std::fabs(MotionEstimator::emptyMotionConfidenceFromEnvironment() -
+                    0.5f) < 1e-6f);
+    setenv("TFORGE_FSR4_EXPERIMENTAL_EMPTY_MOTION_CONFIDENCE", "0.25", 1);
+    CHECK(std::fabs(MotionEstimator::emptyMotionConfidenceFromEnvironment() -
+                    0.25f) < 1e-6f);
+    setenv("TFORGE_FSR4_EXPERIMENTAL_EMPTY_MOTION_CONFIDENCE", "2.0", 1);
+    CHECK(std::fabs(MotionEstimator::emptyMotionConfidenceFromEnvironment() -
+                    1.0f) < 1e-6f);
+    setenv("TFORGE_FSR4_EXPERIMENTAL_EMPTY_MOTION_CONFIDENCE", "-3.0", 1);
+    CHECK(std::fabs(MotionEstimator::emptyMotionConfidenceFromEnvironment() -
+                    0.0f) < 1e-6f);
+    // The sanitizer is the input contract for aggregateConfidence: feeding
+    // its output back must reproduce the sanitized value, keeping the
+    // early-return path and the aggregate path in agreement.
+    setenv("TFORGE_FSR4_EXPERIMENTAL_EMPTY_MOTION_CONFIDENCE", "0.8", 1);
+    CHECK(std::fabs(MotionEstimator::aggregateConfidence(
+                        {}, 32, 16,
+                        MotionEstimator::emptyMotionConfidenceFromEnvironment()) -
+                    0.8f) < 1e-6f);
+    setenv("TFORGE_FSR4_EXPERIMENTAL_EMPTY_MOTION_CONFIDENCE", "inf", 1);
+    CHECK(std::fabs(MotionEstimator::aggregateConfidence(
+                        {}, 32, 16,
+                        MotionEstimator::emptyMotionConfidenceFromEnvironment()) -
+                    0.5f) < 1e-6f);
+    unsetenv("TFORGE_FSR4_EXPERIMENTAL_EMPTY_MOTION_CONFIDENCE");
 
     const LumaBuffer previous = gradient(32, 16, 0);
     const LumaBuffer current = gradient(32, 16, 1);

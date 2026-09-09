@@ -46,6 +46,13 @@ def main() -> int:
     with (root / "benchmarks/video_corpus/manifest.csv").open(newline="") as stream:
         manifest = list(csv.DictReader(stream))
     selected = {scene: next(row for row in manifest if row["clip_id"] == scene and row["quality"] == "high" and row["width"] == "1280" and row["height"] == "720") for scene in SCENES}
+    for config in CANDIDATES.values():
+        # Fail closed before any capture: loadQualityLabConfig silently falls
+        # back to the default composition when its path is missing, which
+        # would run candidate arms with identical default settings while
+        # labeling them as distinct configs.
+        if not (root / config).is_file():
+            raise FileNotFoundError(f"required quality config not found: {root / config}")
     rows: list[dict[str, str]] = []
     for candidate, config in CANDIDATES.items():
         for strength in STRENGTHS:
@@ -59,6 +66,10 @@ def main() -> int:
                     "TFORGE_FSR4_FORCE_VIEWPORT": "1920x1080", "TFORGE_FSR4_FORCE_SCALE": "1.50",
                     "TFORGE_FSR4_JITTER_MODE": "off", "TFORGE_DISABLE_HW_DECODE": "1",
                     "TFORGE_FSR4_PROFILE_TIMINGS": "1", "TFORGE_TEMPORAL_CAPTURE_TIMEOUT": "90",
+                    # This wrapper post-processes the retained fsr_frames
+                    # sequence after run_temporal_quality.sh exits; the runner
+                    # defaults to discarding image payloads, so preserve them.
+                    "TFORGE_PRESERVE_IMAGE_ARTIFACTS": os.environ.get("TFORGE_PRESERVE_IMAGE_ARTIFACTS", "1"),
                     "TFORGE_QUALITY_LAB_CONFIG": str(root / config), "TFORGE_FSR4_CAS_STRENGTH": strength,
                     "TFORGE_ALLOW_SPATIAL_TEMPORAL_CONTROL": "1",
                 })

@@ -13,7 +13,13 @@ import periodic_lattice_detector as detector  # noqa: E402
 
 class LatticeDetectorRegression(unittest.TestCase):
     def test_failed_and_fixed_fixture_decisions(self):
-        manifest = json.loads((ROOT / "benchmarks/quality_sweeps/lattice_corruption_diagnostic/detector_regression_fixtures.json").read_text())
+        manifest_path = ROOT / "benchmarks/quality_sweeps/lattice_corruption_diagnostic/detector_regression_fixtures.json"
+        if not manifest_path.is_file():
+            self.skipTest(
+                "detector regression fixture manifest is locally generated "
+                f"campaign evidence, not a committed artifact: {manifest_path}"
+            )
+        manifest = json.loads(manifest_path.read_text())
         missing = [f["name"] for f in manifest["fixtures"] if not Path(f["candidate"]).exists() or not Path(f["control"]).exists()]
         if missing:
             self.skipTest("local hash-addressed capture fixtures unavailable: " + ", ".join(missing))

@@ -15,6 +15,11 @@ ROOT = Path(__file__).resolve().parents[1]
 CAMPAIGN_PATH = ROOT / "benchmarks/quality_sweeps/m6_schema2_spatial_campaign.json"
 
 
+@unittest.skipUnless(
+    CAMPAIGN_PATH.is_file(),
+    "M6 schema-2 spatial campaign is locally generated campaign evidence, "
+    f"not a committed artifact: {CAMPAIGN_PATH}",
+)
 class M6Schema2CampaignTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:

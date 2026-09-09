@@ -38,6 +38,13 @@ def main() -> int:
     with (root / "benchmarks/video_corpus/manifest.csv").open(newline="") as stream:
         manifest = list(csv.DictReader(stream))
     selected = {scene: next(row for row in manifest if row["clip_id"] == scene and row["quality"] == "high" and row["width"] == "1280" and row["height"] == "720") for scene in SCENES}
+    for config in CANDIDATES.values():
+        # Fail closed before any capture: loadQualityLabConfig silently falls
+        # back to the default composition when its path is missing, which
+        # would run candidate arms with identical default settings while
+        # labeling them as distinct configs.
+        if not (root / config).is_file():
+            raise FileNotFoundError(f"required quality config not found: {root / config}")
     rows: list[dict[str, str]] = []
     for candidate, config in CANDIDATES.items():
         for strength in STRENGTHS:

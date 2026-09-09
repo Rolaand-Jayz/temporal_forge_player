@@ -1,5 +1,9 @@
 # FSR 4.1.0 RE Reconstruction — Status & Technical Log
 
+> **Classification:** HISTORICAL RESEARCH (dated log; not a current
+> implementation specification). See [`README.md`](README.md) for the
+> documentation taxonomy.
+
 > **Date**: 2026-07-09
 > **Goal**: GPU-native FSR 4.1 temporal upscaling on Linux/Vulkan/AMD RDNA3
 > via reverse-engineering the neural network from the extracted weight blob.
@@ -305,6 +309,10 @@ This isolates failures layer-by-layer since the main dispatch submits all
 ## RE Data Sources
 
 All imported hypotheses from: `RE-of-FSR-4.1.0-Upscaling-1.0/`
+
+Paths in the table below are relative to that external reverse-engineering
+corpus, not to this repository's `docs/` directory; the corpus is preserved
+with the pre-stack history, not in the production-stack branches.
 
 | File | Purpose |
 |------|---------|

@@ -1,5 +1,13 @@
 # Temporal Forge FSR4 quality campaign orchestration state
 
+**Role:** supporting orchestration/progress log — not an active authority.
+
+This document records what was done in the quality workstream and when. The
+single canonical active quality authority is
+[`QUALITY_CAMPAIGN.md`](QUALITY_CAMPAIGN.md). Where this log and the active
+plan disagree (including phase and gate status), the active plan governs.
+Entries are historical as of their recorded dates.
+
 ## Orchestration metadata
 
 - **Task:** track the current quality campaign and its completed historical gates
@@ -44,7 +52,7 @@
 | Permit metrics-only campaign closure | The user confirmed numeric results are sufficient; image payloads add storage cost but do not replace required metric, identity, timing, or temporal provenance. | Requiring retained review images; rejected for this campaign mode. | 2026-08-31 |
 | Require paired spatial keys to match exactly | A candidate with a missing clip, changed source/output dimensions, frame, quality, or CRF is not a valid comparison. | Pairing by clip name only; rejected because it can hide changed benchmark conditions. | 2026-08-23 |
 
-## Issues logg
+## Issues log
 
 | Issue | Phase | Severity | Resolution | Date |
 |---|---|---|---|---|

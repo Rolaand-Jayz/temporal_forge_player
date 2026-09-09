@@ -41,6 +41,22 @@ is never defined); the reliability floor is the always-available spatial
 fallback. See
 [`../reference/ARCHITECTURE.md`](../reference/ARCHITECTURE.md).
 
+## Verified versus unresolved
+
+- The prior M6 triage gate record is preserved in
+  [`../archive/plans/M6_REGRESSION_TRIAGE_20260902.md`](../archive/plans/M6_REGRESSION_TRIAGE_20260902.md).
+- Existing evidence supports keeping reconstruction and final delivery
+  dimensions as separate controls. It does not justify a universal 3x default.
+- Current code, intended architecture, and dated evidence are not
+  interchangeable. When they diverge, the active plan and audit must name the
+  divergence.
+- The quality campaign is not complete merely because the harness or runner
+  exists. Required coverage, provenance, measurements, and validation remain
+  the completion gate.
+
+The worktree may contain untracked capture-generated evidence while the
+quality campaign runs; that evidence is outside this documentation snapshot.
+
 ## Quality-lab policy (truth)
 
 The checked-in `config/quality_lab.json` profile (base-only composition,

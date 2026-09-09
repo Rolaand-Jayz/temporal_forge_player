@@ -86,6 +86,10 @@ def main() -> int:
                 "TFORGE_FSR4_FORCE_VIEWPORT": "3840x2160", "TFORGE_FSR4_FORCE_SCALE": "2.00",
                 "TFORGE_FSR4_JITTER_MODE": "off", "TFORGE_DISABLE_HW_DECODE": "1",
                 "TFORGE_FSR4_PROFILE_TIMINGS": "1", "TFORGE_TEMPORAL_CAPTURE_TIMEOUT": "90",
+                # This wrapper post-processes the retained fsr_frames
+                # sequence after run_temporal_quality.sh exits; the runner
+                # defaults to discarding image payloads, so preserve them.
+                "TFORGE_PRESERVE_IMAGE_ARTIFACTS": os.environ.get("TFORGE_PRESERVE_IMAGE_ARTIFACTS", "1"),
                 "TFORGE_QUALITY_LAB_CONFIG": str(root / "benchmarks/quality_sweeps/swarm/agent_composition_audit/current_control.json"),
             })
             for name in ("TFORGE_FSR4_PRE_CAS", "TFORGE_BENCHMARK_SHARPNESS", "TFORGE_FSR4_DISABLE_CAS", "TFORGE_REVIEW_FSR_CAS"):

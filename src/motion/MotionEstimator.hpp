@@ -107,6 +107,15 @@ public:
     // disabled mode; callers can use this without duplicating env parsing.
     static MotionEstimatorConfig configFromEnvironment();
 
+    // Single parse/sanitize point for the empty-motion confidence fallback
+    // (TFORGE_FSR4_EXPERIMENTAL_EMPTY_MOTION_CONFIDENCE). Malformed and
+    // non-finite values are rejected to the documented 0.5 default BEFORE any
+    // clamping, so the empty-field early return in the production caller and
+    // aggregateConfidence agree on the same sanitized value. std::clamp
+    // leaves NaN unchanged and maps infinities to the bounds, so rejection
+    // must happen before clamping.
+    static float emptyMotionConfidenceFromEnvironment();
+
 private:
     MotionEstimatorStats stats_{};
 };

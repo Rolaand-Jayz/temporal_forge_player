@@ -24,6 +24,13 @@ def digest(path: Path) -> str:
 def ppm_png(root: Path, scene: str, inp: int, out: int, cas: str) -> Path:
     return root / f"{scene}_{inp}to{out}_{cas}.png"
 
+def configure_cas_environment(env: dict[str, str], cas_name: str, cas_strength: str) -> None:
+    """Use the runtime's presence-based disable switch without ambient leakage."""
+    env["TFORGE_FSR4_CAS_STRENGTH"] = cas_strength
+    env.pop("TFORGE_FSR4_DISABLE_CAS", None)
+    if cas_name == "no_cas":
+        env["TFORGE_FSR4_DISABLE_CAS"] = "1"
+
 def checker_score(path: Path) -> float:
     """Periodic 2x2 energy ratio used as a conservative lattice tripwire."""
     from PIL import Image
@@ -72,7 +79,7 @@ def main() -> int:
                     "TFORGE_FSR4_DUMP_STAGE_DIR": str(case / "stages"), "TFORGE_FSR4_DUMP_MODEL_INPUT": "1",
                     "TFORGE_FSR4_DUMP_MODEL_INPUT_FRAME": "48",
                     "TFORGE_FSR4_FORCE_VIEWPORT": viewport, "TFORGE_FSR4_FORCE_SCALE": "2.00",
-                    "TFORGE_FSR4_CAS_STRENGTH": cas_strength, "TFORGE_FSR4_DISABLE_CAS": "1" if cas_name == "no_cas" else "0",
+                    "TFORGE_FSR4_CAS_STRENGTH": cas_strength,
                     "TFORGE_QUALITY_PROFILE": "AMD_SEMANTIC_BASELINE", "TFORGE_FSR4_INTEGRATED_BEST_FINDINGS": "1",
                     "TFORGE_FSR4_ENABLE_RECURRENT": "1", "TFORGE_FSR4_EXPERIMENTAL_PREPASS_JITTER_ORDERING": "1",
                     "TFORGE_FSR4_EXPERIMENTAL_SOURCE_TAP_MULAW": "1", "TFORGE_FSR4_JITTER_SEQUENCE": "halton23",
@@ -83,6 +90,7 @@ def main() -> int:
                     "TFORGE_GIT_HEAD": subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip(),
                     "TFORGE_GIT_DIRTY": "0",
                 })
+                configure_cas_environment(env, cas_name, cas_strength)
                 case.mkdir(parents=True)
                 csv_path = case / "results.csv"
                 run_renderer(["bash", str(RUNNER), str(player), selector, str(csv_path)], cwd=ROOT, env=env)

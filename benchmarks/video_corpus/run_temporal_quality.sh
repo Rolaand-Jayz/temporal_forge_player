@@ -883,8 +883,18 @@ if [[ -n "$temporal_motion_json$temporal_metrics_output" ]]; then
     }
     temporal_reference_dir="$tmpdir/reference_ppm"
     mkdir -p "$temporal_reference_dir"
+    # The candidate PPM sequence starts after the configured warmup: the player
+    # runs warmup frames before it begins dumping. The enhanced reference must
+    # skip the same warmup frames, matching the legacy comparison filter, or the
+    # per-frame pairing in measure_temporal_sequence.py silently compares
+    # misaligned frames.
+    if (( temporal_warmup_frames > 0 )); then
+        temporal_ppm_reference_filter="select=gte(n\\,${temporal_warmup_frames}),scale=${output_width}:${output_height}:flags=lanczos,format=rgb24,setsar=1"
+    else
+        temporal_ppm_reference_filter="scale=${output_width}:${output_height}:flags=lanczos,format=rgb24,setsar=1"
+    fi
     run_ffmpeg -hide_banner -loglevel error -i "$reference" -frames:v "$frames" \
-        -vf "scale=${output_width}:${output_height}:flags=lanczos,format=rgb24,setsar=1" \
+        -vf "$temporal_ppm_reference_filter" \
         -start_number 0 \
         "$temporal_reference_dir/reference_%04d.ppm"
 

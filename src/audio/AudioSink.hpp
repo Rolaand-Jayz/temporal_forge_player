@@ -78,6 +78,11 @@ public:
     // clear: empty the ring buffer. Called by PlaybackEngine::close.
     void clear() { ring_->clear(); }
 
+    // bufferedFrames: samples currently buffered in the ring (head - tail).
+    //                 Called by PlaybackEngine::onPollTick to detect that the
+    //                 audio tail has fully drained at end of media.
+    [[nodiscard]] size_t bufferedFrames() const { return ring_->available(); }
+
 private:
     // dataCallback: miniaudio realtime callback — reads from the ring into the
     //               output buffer and applies volume/mute.
