@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 import sys
 import tempfile
@@ -76,6 +77,51 @@ class AllCandidateMatrixTests(unittest.TestCase):
         self.assertIn('"--workers"', source)
         self.assertIn("default=2", source)
         self.assertIn("CPU/GPU contention", source)
+
+    def test_direct_execution_works_from_foreign_cwd_without_pythonpath(self) -> None:
+        # The documented direct-path invocation must not depend on the
+        # invocation directory or on an external PYTHONPATH.
+        with tempfile.TemporaryDirectory() as directory:
+            env = {key: value for key, value in os.environ.items() if key != "PYTHONPATH"}
+            result = subprocess.run(
+                [sys.executable, str(SCRIPT), "--help"],
+                cwd=directory,
+                env=env,
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("usage:", result.stdout)
+
+    def test_clean_parent_environment_strips_all_tforge_state(self) -> None:
+        from benchmarks.quality_sweeps.swarm.run_all_candidates import (
+            INHERITED_TFORGE_ALLOWLIST,
+            clean_parent_environment,
+        )
+
+        parent = {
+            "PATH": "/usr/bin",
+            "HOME": "/home/tester",
+            "LANG": "C.UTF-8",
+            "XDG_DATA_HOME": "/tmp/xdg",
+            "TFORGE_FSR4_LEARNED_STRENGTH": "0.9",
+            "TFORGE_VK_VALIDATE": "1",
+            "TFORGE_TEMPORAL_CANDIDATE_ID": "leftover",
+            "TFORGE_QUALITY_LAB_CONFIG": "/tmp/leaked.json",
+        }
+        cleaned = clean_parent_environment(parent)
+        # Every inherited TFORGE_* variable is stripped, not just a fixed
+        # subset: stray experiment state must not alter capture identity.
+        for key in parent:
+            if key.startswith("TFORGE_") and key not in INHERITED_TFORGE_ALLOWLIST:
+                self.assertNotIn(key, cleaned)
+        # The normal OS environment required to execute is preserved.
+        for key, value in (("PATH", "/usr/bin"), ("HOME", "/home/tester"),
+                           ("LANG", "C.UTF-8"), ("XDG_DATA_HOME", "/tmp/xdg")):
+            self.assertEqual(cleaned[key], value)
+        # The allowlist is an explicit, extensible frozenset.
+        self.assertIsInstance(INHERITED_TFORGE_ALLOWLIST, frozenset)
 
 
 if __name__ == "__main__":

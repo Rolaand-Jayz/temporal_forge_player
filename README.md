@@ -66,6 +66,22 @@ then the SDK tier (currently unavailable), then spatial. If a backend fails,
 playback falls back to spatial scaling and continues with a non-blocking
 warning.
 
+### Git LFS (review evidence only)
+
+The campaign review images under `review_harness/images/*.png` are stored
+with Git LFS. They are **not required to build, run, or test** the player —
+ordinary clones work without Git LFS and simply carry small pointer files
+for those images. To retrieve the actual review payloads:
+
+```sh
+git lfs install && git lfs pull
+```
+
+Check whether payloads are present with `git lfs ls-files` (pointer files
+show `*-`; real objects show `*`), or by size (`file
+review_harness/images/<name>.png` reports PNG data for a real payload and
+plain text for a pointer).
+
 ## License
 
 Temporal Forge's original code and documentation are licensed under the
@@ -110,6 +126,7 @@ player.
 | glslangValidator | build | required (`cmake/ShaderCompile.cmake`) | configure fails |
 | Vulkan loader + headers, API 1.3 | build + runtime | required | build fails / runtime cannot start |
 | FFmpeg ≥ 5.1 dev libraries | build + runtime | required | configure/build fails |
+| Git LFS | review evidence only | optional | review-harness PNGs stay pointer files; build/runtime unaffected |
 | python3 | build tooling | required | tooling steps fail |
 | miniaudio (vendored single header, v0.11.25, `external/`) | build | bundled | none — tracked in-tree |
 | Vulkan headers shim (`external/vulkan_include/`) | build | bundled | none — tracked in-tree |

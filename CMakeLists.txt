@@ -46,11 +46,13 @@ pkg_check_modules(FFMPEG REQUIRED
     libswresample>=4)
 
 # Vulkan
-# The loader's pkg-config file is useful for diagnostics, but it is not the
-# source of truth for the headers.  Some systems ship the loader/ICD without
-# the SDK development package, and stale CMake caches can also retain a
-# `Vulkan_INCLUDE_DIR-NOTFOUND` value.
-pkg_check_modules(VULKAN QUIET vulkan)
+# FindVulkan is the single authoritative Vulkan dependency: it provides the
+# Vulkan::Vulkan imported target (loader library + include dirs).  The
+# loader's pkg-config file is NOT consulted, so hosts without vulkan.pc
+# still configure and link correctly.  Some runtime-only installations ship
+# the loader/ICD without development headers; the bundled public headers
+# under external/vulkan_include cover that case (including stale NOTFOUND
+# cache entries).
 # Some runtime-only Vulkan installations provide the loader and ICD but not
 # the development headers.  This repository carries the matching public
 # headers needed to compile the player, so use them when CMake cannot find a
@@ -161,10 +163,10 @@ target_include_directories(temporal_forge_lib PUBLIC
     "${CMAKE_CURRENT_SOURCE_DIR}/external"
     "${CMAKE_CURRENT_SOURCE_DIR}/external/vulkan_include"
     ${FFMPEG_INCLUDE_DIRS}
-    ${VULKAN_INCLUDE_DIRS})
+    ${Vulkan_INCLUDE_DIRS})
 target_link_libraries(temporal_forge_lib PUBLIC
     Qt6::Core Qt6::Gui Qt6::Quick Qt6::Qml Qt6::Widgets
-    ${VULKAN_LIBRARIES}
+    Vulkan::Vulkan
     Threads::Threads ${CMAKE_DL_LIBS})
 foreach(lib ${FFMPEG_LIBRARIES})
     target_link_libraries(temporal_forge_lib PUBLIC ${lib})
@@ -221,5 +223,5 @@ add_subdirectory(tests)
 
 message(STATUS "Temporal Forge Player configured:")
 message(STATUS "  FFmpeg: ${FFMPEG_VERSION} (libs: ${FFMPEG_LIBRARIES})")
-message(STATUS "  Vulkan: ${VULKAN_VERSION}")
+message(STATUS "  Vulkan: ${Vulkan_VERSION}")
 message(STATUS "  Qt6:    ${Qt6_VERSION}")

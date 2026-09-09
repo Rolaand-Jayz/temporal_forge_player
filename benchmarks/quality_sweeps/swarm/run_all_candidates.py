@@ -26,10 +26,15 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from typing import Any
 
+# Repository root must be importable before any benchmarks.* import: direct
+# path execution from an arbitrary CWD cannot rely on external PYTHONPATH.
+ROOT = Path(__file__).resolve().parents[3]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
 from benchmarks.quality_sweeps.trackmania_guard import guarded_worker_count
 
 
-ROOT = Path(__file__).resolve().parents[3]
 RUNNER = ROOT / "benchmarks/video_corpus/run_temporal_quality.sh"
 SAFE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]*$")
 
@@ -185,10 +190,27 @@ def build_candidates(mode: str) -> list[dict[str, Any]]:
     return [unique[key] for key in sorted(unique)]
 
 
+# TFORGE_* variables are never inherited from the parent shell: each
+# candidate must see only the overlay its manifest declares, so stray
+# experiment state cannot silently alter capture identity. Variables listed
+# here are the explicit exception — names that are intentionally inherited
+# by every candidate.
+INHERITED_TFORGE_ALLOWLIST: frozenset[str] = frozenset()
+
+
 def clean_parent_environment(parent: dict[str, str]) -> dict[str, str]:
-    """Remove capture-affecting variables so each candidate starts clean."""
-    prefixes = ("TFORGE_FSR4_", "TFORGE_QUALITY_LAB_CONFIG", "TFORGE_BENCHMARK_")
-    return {key: value for key, value in parent.items() if not key.startswith(prefixes)}
+    """Strip every inherited ``TFORGE_*`` variable (allowlist excepted).
+
+    The normal OS environment (``PATH``, ``HOME``, ``XDG_*``, ``LANG``, ...)
+    is preserved untouched so the player can still execute; only Temporal
+    Forge's own experiment namespace is wiped before the candidate-specific
+    overlay is applied on top.
+    """
+    return {
+        key: value
+        for key, value in parent.items()
+        if not (key.startswith("TFORGE_") and key not in INHERITED_TFORGE_ALLOWLIST)
+    }
 
 
 def parse_args() -> argparse.Namespace:

@@ -38,6 +38,10 @@ tforge_add_test(fsr4_paths_contract_tests
     SOURCES fsr4_paths_contract_tests.cpp
             ../src/util/Fsr4Paths.cpp)
 
+tforge_add_test(playlist_eos_tests
+    SOURCES playlist_eos_tests.cpp
+            ../src/core/PlaylistAdvancement.cpp)
+
 tforge_add_test(jitter_tests
     SOURCES jitter_tests.cpp)
 
@@ -75,7 +79,7 @@ tforge_add_test(backend_tests
             ../src/render/fsr4/Fsr4Memory.cpp
             ../src/util/Log.cpp)
 target_include_directories(backend_tests PRIVATE "${CMAKE_BINARY_DIR}/shaders/fsr4")
-target_link_libraries(backend_tests PRIVATE ${VULKAN_LIBRARIES})
+target_link_libraries(backend_tests PRIVATE Vulkan::Vulkan)
 add_dependencies(backend_tests temporal_forge_player)
 
 tforge_add_test(sidebuffer_tests
@@ -171,14 +175,14 @@ tforge_add_test(gpu_probe
     SOURCES gpu_probe.cpp
             ../src/backend/GpuCapabilityProbe.cpp
             ../src/util/Log.cpp)
-target_link_libraries(gpu_probe PRIVATE ${VULKAN_LIBRARIES})
+target_link_libraries(gpu_probe PRIVATE Vulkan::Vulkan)
 # Not run as part of ctest (it's an interactive diagnostic).
 set_tests_properties(gpu_probe PROPERTIES DISABLED ON)
 
 # Cooperative-matrix mode dumper (diagnostic).
 tforge_add_test(cm_dump
     SOURCES cm_dump.cpp)
-target_link_libraries(cm_dump PRIVATE ${VULKAN_LIBRARIES})
+target_link_libraries(cm_dump PRIVATE Vulkan::Vulkan)
 set_tests_properties(cm_dump PROPERTIES DISABLED ON)
 
 # FSR4 dispatch harness + proof runner integration test (P-B/P-E). Live AMD GPU.
@@ -193,7 +197,7 @@ tforge_add_test(fsr4_harness_tests
             ../src/render/fsr4/Fsr4ConvSteps.cpp
             ../src/render/fsr4/Fsr4Memory.cpp
             ../src/util/Log.cpp)
-target_link_libraries(fsr4_harness_tests PRIVATE ${VULKAN_LIBRARIES})
+target_link_libraries(fsr4_harness_tests PRIVATE Vulkan::Vulkan)
 target_include_directories(fsr4_harness_tests PRIVATE "${CMAKE_BINARY_DIR}/shaders/fsr4")
 # Ensure the embedded SPIR-V header is generated before compiling.
 add_dependencies(fsr4_harness_tests temporal_forge_player)
@@ -275,4 +279,4 @@ tforge_add_test(vulkan_capability_plan_tests
     SOURCES vulkan_capability_plan_tests.cpp
             ../src/render/VulkanContext.cpp
             ../src/util/Log.cpp)
-target_link_libraries(vulkan_capability_plan_tests PRIVATE ${VULKAN_LIBRARIES})
+target_link_libraries(vulkan_capability_plan_tests PRIVATE Vulkan::Vulkan)

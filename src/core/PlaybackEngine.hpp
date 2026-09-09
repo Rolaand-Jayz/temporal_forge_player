@@ -359,6 +359,10 @@ private:
     std::deque<VideoFrameForRender> frames_;
     static constexpr size_t kMaxFrames = 8;
     std::atomic<uint32_t> queuedFrames_{0};
+    // Set by the video decode loop once the decoder reported end-of-stream
+    // (all delayed frames drained). End-of-playlist advancement uses this
+    // real stream state instead of fixed tail-time heuristics.
+    std::atomic<bool> videoDrained_{false};
 
     // audio chunk queue
     std::mutex audioMutex_;

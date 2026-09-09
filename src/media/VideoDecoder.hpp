@@ -154,6 +154,14 @@ public:
     // Returns:   false if no frame is ready yet (caller feeds more packets).
     bool receiveFrame(DecodedVideoFrame& out);
 
+    // drainComplete: true once avcodec_receive_frame reported AVERROR_EOF —
+    //                the decoder has emitted every frame of the stream and
+    //                no further frame can arrive until flush()/open(). Used
+    //                by end-of-stream advancement instead of fixed-time
+    //                heuristics.
+    //                Called by: PlaybackEngine end-of-stream pacing.
+    [[nodiscard]] bool drainComplete() const { return drainComplete_; }
+
     // flush: drain delayed frames / reset after a seek.
     //        Called by: PlaybackEngine::seekUs and ::close.
     void flush();
@@ -178,6 +186,7 @@ private:
     uint64_t frameCounter_ = 0;
     bool hwaccelEnabled_ = false;
     bool motionMetadataRequested_ = false;
+    bool drainComplete_ = false;
 };
 
 } // namespace temporal_forge

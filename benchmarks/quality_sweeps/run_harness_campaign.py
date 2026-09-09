@@ -278,13 +278,22 @@ class PausingRunner:
     def run(self, command: list[str], label: str, cwd: Path = ROOT) -> None:
         started = time.monotonic()
         print(f"[{now()}] START {label}", flush=True)
+        # Capture provenance records the observed running-game state on both
+        # sides of every capture so a later reviewer can distinguish a clean
+        # capture from one contaminated by concurrently running games. This
+        # is observation only: capture work is never paused, stopped, or
+        # otherwise influenced by game processes.
+        games_before = self.games()
+        self.record("game_state", {"label": label, "phase": "pre", "games": games_before})
         self.record("command_start", {"label": label, "command": command})
         try:
             run_renderer(command, cwd=cwd)
-            self.record("command_complete", {"label": label, "returncode": 0})
-            print(f"[{now()}] DONE  {label} ({time.monotonic() - started:.1f}s)", flush=True)
-        except BaseException:
-            raise
+        finally:
+            games_after = self.games()
+            self.record("game_state", {"label": label, "phase": "post", "games": games_after})
+        self.record("command_complete", {"label": label, "returncode": 0,
+                                         "game_detected_during_capture": bool(games_before or games_after)})
+        print(f"[{now()}] DONE  {label} ({time.monotonic() - started:.1f}s)", flush=True)
 
 
 def filename(scene: str, input_height: int, method: str, output_height: int) -> str:
