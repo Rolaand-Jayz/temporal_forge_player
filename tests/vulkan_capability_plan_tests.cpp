@@ -125,7 +125,8 @@ void testMissing8BitStorage() {
           "missing-8bit-storage: other available fsr4 features still requested");
 }
 
-void testNoCoopMatrix() {    auto exts = fullExtensions();
+void testNoCoopMatrix() {
+    auto exts = fullExtensions();
     exts.erase(VK_KHR_COOPERATIVE_MATRIX_EXTENSION_NAME);
     const auto plan = planVulkanDeviceRequests(exts, fullAvailability(),
                                                 rdna3Bounds());

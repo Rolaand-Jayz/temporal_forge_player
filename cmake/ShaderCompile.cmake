@@ -29,27 +29,27 @@ function(tforge_compile_shaders)
     cmake_parse_arguments(ARG "${options}" "${oneValueArgs}" "${multiValueArgs}" ${ARGN})
 
     set(generated)
-    file(MAKE_DIRECTORY ${ARG_OUT_DIR})
+    file(MAKE_DIRECTORY "${ARG_OUT_DIR}")
 
     foreach(src_abs ${ARG_SOURCES})
-        get_filename_component(name ${src_abs} NAME_WE)
-        set(spv ${ARG_OUT_DIR}/${name}.spv)
-        set(hdr ${ARG_OUT_DIR}/${name}.spv.h)
+        get_filename_component(name "${src_abs}" NAME_WE)
+        set(spv "${ARG_OUT_DIR}/${name}.spv")
+        set(hdr "${ARG_OUT_DIR}/${name}.spv.h")
         set(sym ${name})
         # Make a CamelCase symbol for the C array: prepass_pq_eotf -> prepass_pq_eotf_spv
         add_custom_command(
-            OUTPUT ${spv} ${hdr}
+            OUTPUT "${spv}" "${hdr}"
             COMMAND ${GLSLANG} -V -DFFX_GLSL=1
-                -I${CMAKE_SOURCE_DIR}/external/FidelityFX-SDK/sdk/include
-                -I${CMAKE_SOURCE_DIR}/external/FidelityFX-SDK/sdk/include/FidelityFX/gpu
-                -I${CMAKE_SOURCE_DIR}/external/FidelityFX-SDK/sdk/include/FidelityFX/gpu/fsr1
-                ${src_abs} -o ${spv}
+                "-I${CMAKE_SOURCE_DIR}/external/FidelityFX-SDK/sdk/include"
+                "-I${CMAKE_SOURCE_DIR}/external/FidelityFX-SDK/sdk/include/FidelityFX/gpu"
+                "-I${CMAKE_SOURCE_DIR}/external/FidelityFX-SDK/sdk/include/FidelityFX/gpu/fsr1"
+                "${src_abs}" -o "${spv}"
             COMMAND ${CMAKE_COMMAND}
                 -DSPIRV_FILE=${spv}
                 -DHEADER_FILE=${hdr}
                 -DSYMBOL=${sym}
-                -P ${CMAKE_SOURCE_DIR}/cmake/EmbedSpirv.cmake
-            DEPENDS ${src_abs}
+                -P "${CMAKE_SOURCE_DIR}/cmake/EmbedSpirv.cmake"
+            DEPENDS "${src_abs}"
             COMMENT "GLSL->SPIR-V ${name}.comp"
             VERBATIM)
         list(APPEND generated ${spv} ${hdr})

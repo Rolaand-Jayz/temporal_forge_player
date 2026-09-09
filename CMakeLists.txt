@@ -33,8 +33,17 @@ find_program(NINJA_EXE ninja REQUIRED)
 find_package(PkgConfig REQUIRED)
 
 # FFmpeg (spec: libavformat/libavcodec/libavutil/libswscale/libswresample)
+# Version floors: the code uses the ch_layout audio API (AVChannelLayout,
+# av_channel_layout_copy in src/media/AudioDecoder.cpp/Demuxer.cpp), which
+# arrived in FFmpeg 5.1 (libavcodec 59, libavformat 59, libavutil 57,
+# libswscale 6, libswresample 4). README promises FFmpeg >= 5.1 behavior;
+# these MAJOR floors enforce that at configure time.
 pkg_check_modules(FFMPEG REQUIRED
-    libavcodec libavformat libavutil libswscale libswresample)
+    libavcodec>=59
+    libavformat>=59
+    libavutil>=57
+    libswscale>=6
+    libswresample>=4)
 
 # Vulkan
 # The loader's pkg-config file is useful for diagnostics, but it is not the
