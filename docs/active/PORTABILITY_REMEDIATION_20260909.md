@@ -63,7 +63,7 @@ and portable outputs).
 
 | Loop | Date | Scope executed (A–G) | Verdict | Counter after loop |
 |---|---|---|---|---|
-| — | — | not started | — | 0 |
+| 1 | 2026-09-09 | A: fresh-eyes semantic sweep (full coverage ledger); B: mechanical path/deps sweeps; C+D: clean tree @ /tmp/tforge-portability-loop1 (temp HOME/XDG) configure+build+ctest 22/22; E: live Wayland runtime smoke — player launched, played, absence diagnostics fired verbatim, EASU fallback engaged; F: LD_PRELOAD open-logger (strace unavailable, no passwordless sudo) — 217 opens, zero maintainer-project paths; G: tooling --help/syntax/required-arg smokes | **DEFECTS FOUND — 7 actionable (N-1..N-6, N-D1 below) → remediated → loop does not count** | **0** |
 
 ## Findings ledger
 
@@ -123,6 +123,13 @@ Validation evidence accrues during the clean loops below.
 | GLM-NEW-09 | low | SettingsStore falls back to CWD-relative settings file when HOME/XDG unset | SettingsStore.cpp:259-267 (V2) | document last-resort semantics in reference docs | docs review |
 | GLM-NEW-10 | MAJOR | Generic FSR4 weight blob has no in-repo or portable candidate; tracked FSR4 artifacts unloadable — systemic gap with C-03/M-01 | WeightBlob.cpp (validation only); PlaybackEngine.cpp:1394 | folded into M-01 resolution contract | clean-tree unavailability state |
 | GLM-NEW-11 | low | Pack table/graph mismatch (ultraperf_1080 ships no initializers) indistinguishable from provisioning gap in errors | Fsr4DispatchHarness.cpp:1194-1216 (V2) | folded into C-03 diagnostics | clean-tree absence state |
+| N-1 (loop 1) | low | Machine candidate paths persist in test sources; do not honor TFORGE_FSR4_RE_ROOT despite the new runtime contract | tests/fsr4_weight_tests.cpp:20-27; tests/fsr4_harness_tests.cpp:96-104 (loop-1 audit) | tests honor the env override first, keep 77-skip | ctest + grep |
+| N-2 (loop 1) | low | Shipped default quality_lab.json resolved CWD-dependently only; docs claim it loads at startup from any launch | src/config/QualityLabConfig.cpp:126 (loop-1 audit) | exe-relative tier added (env → exe-relative → CWD → XDG → HOME) | launch from foreign CWD smoke |
+| N-3 (loop 1) | moderate | 16/8-bit storage-access features required by fsr4 shaders (GL_EXT_shader_16bit_storage) never enabled/probed — RADV leniency is load-bearing | VulkanContext.cpp:525-531; GpuCapabilityProbe.cpp:213-259; conv_dw_dot4.comp:9-20 (loop-1 audit) | added to planner FSR4-class enables + probe checks + hermetic tests; live-verified | capability tests + live init |
+| N-4 (loop 1) | minor | Probe omits shaderIntegerDotProduct while planner counts it in fsr4ClassFeaturesPresent (claimed equivalence inexact; fail-safe direction) | VulkanContext.cpp:147 vs GpuCapabilityProbe.cpp:224-248 (loop-1 audit) | probe check aligned | capability tests |
+| N-5 (loop 1) | minor | TFORGE_FSR4_TRUE_FSR1_EASU on a stub build silently dispatches no-op EASU (undefined intermediate) | GpuImageUploader.cpp:2301; cmake/stubs/fsr1_easu.comp (loop-1 audit) | stub builds define TFORGE_FSR1_PROBE_STUB; runtime warns once when the env var is set | build + grep |
+| N-6 (loop 1) | minor | No minimum FFmpeg version declared; code needs ≥5.1-era APIs (ch_layout, AVFrame.duration) | CMakeLists.txt:35-37; README matrix (loop-1 audit) | matrix states FFmpeg ≥ 5.1 | docs review |
+| N-D1 (loop 1) | minor | environment.md describes weight blobs as `v410_*.bin`; actual files are quality.bin/balanced.bin/... (v410_initializers is the directory) | docs/reference/environment.md:43 vs WeightBlob.cpp:21-27 (loop-1 audit) | corrected blob names | docs review |
 
 ## Remediation principles (audit §11.3, binding)
 
@@ -144,6 +151,37 @@ final verdict; Luna handoff package = initial audit + this ledger + clean-loop
 reports + candidate commit/branch identity.
 
 ## Progress log
+
+- 2026-09-09 (wave 3 committed `3a0fafff3`): M-05 remediated — device
+  requests planned from enumerated evidence (pure `planVulkanDeviceRequests`
+  layer + hermetic `vulkan_capability_plan_tests`); FSR4-class items probe
+  separately and gate only the FSR4-RE backend via the existing
+  GpuCapabilityProbe handoff, so an incapable device reaches the spatial
+  fallback instead of dying at `vkCreateDevice`; isAmdRadv uses driver
+  properties; wave64 and debug-utils requests are capability-gated.
+  GLM-NEW-04/07 closed. Live validation: gpu_probe viable on RADV 26.2.2;
+  non-Qt init smoke proved instance → 246 extensions enumerated → 5 enabled
+  → device created with fsr4 caps viable; enabled set identical to pre-change
+  plus the previously missing VK_EXT_subgroup_size_control. Binary strings
+  clean. Implementation of ALL ledger dispositions is complete; clean-loop
+  qualification begins (counter = 0).
+- 2026-09-09 (wave 2 committed `37128fdc6`): runtime FSR4 asset resolution is
+  host-independent. Shared resolver `src/util/Fsr4Paths` (exe-relative + CWD
+  for native packs; `TFORGE_FSR4_RE_ROOT` + XDG data for weight blobs);
+  `TFORGE_SOURCE_ROOT` compile definition removed (test targets define it
+  per-target); `-ffile-prefix-map` keeps `__FILE__` diagnostics free of the
+  build-host path (orchestrator-approved adjacent-scope addition). Absence
+  diagnostics distinguish pack-missing/pack-incomplete/initializer-invalid;
+  weight-blob absence lists searched paths and the override. New hermetic
+  `fsr4_paths_contract_tests`; `test_m6_spatial_provenance` now skips without
+  its dated fixture. Binary `strings` check clean of maintainer paths; ctest
+  21/21 active tests pass. Live offscreen player run was blocked in the
+  worker's GPU-restricted shell (validated via contract test + direct code-path
+  execution instead) — live smoke is a clean-loop gate.
+- 2026-09-09 (loop 1): full audit launched — fresh-eyes semantic sweep over
+  the remediated tree plus mechanical corroboration, arbitrary-path clean-tree
+  configure/build/ctest, runtime smoke (generated sample media), strace
+  filesystem audit, tooling smoke.
 
 - 2026-09-09: Campaign opened. Live state established: local line
   `quality-lab-vibecoder` @ `db19cfb34` (~140 commits ahead of audited public
