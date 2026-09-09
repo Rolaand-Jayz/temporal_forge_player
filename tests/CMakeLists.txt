@@ -26,7 +26,8 @@ tforge_add_test(preset_math_tests
 
 tforge_add_test(quality_lab_config_tests
     SOURCES quality_lab_config_tests.cpp
-            ../src/config/QualityLabConfig.cpp)
+            ../src/config/QualityLabConfig.cpp
+            ../src/util/Fsr4Paths.cpp)
 target_link_libraries(quality_lab_config_tests PRIVATE Qt6::Core)
 target_compile_definitions(quality_lab_config_tests PRIVATE
     TFORGE_SOURCE_ROOT="${CMAKE_SOURCE_DIR}")

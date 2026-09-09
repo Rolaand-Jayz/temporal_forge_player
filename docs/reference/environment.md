@@ -39,10 +39,13 @@ experiment parameter:
   composition is honored at every scale; when unset, the checked-in
   `config/quality_lab.json` profile is the shipped default playback policy
   (applied only at ≥3x scale — scale-aware — via `PlaybackEngine`).
-- `TFORGE_FSR4_RE_ROOT` — overrides where the generic FSR4 RE weight blob
-  (`v410_*.bin`, 131072 bytes) is looked up. Point it at the root of the
-  reverse-engineering tree; the engine reads
-  `$TFORGE_FSR4_RE_ROOT/extracted/v410_initializers/<blob>`. Without it the
+- `TFORGE_FSR4_RE_ROOT` — overrides where the generic FSR4 RE weight blobs
+  (`quality.bin`, `balanced.bin`, `performance.bin`, `ultraperf.bin`,
+  `native.bin`, `drs.bin` — 131072 bytes each) are looked up. Point it at the
+  root of the reverse-engineering tree; the engine reads
+  `$TFORGE_FSR4_RE_ROOT/extracted/v410_initializers/<preset>.bin` (the
+  `v410_initializers` directory contains the per-preset blobs listed above).
+  Without it the
   blob is searched under the XDG data location:
   `$XDG_DATA_HOME/temporal-forge-player/fsr4/extracted/v410_initializers/`
   (or `$HOME/.local/share/...`). Native INT8 packs are resolved separately

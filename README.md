@@ -92,7 +92,7 @@ player.
 | Qt 6.6+ — Core, Gui, Quick, Qml, Widgets, **ShaderTools** | build + runtime | required | configure fails (ShaderTools included in the required component list) |
 | glslangValidator | build | required (`cmake/ShaderCompile.cmake`) | configure fails |
 | Vulkan loader + headers, API 1.3 | build + runtime | required | build fails / runtime cannot start |
-| FFmpeg dev libraries | build + runtime | required | configure/build fails |
+| FFmpeg ≥ 5.1 dev libraries | build + runtime | required | configure/build fails |
 | python3 | build tooling | required | tooling steps fail |
 | miniaudio (vendored single header, v0.11.25, `external/`) | build | bundled | none — tracked in-tree |
 | Vulkan headers shim (`external/vulkan_include/`) | build | bundled | none — tracked in-tree |

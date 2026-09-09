@@ -1,5 +1,6 @@
 // QualityLabConfig.cpp — validated runtime quality-lab JSON loading.
 #include "config/QualityLabConfig.hpp"
+#include "util/Fsr4Paths.hpp"
 
 #include <QByteArray>
 #include <QFile>
@@ -122,6 +123,15 @@ std::filesystem::path qualityLabConfigPath() {
         if (*overridePath)
             return std::filesystem::path(overridePath);
     }
+
+    // Executable-relative tier: the shipped measured default policy must load
+    // regardless of the launch directory (docs/current/STATE.md). In-tree
+    // builds place the binary in <build>/ next to the source tree's config/.
+    const auto exeAdjacent =
+        tforge::fsr4paths::executableDir().parent_path() / "config" /
+        "quality_lab.json";
+    if (std::filesystem::exists(exeAdjacent))
+        return exeAdjacent;
 
     const auto relative = std::filesystem::current_path() / "config" /
                           "quality_lab.json";

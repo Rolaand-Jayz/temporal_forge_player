@@ -108,9 +108,11 @@ if(TFORGE_ENABLE_FSR1_PROBE)
     endif()
     set(TFORGE_FSR1_SHADER_SOURCE
         "${CMAKE_CURRENT_SOURCE_DIR}/shaders/fsr1/fsr1_easu.comp")
+    add_compile_definitions(TFORGE_FSR1_PROBE_STUB=0)
 else()
     set(TFORGE_FSR1_SHADER_SOURCE
         "${CMAKE_CURRENT_SOURCE_DIR}/cmake/stubs/fsr1_easu.comp")
+    add_compile_definitions(TFORGE_FSR1_PROBE_STUB=1)
 endif()
 tforge_compile_shaders(
     OUT_VAR FSR1_SHADER_FILES
