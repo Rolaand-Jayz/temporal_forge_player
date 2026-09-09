@@ -74,7 +74,15 @@ class TemporalMatrixTests(unittest.TestCase):
         self.assertIn("TFORGE_FSR4_EXPERIMENTAL_BASE_UNJITTERED", source)
 
 
-    def test_existing_m6_campaign_has_no_temporal_rows_until_assembled(self) -> None:
+    def test_existing_m6_campaign_temporal_evidence_matches_data_only_contract(self) -> None:
+        # The committed M6 campaign is an assembled data-only artifact: its
+        # temporal rows are event-backed and externalized to the strict matrix
+        # referenced by temporalEvidence.matrixPath, so the campaign itself
+        # carries rows == [] while complete/rowCount describe the matrix. This
+        # is valid by design (data-only retention keeps rendered payloads and
+        # row payloads out of the campaign file); the assertions below pin the
+        # internal consistency of that contract instead of a pre-assembly
+        # state that no longer matches the committed evidence.
         campaign_path = ROOT / "benchmarks/quality_sweeps/m6_schema2_spatial_campaign.json"
         if not campaign_path.is_file():
             self.skipTest(
@@ -82,8 +90,16 @@ class TemporalMatrixTests(unittest.TestCase):
                 f"evidence, not a committed artifact: {campaign_path}"
             )
         campaign = json.loads(campaign_path.read_text(encoding="utf-8"))
-        self.assertFalse(campaign["temporalEvidence"]["complete"])
-        self.assertEqual(campaign["temporalEvidence"]["rows"], [])
+        temporal = campaign["temporalEvidence"]
+        self.assertTrue(temporal["complete"])
+        self.assertEqual(temporal["status"], "complete")
+        self.assertEqual(temporal["rows"], [])
+        matrix_path = ROOT / temporal["matrixPath"]
+        self.assertTrue(matrix_path.is_file(), matrix_path)
+        matrix = json.loads(matrix_path.read_text(encoding="utf-8"))
+        self.assertEqual(len(matrix["temporal"]), temporal["rowCount"])
+        self.assertTrue(temporal["rowCount"] > 0)
+        self.assertIn("event-backed", temporal.get("note", ""))
 
     def test_assembly_preserves_blank_event_metrics_as_pending_evidence(self) -> None:
         from benchmarks.quality_sweeps.temporal_matrix import assemble_temporal_matrix
