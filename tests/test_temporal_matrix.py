@@ -74,14 +74,17 @@ class TemporalMatrixTests(unittest.TestCase):
         self.assertIn("TFORGE_FSR4_EXPERIMENTAL_BASE_UNJITTERED", source)
 
 
-    def test_existing_m6_campaign_has_no_temporal_rows_until_assembled(self) -> None:
+    def test_existing_m6_campaign_records_complete_temporal_summary(self) -> None:
+        """The campaign summary points to the separate 20-row matrix artifact."""
         campaign = json.loads(
             (ROOT / "benchmarks/quality_sweeps/m6_schema2_spatial_campaign.json").read_text(
                 encoding="utf-8"
             )
         )
-        self.assertFalse(campaign["temporalEvidence"]["complete"])
+        self.assertTrue(campaign["temporalEvidence"]["complete"])
+        self.assertEqual(campaign["temporalEvidence"]["status"], "complete")
         self.assertEqual(campaign["temporalEvidence"]["rows"], [])
+        self.assertEqual(campaign["temporalEvidence"]["rowCount"], 20)
 
     def test_assembly_preserves_blank_event_metrics_as_pending_evidence(self) -> None:
         from benchmarks.quality_sweeps.temporal_matrix import assemble_temporal_matrix
