@@ -9,8 +9,9 @@ set -euo pipefail
 
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 repo="$(cd "$root/../.." && pwd)"
-player="${1:-$repo/build-fast/temporal_forge_player}"
-campaign_root="${TFORGE_REVIEW_CAMPAIGN_ROOT:-/mnt/external/Temporal Forge/quality-campaign/review-best-finds-20260827}"
+player="${1:-$repo/build/temporal_forge_player}"
+campaign_root="${TFORGE_REVIEW_CAMPAIGN_ROOT:-${2:-}}"
+[[ -n "$campaign_root" ]] || { printf 'campaign root is required: set TFORGE_REVIEW_CAMPAIGN_ROOT (or pass it as the second argument)\n' >&2; exit 2; }
 review_root="${TFORGE_REVIEW_OUTPUT_ROOT:-$repo/benchmarks/video_corpus/results/review_reconciled_540}"
 workers="${TFORGE_REVIEW_WORKERS:-2}"
 frame="${TFORGE_QUALITY_FRAME:-48}"

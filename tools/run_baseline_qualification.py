@@ -76,7 +76,7 @@ def read_events(path: Path) -> list[dict[str, object]]:
 
 def main() -> int:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--player", type=Path, default=Path("build-fast/temporal_forge_player"))
+    parser.add_argument("--player", type=Path, default=ROOT / "build" / "temporal_forge_player")
     parser.add_argument("--output-root", type=Path, required=True)
     parser.add_argument("--frames", type=int, default=FRAMES)
     args = parser.parse_args()

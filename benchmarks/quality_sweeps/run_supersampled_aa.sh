@@ -10,7 +10,7 @@ set -euo pipefail
 
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 repo="$(cd "$root/../.." && pwd)"
-player="${1:-$repo/build-fast/temporal_forge_player}"
+player="${1:-$repo/build/temporal_forge_player}"
 output="${2:-/tmp/tforge-supersampled-aa-20260821}"
 [[ -x "$player" ]] || {
     printf 'Player binary is not executable: %s\n' "$player" >&2

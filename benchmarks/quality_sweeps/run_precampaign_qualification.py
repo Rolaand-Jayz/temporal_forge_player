@@ -36,7 +36,7 @@ def checker_score(path: Path) -> float:
 
 def main() -> int:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--player", type=Path, default=ROOT / "build-fast/temporal_forge_player")
+    ap.add_argument("--player", type=Path, default=ROOT / "build" / "temporal_forge_player")
     ap.add_argument("--output-root", type=Path)
     ap.add_argument("--manifest", type=Path, default=ROOT / "benchmarks/video_corpus/manifest.csv")
     args = ap.parse_args()

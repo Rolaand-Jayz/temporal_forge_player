@@ -405,7 +405,7 @@ def run(args: argparse.Namespace) -> int:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--binary", type=Path, default=ROOT / "build-fast/temporal_forge_player")
+    parser.add_argument("--binary", type=Path, default=ROOT / "build" / "temporal_forge_player")
     parser.add_argument("--output-root", type=Path, required=True)
     parser.add_argument("--scene", action="append", help="restrict to one or more real corpus scenes")
     parser.add_argument("--input-resolution", action="append", choices=INPUT_RESOLUTIONS)

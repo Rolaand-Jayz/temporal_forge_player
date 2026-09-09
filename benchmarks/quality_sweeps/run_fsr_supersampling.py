@@ -279,7 +279,7 @@ def validate_runtime_trace(path: Path, *, run_id: str, source: str,
 
 def main() -> int:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--player", type=Path, default=Path("build-fast/temporal_forge_player"))
+    parser.add_argument("--player", type=Path, default=Path(__file__).resolve().parents[2] / "build" / "temporal_forge_player")
     parser.add_argument("--repo", type=Path, default=Path(__file__).resolve().parents[2])
     parser.add_argument("--manifest", type=Path,
                         help="override the video-corpus manifest for controlled fixtures")

@@ -13,7 +13,6 @@ compile_commands.json
 *.autogen/
 external/FidelityFX-SDK/
 external/vma.h
-external/miniaudio.h
 CMakeUserPresets.json
 
 # Local editor / agent state (not for version control)

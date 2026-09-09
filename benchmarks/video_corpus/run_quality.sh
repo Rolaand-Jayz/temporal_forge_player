@@ -3,7 +3,7 @@ set -euo pipefail
 
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 repo="$(cd "$root/../.." && pwd)"
-binary="${1:-$repo/build-fast/temporal_forge_player}"
+binary="${1:-$repo/build/temporal_forge_player}"
 selector="${2:-1280x720}"
 results="${3:-$root/results/quality.csv}"
 asset_manifest="${TFORGE_QUALITY_ASSET_MANIFEST:-${results%.csv}.assets.csv}"

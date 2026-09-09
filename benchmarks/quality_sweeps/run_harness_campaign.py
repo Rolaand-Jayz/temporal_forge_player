@@ -463,7 +463,7 @@ def validate_resume_data_only_pair(pair_root: Path, input_height: int,
 
 def main() -> int:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--player", type=Path, default=Path("build-fast/temporal_forge_player"))
+    parser.add_argument("--player", type=Path, default=ROOT / "build" / "temporal_forge_player")
     parser.add_argument("--artifact-root", type=Path,
                         default=Path("benchmarks/quality_sweeps/quality_campaign_capture_canonical_v1"))
     parser.add_argument("--harness-root", type=Path, default=Path("review_harness_canonical_v1"))

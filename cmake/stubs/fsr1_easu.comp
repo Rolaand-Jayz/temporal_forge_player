@@ -1,0 +1,11 @@
+#version 460
+// Placeholder FSR1 EASU probe shader (cmake/stubs/fsr1_easu.comp).
+//
+// Used only when TFORGE_ENABLE_FSR1_PROBE=OFF: src/render/GpuImageUploader.cpp
+// unconditionally embeds shaders/fsr1/fsr1_easu.spv.h and creates its Vulkan
+// shader module at init, so the default build compiles this no-op compute
+// shader to satisfy the same generated-header contract without requiring the
+// FidelityFX SDK. The real AMD FSR1 EASU implementation is compiled instead
+// when the probe option is ON. This placeholder performs no work; the
+// TFORGE_FSR4_TRUE_FSR1_EASU opt-in must not be used with a stub build.
+void main() {}

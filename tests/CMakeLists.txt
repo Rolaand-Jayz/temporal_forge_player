@@ -85,7 +85,8 @@ tforge_add_test(fsr4_weight_tests
             ../src/backend/WeightBlob.cpp
             ../src/util/Log.cpp)
 set_tests_properties(fsr4_weight_tests PROPERTIES
-    WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
+    WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
+    SKIP_RETURN_CODE 77)
 
 # M1 postpass contract test. This stays CPU-only: it validates the recovered
 # byte region, host decode rules, and source-level shader consumption evidence.
@@ -220,20 +221,24 @@ if(FFMPEG_BIN)
 endif()
 
 # media_pipeline_tests exercises the real demux+decode path.
-tforge_add_test(media_pipeline_tests
-    SOURCES media_pipeline_tests.cpp
-            ../src/media/Demuxer.cpp
-            ../src/media/VideoDecoder.cpp
-            ../src/media/AudioDecoder.cpp
-            ../src/util/Log.cpp)
 pkg_check_modules(FFMPEG_TEST IMPORTED_TARGET libavformat libavcodec libavutil libswscale libswresample)
-target_link_libraries(media_pipeline_tests PRIVATE PkgConfig::FFMPEG_TEST)
-if(TARGET tforge_sample_mp4)
-    add_dependencies(media_pipeline_tests tforge_sample_mp4)
-    # Run from the build/tests dir where sample.mp4 is generated.
+if(FFMPEG_TEST_FOUND)
+    tforge_add_test(media_pipeline_tests
+        SOURCES media_pipeline_tests.cpp
+                ../src/media/Demuxer.cpp
+                ../src/media/VideoDecoder.cpp
+                ../src/media/AudioDecoder.cpp
+                ../src/util/Log.cpp)
+    target_link_libraries(media_pipeline_tests PRIVATE PkgConfig::FFMPEG_TEST)
+    if(TARGET tforge_sample_mp4)
+        add_dependencies(media_pipeline_tests tforge_sample_mp4)
+    endif()
+    # Run from the build/tests dir where sample.mp4 is generated; the test
+    # source returns 77 when the fixture is unavailable (deterministic skip).
     set_tests_properties(media_pipeline_tests PROPERTIES
         WORKING_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}"
-        ENVIRONMENT "TFORGE_SAMPLE=${CMAKE_CURRENT_BINARY_DIR}/sample.mp4")
+        ENVIRONMENT "TFORGE_SAMPLE=${CMAKE_CURRENT_BINARY_DIR}/sample.mp4"
+        SKIP_RETURN_CODE 77)
 endif()
 
 # file_switch_tests exercises the PlaybackEngine's openUrl/close cycle to
@@ -248,4 +253,7 @@ if(TARGET temporal_forge_lib AND TARGET tforge_sample_mp4)
     add_test(NAME file_switch_tests COMMAND file_switch_tests
         "${CMAKE_CURRENT_BINARY_DIR}/sample.mp4"
         "${CMAKE_CURRENT_BINARY_DIR}/sample.mp4")
+    # The test source returns 77 when the fixture is missing (deterministic
+    # skip instead of a hard failure on machines without ffmpeg).
+    set_tests_properties(file_switch_tests PROPERTIES SKIP_RETURN_CODE 77)
 endif()

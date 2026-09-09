@@ -80,10 +80,35 @@ tforge_compile_shaders(
 # dedicated sampled-image descriptor set and FSR1 constant generation before
 # this can be enabled safely. Building it here prevents the probe from
 # drifting or being mistaken for the local spatial fallback.
+#
+# The probe is opt-in because it requires the FidelityFX SDK headers under
+# external/FidelityFX-SDK (host-local, gitignored). When the option is OFF,
+# a no-op placeholder shader is compiled to the same generated-header
+# contract, because src/render/GpuImageUploader.cpp unconditionally embeds
+# fsr1_easu.spv.h and creates its shader module during Vulkan init.
+option(TFORGE_ENABLE_FSR1_PROBE
+    "Compile the FSR1 EASU research probe (requires FidelityFX SDK under external/FidelityFX-SDK)"
+    OFF)
+if(TFORGE_ENABLE_FSR1_PROBE)
+    if(NOT EXISTS
+        "${CMAKE_CURRENT_SOURCE_DIR}/external/FidelityFX-SDK/sdk/include/FidelityFX/ffx_core.h")
+        message(FATAL_ERROR
+            "TFORGE_ENABLE_FSR1_PROBE=ON requires the AMD FidelityFX SDK headers, "
+            "but external/FidelityFX-SDK/sdk/include/FidelityFX/ffx_core.h was not found. "
+            "Provision the SDK at external/FidelityFX-SDK/ (host-local, gitignored) so that "
+            "external/FidelityFX-SDK/sdk/include/FidelityFX/ffx_core.h exists, or reconfigure "
+            "with -DTFORGE_ENABLE_FSR1_PROBE=OFF.")
+    endif()
+    set(TFORGE_FSR1_SHADER_SOURCE
+        "${CMAKE_CURRENT_SOURCE_DIR}/shaders/fsr1/fsr1_easu.comp")
+else()
+    set(TFORGE_FSR1_SHADER_SOURCE
+        "${CMAKE_CURRENT_SOURCE_DIR}/cmake/stubs/fsr1_easu.comp")
+endif()
 tforge_compile_shaders(
     OUT_VAR FSR1_SHADER_FILES
     OUT_DIR ${CMAKE_BINARY_DIR}/shaders/fsr1
-    SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/shaders/fsr1/fsr1_easu.comp)
+    SOURCES ${TFORGE_FSR1_SHADER_SOURCE})
 
 # Qt6 (spec: Core/Gui/Quick/Qml/Widgets)
 find_package(Qt6 6.6 REQUIRED COMPONENTS Core Gui Quick Qml Widgets ShaderTools)
