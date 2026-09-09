@@ -199,14 +199,3 @@
    WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
    See the License for the specific language governing permissions and
    limitations under the License.
-
----
-
-Copyright 2026 Rolaand Jayz
-
-Licensed under the Apache License, Version 2.0. This license covers
-Temporal Forge's original code and documentation only. Third-party
-components and reverse-engineering-derived artifacts distributed with or
-referenced by this repository retain their own provenance, licensing, and
-rights status as documented in NOTICE, THIRD_PARTY_LICENSES.md, and
-PROVENANCE.md.

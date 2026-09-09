@@ -75,11 +75,19 @@ status; see [`THIRD_PARTY_LICENSES.md`](THIRD_PARTY_LICENSES.md) for the
 inventory and [`PROVENANCE.md`](PROVENANCE.md) for provenance details
 (especially the FSR4-related artifacts).
 
-FSR4 native INT8 packs and generic weight blobs are **not redistributable
-in-tree**. Provision them as described in
-[`resources/fsr4/native_i8/README.md`](resources/fsr4/native_i8/README.md)
-and [`tools/build_native_int8_pack.sh`](tools/build_native_int8_pack.sh).
-At runtime the engine looks for native packs next to the executable
+FSR4 weights have distinct repository states. The native INT8 packs'
+`initializers.bin` data and pack metadata **are tracked and redistributed
+here**; per [`PROVENANCE.md`](PROVENANCE.md) they are
+reverse-engineering-derived artifacts whose rights status is
+**UNRESOLVED / PROVENANCE HOLD** — they are not covered by this project's
+Apache-2.0 license. That is a record of unknown rights status, not a claim
+that redistribution is prohibited. The compiled `passN.spv` pack modules are
+not tracked and are generated locally with
+[`tools/build_native_int8_pack.sh`](tools/build_native_int8_pack.sh) as
+described in
+[`resources/fsr4/native_i8/README.md`](resources/fsr4/native_i8/README.md).
+The generic weight blobs are likewise not tracked; users provision them at
+runtime. The engine looks for native packs next to the executable
 (`<exe_dir>/../resources/fsr4`, then `./resources/fsr4`) and for generic
 weight blobs under `$TFORGE_FSR4_RE_ROOT` or
 `$XDG_DATA_HOME/temporal-forge-player/fsr4/` (see
