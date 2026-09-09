@@ -67,6 +67,7 @@ and portable outputs).
 | 2 | 2026-09-09 | A: lifecycle-first semantic audit (clone→launch walk, new-commit line-by-line scrutiny, fresh sweep methods: temp-collision patterns, spaces-in-path, end-to-end script reads); B: broadened mechanical sweeps (all evidence classes re-classified; env inventory 223 TFORGE_* consistent with documented contract); C+D: aborted mid-run by host /tmp exhaustion (infrastructure, not a repo defect; /tmp reclaimed; loop-1 evidence preserved under .campaign-portability/); E/F/G: not reached | **DEFECTS FOUND — 5 actionable (F1..F5 below) → remediated → loop does not count** (F6 adjudicated historical/acceptable) | **0** |
 | 3 | 2026-09-09 | A: orchestrator-executed adversarial audit (worker pool usage-limited until 19:34; recorded honestly) — attacked all six campaign claims concretely: three independent git-archive builds prove dependency closure; test guards exception-safe; Fsr4Paths degrades on /proc failure/symlink/relative invocation; fresh mechanical sweeps clean; self-added doc claims verified (FFmpeg floor now enforced; stub env var covered by pointer-model contract); Vulkan gate fail-closed with live 14-feature log. B: machine-path scan in remediation tree — only adjudicated classes remain. C+D: clean tree @ /mnt/workdrive/tf-portability-loops/loop3 (temp HOME/XDG/CACHE) — configure+build green, ctest 22/22, deterministic skips. E: foreign-CWD live Wayland smoke — 14-feature device init incl. storageBuffer8BitAccess, blob-absence diagnostic, EASU fallback engaged (external-build-dir layout loads default lab config, accurately logged — documented observation). F: LD_PRELOAD audit, corrected counting — 217 opens, ZERO maintainer-project opens. G: py_compile/bash -n/required-arg/binary-strings smokes green | **CLEAN — remediation-free** | **1** |
 | 4 | 2026-09-09 | A: orchestrator-executed regression audit — all 12 prior fixes verified present at HEAD by targeted checks (C-01 provenance+tracking, C-02 option, N-5 stub macro, N-3 feature+shader ext, C-04 ×4 skips, M-02 src-root absence, M-01 runtime paths, M-07 mount default, N-1 env tier, F5 escape, F3 floors, F1 pid-unique names, M-06 defaults); docs-authority and shutdown paths unchanged since loop-2/3 verification. B: covered by loop-3 sweeps + regression checks. C+D: clean tree @ …/loop4 — build green, ctest 22/22. E: foreign-CWD live Wayland smoke — 14-feature init, blob-absence diagnostic, EASU fallback. F: 0 maintainer-project opens (78 raw hits = loop4 sandbox under same mount). G: syntax smokes green | **CLEAN — remediation-free** | **2** |
+| 5 | 2026-09-09 | A: §14 DoD evidence compilation with final adversarial spot-checks (table below). B: binary strings clean (0 host paths). C+D: clean tree @ …/loop5 — build green, ctest 22/22. E: foreign-CWD live Wayland smoke — played to timeout, EASU fallback engaged on asset absence. F: 0 maintainer-project opens. G: tooling syntax + usage smokes green | **CLEAN — remediation-free** | **3 — QUALIFIED** |
 
 ## Findings ledger
 
@@ -158,6 +159,49 @@ per-item evidence when the campaign closes. Item 16 (3 consecutive
 remediation-free loops) and item 18 (Luna's 2 clean Devil loops) gate the
 final verdict; Luna handoff package = initial audit + this ledger + clean-loop
 reports + candidate commit/branch identity.
+
+## Status
+
+**Status:** GLM REMEDIATION QUALIFIED — AWAITING LUNA (§13)
+
+Three consecutive remediation-free clean loops completed after the final
+code change (`ba441d89d`); loop records 3–5 above. The branch tip (this
+file's commit) is the Luna audit candidate; its code content is
+`ba441d89d` plus these ledger commits.
+
+## §14 final DoD evidence table
+
+| # | Requirement | Evidence |
+|---|---|---|
+| 1 | All CRITICAL remediated+validated | C-01 vendored+tracked (3 clean builds); C-02 opt-in, configure-fail probe verified; C-03 portable resolution + live-verified absence diagnostics; C-04 four SKIP registrations, deterministic across loops 3–5 |
+| 2 | All MAJOR remediated or rebutted | M-01..M-09 implemented (see ledger); adjudicated sub-parts recorded per row |
+| 3 | All actionable MINOR resolved/adjudicated | m-01 documented target-specific; m-02 corrected; m-03 guarded skip |
+| 4 | Historical provenance preserved | Evidence dirs untouched; §8 rule enforced; F6/progress-state adjudications recorded |
+| 5 | Builds from arbitrary path | loop1 (/tmp), spaced probe, loop3/4/5 (/mnt/workdrive/tf-portability-loops) — all from git archive |
+| 6 | No untracked dev-only header/SDK required | miniaudio vendored; FidelityFX optional-gated with actionable error; vulkan_include tracked |
+| 7 | Deps explicit and deterministic | README matrix; FFmpeg pkg-config floors; Ninja/glslang/Qt/Vulkan 1.3 declared |
+| 8 | ctest deterministic on clean host | loops 3–5: 22/22 with identical skip sets |
+| 9 | Runtime discovery independent of source path | TFORGE_SOURCE_ROOT removed from non-test targets; `-ffile-prefix-map`; binary strings clean |
+| 10 | No maintainer-specific fallback in runtime | M-01 removed; LD_PRELOAD audits: 0 maintainer-project opens (loops 1/3/4/5) |
+| 11 | Active tooling free of maintainer mounts | capture_review_best_finds requires explicit root |
+| 12 | Public docs match code | README/ARCHITECTURE/STATE/CONTRIBUTING/environment.md claim-verified loops 1–3 |
+| 13 | Baseline/spatial not blocked by FSR4 Vulkan asks | capability-planned device; fail-closed probe; live EASU fallback on incapable configs |
+| 14 | Optional FSR4 absence → accurate fallback/error | live-verified: pack-incomplete, blob-not-found (with searched paths + override), EASU fallback |
+| 15 | GLM audited independently while remediating | loops 1–2 fresh-worker audits; loops 3–5 orchestrator audits (recorded honestly); 12 actionable defects found+fixed |
+| 16 | 3 consecutive remediation-free loops | loops 3, 4, 5 — counter 3 |
+| 17 | Luna independent audit | PENDING (§13 handoff below) |
+| 18 | Luna 2 clean loops | PENDING |
+| 19 | Luna finding → reset | contract binding; noted |
+| 20 | Reports with coverage ledgers + candidate identity | this doc + final report; candidate: branch `portability/clean-clone-remediation`, code `ba441d89d`, base `db19cfb34`, audited public `main` `2d8eccbc1` |
+
+## Luna handoff (§13)
+
+Luna receives: the initial audit (maintainer's Downloads copy,
+`20260909_TEMPORAL_FORGE_PORTABILITY_SLOP_INITIAL_AUDIT.md`), this ledger,
+the loop records above, and the live repository at the branch tip. Luna
+operates under §13.1 independence (verify every finding, then audit the
+entire operational repository; 2 full loops; loop 2 varies emphasis). Any
+Luna finding resets the GLM counter to 0 per §13.3.
 
 ## Progress log
 
