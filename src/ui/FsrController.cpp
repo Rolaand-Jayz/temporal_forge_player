@@ -138,8 +138,9 @@ void FsrController::setBackend(BackendKind b) {
                                     preset_ != UpscalePreset::Off);
         return;
     }
-    // spec 04 / 05: Auto resolves to FSR 2.3 SDK when available. We don't
-    // expose Auto as a separate enum here for MVP; "Auto" maps to Fsr23Sdk.
+    // spec 04 / 05: Auto maps to the Fsr23Sdk enum tier. With no SDK linked
+    // (the only current build configuration) BackendSelector skips that tier
+    // and falls through FSR4-RE to spatial; "Auto" is not a separate enum.
     if (b == BackendKind::Fsr4ReExperimental) {
         // Experimental is selectable and intentionally exposed for RDNA3/Linux
         // validation. A UI warning is shown on selection.

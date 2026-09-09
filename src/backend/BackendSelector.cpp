@@ -102,7 +102,7 @@ const char* BackendSelector::activeLabel() const {
             return fellBack_ ? "FSR 4.1 INT8 (experimental — proof failed, fallback active)"
                              : "FSR 4.1 INT8 — RDNA3, RE-derived, experimental";
         case BackendKind::Fsr23Sdk:
-            return "FSR 3.1.5 (fallback)";
+            return "FSR 3.1.5 (SDK)";
         case BackendKind::SpatialFallback:
             return "Spatial fallback";
         case BackendKind::Null:

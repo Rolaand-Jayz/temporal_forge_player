@@ -50,7 +50,7 @@ bool presetIsTemporal(UpscalePreset p) {
 
 const char* backendDisplayName(BackendKind b) {
     switch (b) {
-        case BackendKind::Fsr23Sdk:           return "FSR 2.3 SDK";
+        case BackendKind::Fsr23Sdk:           return "FSR 3.1.5 (SDK)";
         case BackendKind::Fsr4ReExperimental: return "FSR4-RE Experimental";
         case BackendKind::SpatialFallback:    return "Spatial fallback";
         case BackendKind::Null:               return "Null";

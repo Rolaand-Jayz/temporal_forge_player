@@ -49,16 +49,45 @@ playback never silently breaks:
 
 ```text
 1. FSR4-RE INT8 experimental   (proof-gated default selection on supported RDNA3)
-        ↓ fails
-2. FSR 3.1.5 fallback           (real temporal upscaler from open SDK)
+        ↓ fails / assets absent
+2. FSR 3.1.5 (SDK)             (UNAVAILABLE in this tree: TFORGE_HAVE_FSR3_SDK
+                                is never defined by any build file, so
+                                sdkAvailable() is always false — this tier is
+                                a compiled-out stub in every build)
         ↓ SDK not linked / fails
-3. Spatial fallback             (always-available reliability path)
+3. Spatial fallback             (compute-shader EASU/RCAS, always available
+                                 once Vulkan initializes)
 ```
+
+The default backend is `BackendKind::Fsr4ReExperimental` with
+`allowExperimentalAsDefault = true` (`src/config/SettingsStore.hpp`).
+
+FSR4 native INT8 packs and generic weight blobs are not redistributable
+in-tree. Provisioning is documented in `resources/fsr4/native_i8/README.md`
+and `tools/build_native_int8_pack.sh`. When the assets are absent, the
+engine falls back down the chain and logs the gap.
+
+User-facing backend labels are centralized: `backendDisplayName()` in
+`src/backend/UpscaleTypes.cpp` and `BackendSelector::activeLabel()`. The SDK
+tier is shown as `FSR 3.1.5 (SDK)` in both (the enum remains
+`BackendKind::Fsr23Sdk` as an internal name).
 
 ### `render/` — Vulkan
 
+The runtime requires **Vulkan 1.3**: the instance is created with
+`app.apiVersion = VK_API_VERSION_1_3` (`VulkanContext.cpp`), and the Qt
+Vulkan instance is requested at 1.3 as well. A Vulkan 1.2-only machine
+cannot run the player — this is a hard requirement, not a capability
+negotiation.
+
 - `VulkanContext` — instance/device/queue/command-pool lifecycle. Shares the
   Vulkan instance with Qt so presentation and compute use the same device.
+- **Queue policy (target-specific):** the universal graphics/compute queue is
+  used for FSR because a measurement on ONE GPU (RX 7900 GRE) showed the
+  generated graph is measurably faster there than on RADV's dedicated compute
+  family (`main.cpp`). The dedicated compute queue is discovered but currently
+  unused. This policy is preserved for performance and should be re-measured
+  before being assumed portable to other GPUs.
 - `GpuImageUploader` — uploads decoded frames to GPU images (DRM-prime import
   when available, CPU staging fallback), manages staging buffers + readback.
 - `Fsr4DispatchHarness` — creates the FSR4 compute pipelines + descriptor sets
@@ -141,8 +170,13 @@ recreates the FSR context or resets history.
 
 ## Build
 
-Requirements (Linux): C++23 compiler, CMake ≥ 3.24 + Ninja, Vulkan loader +
-headers, FFmpeg dev libs, Qt 6.6+ (Core/Gui/Quick/Qml/Widgets).
+Requirements (Linux): C++23 compiler; CMake ≥ 3.24 **and Ninja** (ninja is a
+hard configure requirement); Qt 6.6+ (Core/Gui/Quick/Qml/Widgets/
+**ShaderTools**); glslangValidator (required by `cmake/ShaderCompile.cmake`);
+Vulkan loader + headers, API 1.3; FFmpeg dev libraries; python3 for tooling.
+Vendored/bundled: miniaudio single header (`external/`), Vulkan headers shim
+(`external/vulkan_include/`). See the README `Requirements` table for the
+full dependency matrix including optional test/research dependencies.
 
 ```sh
 cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
@@ -152,6 +186,29 @@ ctest --test-dir build --output-on-failure
 ```
 
 Set `TFORGE_VK_VALIDATE=1` to enable the Vulkan validation layer.
+
+## Diagnostics limitations
+
+- `GpuCapabilityProbe` identifies RDNA3/RDNA4 by **marketing-name substring
+  matching** on the device name (e.g. "7900", "RX 7", "NAVI3", "9070"). This
+  is a known diagnostic-tooling limitation: unusual or localized device names
+  can be misclassified, which affects backend eligibility reporting, not
+  correctness of the fallback chain.
+
+## Environment contract
+
+Production code reads a large set of `TFORGE_*` environment variables
+(experiment knobs for jitter, DRS, chain passes, dumps, cache dirs,
+validation, and more). They are experimental, default-off/neutral, and
+runtime-configurable by design — testing another strength/filter/value must
+not require a recompile. The authoritative inventory is
+`grep -rn "getenv" src/`. See
+[`environment.md`](environment.md) for the contract.
+
+The settings file location prefers `$XDG_CONFIG_HOME` / `$HOME/.config`
+(`temporal-forge-player/settings.json`) and falls back to a CWD-relative file
+(`temporal-forge-player-settings.json`) only when neither environment
+variable is set (`SettingsStore::defaultPath`).
 
 ## Where to look
 

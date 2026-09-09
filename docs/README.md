@@ -6,8 +6,8 @@ This is the documentation entry point. The governing structure is defined by
 | Need | Start here |
 |---|---|
 | What is true now? | [`current/STATE.md`](current/STATE.md) |
-| How does the current system work? | [`reference/ARCHITECTURE.md`](reference/ARCHITECTURE.md) |
-| What is being worked on now? | [`active/QUALITY_CAMPAIGN.md`](active/QUALITY_CAMPAIGN.md) and [`active/progress-state.md`](active/progress-state.md) |
+| How does the current system work? | [`reference/ARCHITECTURE.md`](reference/ARCHITECTURE.md), [`reference/environment.md`](reference/environment.md) (the `TFORGE_*` environment contract) |
+| What is being worked on now? | [`active/QUALITY_CAMPAIGN.md`](active/QUALITY_CAMPAIGN.md), [`active/PORTABILITY_REMEDIATION_20260909.md`](active/PORTABILITY_REMEDIATION_20260909.md), and [`active/progress-state.md`](active/progress-state.md) |
 | Why did the design change? | [`decisions/TECHNICAL_HISTORY.md`](decisions/TECHNICAL_HISTORY.md) |
 | What did a dated campaign find? | [`reports/`](reports/) and the benchmark READMEs |
 | Where is exploratory research? | [`research/`](research/) |
@@ -25,6 +25,8 @@ this map.
   [`reference/ARCHITECTURE.md`](reference/ARCHITECTURE.md).
 - Current FSR input and motion contracts: [`reference/motion/`](reference/motion/).
 - Active quality work: [`active/QUALITY_CAMPAIGN.md`](active/QUALITY_CAMPAIGN.md).
+- Active portability/reproducibility remediation:
+  [`active/PORTABILITY_REMEDIATION_20260909.md`](active/PORTABILITY_REMEDIATION_20260909.md).
 - Detailed measurements: benchmark manifests and artifacts, not copied tables
   in narrative documents.
 - Completed plans, dated reports, and research are historical or exploratory

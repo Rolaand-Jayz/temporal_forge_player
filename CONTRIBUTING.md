@@ -11,9 +11,15 @@ cmake --build build
 ctest --test-dir build --output-on-failure
 ```
 
-There are 9 active tests and 3 intentionally-disabled GPU diagnostics
-(`gpu_probe`, `cm_dump`, `fsr4_harness_tests` — disabled because they need a
-live Vulkan device and real FSR4 weights).
+The test suite registers 23 `tforge_add_test` targets plus 1 conditional
+`add_test` (`file_switch_tests`, gated on its fixture logic). Four targets
+are intentionally disabled GPU diagnostics — `gpu_probe`, `cm_dump`,
+`fsr4_harness_tests`, `jitter_gpu_contract_tests` — because they need a live
+Vulkan device and generated/real FSR4 assets; they do not run under ctest.
+
+On a clean machine (no external test data, no `sample.mp4` fixture), expect
+the external-data-dependent tests to report **SKIP, not FAIL**. A failing
+clean-machine run indicates a portability defect, not a missing fixture.
 
 ### Headless smoke test
 
