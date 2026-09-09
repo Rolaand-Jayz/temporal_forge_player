@@ -1,6 +1,6 @@
 # Active plan: clean-clone portability / reproducibility / slop remediation
 
-**Status:** VERIFICATION IN PROGRESS — findings being verified against live tree
+**Status:** LUNA VERIFIED — CAMPAIGN QUALIFIED
 
 **As of:** 2026-09-09
 
@@ -162,12 +162,17 @@ reports + candidate commit/branch identity.
 
 ## Status
 
-**Status:** GLM REMEDIATION QUALIFIED — AWAITING LUNA (§13)
+**Status:** LUNA VERIFIED — CAMPAIGN QUALIFIED
 
 Three consecutive remediation-free clean loops completed after the final
-code change (`ba441d89d`); loop records 3–5 above. The branch tip (this
-file's commit) is the Luna audit candidate; its code content is
-`ba441d89d` plus these ledger commits.
+code change (`ba441d89d`); loop records 3–5 above. Luna independently
+completed two adversarial loops from fresh git-archive trees under
+`/mnt/workdrive/tf-portability-luna-20260909/loop1` and `loop2` against
+candidate HEAD `6d816f964`. Both configured, built, passed CTest 22/22 with
+the identical expected skip/disabled set, launched from a foreign CWD with
+isolated HOME/XDG state, opened the sample video, and verified deliberate
+FSR4 absence diagnostics plus EASU fallback. No actionable Luna finding
+remains.
 
 ## §14 final DoD evidence table
 
@@ -189,8 +194,8 @@ file's commit) is the Luna audit candidate; its code content is
 | 14 | Optional FSR4 absence → accurate fallback/error | live-verified: pack-incomplete, blob-not-found (with searched paths + override), EASU fallback |
 | 15 | GLM audited independently while remediating | loops 1–2 fresh-worker audits; loops 3–5 orchestrator audits (recorded honestly); 12 actionable defects found+fixed |
 | 16 | 3 consecutive remediation-free loops | loops 3, 4, 5 — counter 3 |
-| 17 | Luna independent audit | PENDING (§13 handoff below) |
-| 18 | Luna 2 clean loops | PENDING |
+| 17 | Luna independent audit | Completed: two independent semantic/mechanical adversarial loops |
+| 18 | Luna 2 clean loops | Completed: fresh-tree configure/build/CTest, runtime, and tooling checks in both loops |
 | 19 | Luna finding → reset | contract binding; noted |
 | 20 | Reports with coverage ledgers + candidate identity | this doc + final report; candidate: branch `portability/clean-clone-remediation`, code `ba441d89d`, base `db19cfb34`, audited public `main` `2d8eccbc1` |
 
@@ -202,6 +207,17 @@ the loop records above, and the live repository at the branch tip. Luna
 operates under §13.1 independence (verify every finding, then audit the
 entire operational repository; 2 full loops; loop 2 varies emphasis). Any
 Luna finding resets the GLM counter to 0 per §13.3.
+
+### Luna result — 2026-09-09
+
+PASS. The initial smoke that inherited the host `XDG_DATA_HOME` was discarded.
+The corrected runs isolated `HOME`, `XDG_CONFIG_HOME`, `XDG_CACHE_HOME`, and
+`XDG_DATA_HOME`; logs contained only loop-local paths. Both runs opened and
+decoded `tests/sample.mp4`, initialized Vulkan, reported missing native
+`pass0.spv` and `quality.bin`, and engaged the EASU-only fallback. Offscreen
+Qt was separately observed to fail Vulkan instance creation, while live
+Wayland smoke succeeded; this is an environment limitation, not a repository
+defect.
 
 ## Progress log
 
