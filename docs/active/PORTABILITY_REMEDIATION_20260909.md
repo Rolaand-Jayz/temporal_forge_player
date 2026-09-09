@@ -64,6 +64,7 @@ and portable outputs).
 | Loop | Date | Scope executed (A–G) | Verdict | Counter after loop |
 |---|---|---|---|---|
 | 1 | 2026-09-09 | A: fresh-eyes semantic sweep (full coverage ledger); B: mechanical path/deps sweeps; C+D: clean tree @ /tmp/tforge-portability-loop1 (temp HOME/XDG) configure+build+ctest 22/22; E: live Wayland runtime smoke — player launched, played, absence diagnostics fired verbatim, EASU fallback engaged; F: LD_PRELOAD open-logger (strace unavailable, no passwordless sudo) — 217 opens, zero maintainer-project paths; G: tooling --help/syntax/required-arg smokes | **DEFECTS FOUND — 7 actionable (N-1..N-6, N-D1 below) → remediated → loop does not count** | **0** |
+| 2 | 2026-09-09 | A: lifecycle-first semantic audit (clone→launch walk, new-commit line-by-line scrutiny, fresh sweep methods: temp-collision patterns, spaces-in-path, end-to-end script reads); B: broadened mechanical sweeps (all evidence classes re-classified; env inventory 223 TFORGE_* consistent with documented contract); C+D: aborted mid-run by host /tmp exhaustion (infrastructure, not a repo defect; /tmp reclaimed; loop-1 evidence preserved under .campaign-portability/); E/F/G: not reached | **DEFECTS FOUND — 5 actionable (F1..F5 below) → remediated → loop does not count** (F6 adjudicated historical/acceptable) | **0** |
 
 ## Findings ledger
 
@@ -130,6 +131,12 @@ Validation evidence accrues during the clean loops below.
 | N-5 (loop 1) | minor | TFORGE_FSR4_TRUE_FSR1_EASU on a stub build silently dispatches no-op EASU (undefined intermediate) | GpuImageUploader.cpp:2301; cmake/stubs/fsr1_easu.comp (loop-1 audit) | stub builds define TFORGE_FSR1_PROBE_STUB; runtime warns once when the env var is set | build + grep |
 | N-6 (loop 1) | minor | No minimum FFmpeg version declared; code needs ≥5.1-era APIs (ch_layout, AVFrame.duration) | CMakeLists.txt:35-37; README matrix (loop-1 audit) | matrix states FFmpeg ≥ 5.1 | docs review |
 | N-D1 (loop 1) | minor | environment.md describes weight blobs as `v410_*.bin`; actual files are quality.bin/balanced.bin/... (v410_initializers is the directory) | docs/reference/environment.md:43 vs WeightBlob.cpp:21-27 (loop-1 audit) | corrected blob names | docs review |
+| F1 (loop 2) | low | Fixed-name temp files in quality_lab_config_tests — collision/flake risk on shared machines | tests/quality_lab_config_tests.cpp:21,30 (loop-2 audit) | pid-unique names (pattern of fsr4_paths_contract_tests) | ctest |
+| F2 (loop 2) | low | qualityLabConfigPath() tier chain (incl. the new exe-relative tier) has zero test coverage | src/config/QualityLabConfig.cpp:126 vs quality_lab_config_tests.cpp (loop-2 audit) | precedence tests for env/CWD/XDG/HOME/absence | ctest |
+| F3 (loop 2) | low | README claims FFmpeg <5.1 fails configure; pkg_check_modules enforces no version — misleading failure mode | CMakeLists.txt:37-38 (loop-2 audit) | version floors in pkg_check_modules matching the 5.1 API surface | configure smoke |
+| F4 (loop 2) | low | Unquoted shader paths in ShaderCompile break on checkouts/build dirs containing spaces | cmake/ShaderCompile.cmake:46-51 (loop-2 audit) | quote paths; spaced-path build probe added to loop gates | spaced-path build |
+| F5 (loop 2) | low | Settings writer interpolates lastOpenDir unescaped into JSON — a `"` in the path silently corrupts settings.json | src/config/SettingsStore.cpp:250 (loop-2 audit) | escape backslash/quote in serialized string fields | ctest + settings unit check |
+| F6 (loop 2) | adjudicated | Legacy maintainer candidates remain as fallbacks in external-data tests after the env tier | tests/fsr4_weight_tests.cpp:22-30; fsr4_harness_tests.cpp:97-104 | HISTORICAL/acceptable: absent on clean clones → 77 skip; env override is the portable entry; residue documented | n/a |
 
 ## Remediation principles (audit §11.3, binding)
 
