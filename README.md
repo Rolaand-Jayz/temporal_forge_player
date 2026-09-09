@@ -66,6 +66,15 @@ then the SDK tier (currently unavailable), then spatial. If a backend fails,
 playback falls back to spatial scaling and continues with a non-blocking
 warning.
 
+## License
+
+Temporal Forge's original code and documentation are licensed under the
+[Apache License, Version 2.0](LICENSE). Third-party components and
+reverse-engineering-derived artifacts may carry separate licenses and rights
+status; see [`THIRD_PARTY_LICENSES.md`](THIRD_PARTY_LICENSES.md) for the
+inventory and [`PROVENANCE.md`](PROVENANCE.md) for provenance details
+(especially the FSR4-related artifacts).
+
 FSR4 native INT8 packs and generic weight blobs are **not redistributable
 in-tree**. Provision them as described in
 [`resources/fsr4/native_i8/README.md`](resources/fsr4/native_i8/README.md)

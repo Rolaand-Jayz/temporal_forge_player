@@ -174,6 +174,26 @@ isolated HOME/XDG state, opened the sample video, and verified deliberate
 FSR4 absence diagnostics plus EASU fallback. No actionable Luna finding
 remains.
 
+### Qualification identity (frozen)
+
+- **Implementation freeze commit:** `ba441d89d92088d9ec163f43de55eb73039d2f44`
+  — the final commit touching implementation/runtime/build/test behavior.
+- **Final Luna-verified repository HEAD:**
+  `6d816f964adbaeb45857fe32749b4a78c75087f1` — the authoritative campaign
+  artifact identity; this is the exact commit Luna's two verification loops
+  covered.
+
+Verified with Git: `ba441d89d92088d9ec163f43de55eb73039d2f44` is an
+ancestor of `6d816f964adbaeb45857fe32749b4a78c75087f1`; the only commits
+between them are `069470b62`, `5ee9936f3`, and `6d816f964`, and their
+combined diff touches exactly one file
+(`docs/active/PORTABILITY_REMEDIATION_20260909.md`, +46 lines,
+qualification evidence/reporting only). **No implementation-affecting
+change requiring renewed qualification occurred between the freeze commit
+and the Luna-verified HEAD.** Later repository commits (licensing,
+provenance, and this record) are documentation/metadata only and do not
+re-open qualification.
+
 ## §14 final DoD evidence table
 
 | # | Requirement | Evidence |
@@ -197,7 +217,7 @@ remains.
 | 17 | Luna independent audit | Completed: two independent semantic/mechanical adversarial loops |
 | 18 | Luna 2 clean loops | Completed: fresh-tree configure/build/CTest, runtime, and tooling checks in both loops |
 | 19 | Luna finding → reset | contract binding; noted |
-| 20 | Reports with coverage ledgers + candidate identity | this doc + final report; candidate: branch `portability/clean-clone-remediation`, code `ba441d89d`, base `db19cfb34`, audited public `main` `2d8eccbc1` |
+| 20 | Reports with coverage ledgers + candidate identity | this doc + final report; authoritative artifact identity: Luna-verified HEAD `6d816f964adbaeb45857fe32749b4a78c75087f1`; implementation freeze `ba441d89d92088d9ec163f43de55eb73039d2f44` (see "Qualification identity" above); base `db19cfb34`; audited public `main` `2d8eccbc1` |
 
 ## Luna handoff (§13)
 
