@@ -7,7 +7,6 @@ on:
   push:
     branches:
       - main
-      - portability/clean-clone-remediation
   workflow_dispatch:
 
 permissions:
@@ -38,7 +37,7 @@ jobs:
           qt6-declarative
           qt6-shadertools
           vulkan-headers
-          vulkan-loader
+          vulkan-icd-loader
           ffmpeg
           glslang
           python
@@ -70,6 +69,11 @@ jobs:
         with:
           lfs: false
           fetch-depth: 1
+
+      - name: Install pytest
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y python3-pytest
 
       - name: Run PR #7 contract suite
         run: |
