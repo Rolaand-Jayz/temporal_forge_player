@@ -1,24 +1,122 @@
 # Temporal Forge Player
 
-A GPU-native video player that applies FSR-style temporal upscaling to local
-video files **without** frame interpolation, frame generation, or cadence
-conversion.
+> **Experimental research project · Flagship portfolio work**
+
+Temporal Forge investigates adapting **AMD FSR 4.1-style temporal reconstruction/upscaling to ordinary decoded video**. It is not frame interpolation or frame generation:
+
+`one decoded video frame → one reconstructed/upscaled displayed frame`
+
+The source frame count, timestamps, and cadence remain the contract. A high-refresh display may repeat a reconstructed frame; the player does not invent intermediate frames.
+
+## Why this is difficult
+
+A native game renderer can provide motion, jitter, reset/history context, exposure, reactive/composition signals, and other semantic inputs designed for temporal reconstruction. Finished video does not naturally preserve those signals in the same form.
+
+Temporal Forge therefore treats reconstruction quality as a research problem: determine what can be recovered or synthesized from video, what cannot be reconstructed reliably, and which inputs actually change temporal behavior.
+
+## Current status
+
+The player has an operational GPU-native pipeline with:
+
+- **FSR4-RE Experimental** — INT8 reconstruction and the proof-gated default temporal path on supported RDNA3 hardware when the required runtime/compiler assets are available
+- **FSR 3.1.5 (SDK) integration tier** — retained in source for future SDK integration, but compiled out of the redistributable clean-clone build
+- **Spatial fallback** — always-available reliability path after Vulkan initialization when a temporal backend cannot run
+
+Backend selection attempts FSR4-RE first when its proof gates are satisfied, then the SDK tier when compiled and available, then spatial fallback. Backend failure degrades to spatial scaling with a non-blocking warning instead of silently presenting an unavailable experimental path as successful.
+
+The project remains experimental research and does not claim production readiness or parity with AMD's implementation. Meaningful current research may live on non-default branches; consult branch history and campaign documentation before treating experimental behavior as part of `main`.
+
+The remaining problem is reconstruction quality, not merely moving frames through a pipeline. Current work focuses on expected-input semantics, motion transfer, temporal history, jitter, exposure, masking, reset behavior, composition, and causal diagnostics.
+
+## What this project demonstrates
+
+- Native C++23 / Vulkan / FFmpeg / Qt integration on Linux
+- GPU video processing and temporal reconstruction
+- FSR 4.1 reverse-engineering-informed interoperability research
+- Reproducible experiments with benchmark conditions and provenance
+- Explicit separation of measured facts, inferences, hypotheses, and unobserved behavior
+- Preservation of negative results when they explain system behavior
+- Independent review, adversarial challenge, remediation loops, and verification gates
+
+The methodology matured here from earlier AMD-first application and reverse-engineering work. Those projects are part of the lineage; they should not be read as though this formal process existed from the beginning.
 
 ## Core rule
 
-```
-1 decoded input frame → 1 upscaled displayed output frame
+```text
+1 decoded input frame → 1 reconstructed/upscaled displayed output frame
 same timestamps · same frame count · same source frame rate
 ```
 
-The player reconstructs each source frame at a higher internal resolution
-via FSR, then scales that FSR output to the current window or fullscreen
-surface. A high-refresh monitor may repeat an upscaled frame across
-refreshes — that is presentation repeat, never a generated frame.
+The player reconstructs each source frame at a higher internal resolution through the selected temporal path, then scales that result to the current window or fullscreen surface. Window resizing changes presentation only; it does not redefine the source cadence contract.
+
+## Scaling model
+
+```text
+source frame
+  → temporal reconstruction target (source × preset ratio)
+  → final presentation scale to window
+```
+
+The reconstruction target depends on source size and preset, not window size. Resizing the window changes only presentation scaling and should not recreate the temporal context or reset history.
+
+| Preset | Ratio |
+|---|---:|
+| NativeAA | 1.0x |
+| Quality | 1.5x |
+| Balanced | 1.7x |
+| Performance | 2.0x |
+| Ultra Performance | 3.0x |
+
+## Clean-clone behavior
+
+The ordinary redistributable build does **not** require a locally installed AMD FidelityFX SDK. In this tree, the FSR 3.1.5 SDK tier remains source-visible but is not linked into the clean-clone build; its runtime path reports that the SDK is not linked and selection continues to an available backend.
+
+FSR4-RE has separate runtime/build asset requirements. Native INT8 packs are resolved from executable-relative or repository-relative locations, while generic weight blobs can be provisioned through `TFORGE_FSR4_RE_ROOT` or the documented XDG data location. Missing or invalid assets produce diagnostics and fallback rather than a false-success path.
+
+### Git LFS review evidence
+
+Campaign review images under `review_harness/images/*.png` use Git LFS. They are **not required to build, run, or test** the player; a normal clone can build with the pointer files in place. To retrieve the review-image payloads:
+
+```sh
+git lfs install
+git lfs pull
+```
+
+## Documentation map
+
+Start with the repository's current-state and architecture documents, then descend into the active research campaign, benchmark evidence, technical decisions, and archived or superseded reports. Authoritative dated experiment documentation takes precedence when historical reports differ from the current implementation.
+
+Useful entry points include:
+
+- [`docs/README.md`](docs/README.md) — documentation authority map
+- [`docs/FSR4_RE_STATUS.md`](docs/FSR4_RE_STATUS.md) — dated FSR 4.1 RE reconstruction status/history
+- [`benchmarks/quality_sweeps/`](benchmarks/quality_sweeps/) — current quality and causal experiment tooling/evidence
+- [`docs/active/PORTABILITY_REMEDIATION_20260909.md`](docs/active/PORTABILITY_REMEDIATION_20260909.md) — clean-clone portability/remediation qualification record
+- [`PROVENANCE.md`](PROVENANCE.md) — artifact provenance and unresolved-rights records
+
+## Requirements
+
+The runtime requires a **Vulkan 1.3** driver. A Vulkan 1.2-only machine cannot run the player.
+
+| Package | Role | Required? | Behavior when missing |
+|---|---|---|---|
+| C++23 compiler (GCC 13+/Clang 17+ class) | build | required | configure/build fails |
+| CMake ≥ 3.24 | build | required | configure fails |
+| Ninja | build | required | configure fails |
+| Qt 6.6+ — Core, Gui, Quick, Qml, Widgets, ShaderTools | build + runtime | required | configure fails |
+| glslangValidator | build | required | configure fails |
+| Vulkan loader + headers, API 1.3 | build + runtime | required | build fails / runtime cannot start |
+| FFmpeg ≥ 5.1 development libraries | build + runtime | required | configure/build fails |
+| Python 3 | build tooling | required | tooling steps fail |
+| Git LFS | review evidence only | optional | review PNGs remain pointer files; build/runtime unaffected |
+| ffmpeg executable with libx264 + aac encoders | test fixtures | optional | affected external-data tests SKIP rather than FAIL |
+| jq, ImageMagick | research/capture scripts | optional | affected scripts fail with a clear error |
+| DXC + SPIR-V tools | native FSR4 pack builds | optional | native pack build tooling cannot run |
+| FidelityFX SDK (`TFORGE_ENABLE_FSR1_PROBE=ON`) | optional probe | optional | probe target is not built by default |
+
+Vendored build dependencies include miniaudio v0.11.25 and the repository's Vulkan-header shim; see [`external/README.md`](external/README.md) and [`THIRD_PARTY_LICENSES.md`](THIRD_PARTY_LICENSES.md).
 
 ## Build
-
-See the Requirements table below.
 
 ```sh
 cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
@@ -29,113 +127,16 @@ ctest --test-dir build --output-on-failure
 
 Set `TFORGE_VK_VALIDATE=1` to enable the Vulkan validation layer.
 
-## Scaling model
+## Reliability behavior
 
-```
-source frame
-  → FSR preset reconstruction target   (source × preset ratio)
-  → final presentation scale to window
-```
+If a selected experimental backend cannot initialize or execute safely, playback falls back to spatial scaling with a non-blocking warning rather than silently presenting the experimental path as successful.
 
-The FSR target depends only on source size and preset — **never** on window
-size. Resizing the window changes only the presentation scale and never
-recreates the FSR context or resets history.
+## License and provenance
 
-| Preset | Ratio |
-|---|---:|
-| NativeAA | 1.0x |
-| Quality | 1.5x |
-| Balanced | 1.7x |
-| Performance | 2.0x |
-| Ultra Performance | 3.0x |
+Temporal Forge's original code and documentation are licensed under the [Apache License, Version 2.0](LICENSE). Third-party components and reverse-engineering-derived artifacts can have separate licenses or rights status; see [`THIRD_PARTY_LICENSES.md`](THIRD_PARTY_LICENSES.md) and [`PROVENANCE.md`](PROVENANCE.md).
 
-## Backends
+The tracked native INT8 FSR4 pack data includes reverse-engineering-derived artifacts whose redistribution-rights status is explicitly recorded as **UNRESOLVED / PROVENANCE HOLD**. They are not covered by the project's Apache-2.0 license. This is a provenance record, not a legal conclusion. Generic weight blobs and locally compiled SPIR-V pack modules are not tracked.
 
-- **FSR4-RE Experimental (default)** — INT8 reconstruction, proof-gated, the
-  default backend selection on supported RDNA3 hardware (`SettingsStore`
-  default + `allowExperimentalAsDefault = true`), with fallback on failure.
-- **FSR 3.1.5 (SDK)** — compiled out in this tree: `TFORGE_HAVE_FSR3_SDK` is
-  never defined by any build file, so this tier reports "SDK not linked" and
-  is skipped in every build. It exists in source only as a stub for a future
-  SDK integration.
-- **Spatial fallback** — always-available compute-shader EASU/RCAS path once
-  Vulkan initializes; the reliability floor.
+## Research status
 
-Selection order (see `src/backend/BackendSelector.cpp`): FSR4-RE INT8 first,
-then the SDK tier (currently unavailable), then spatial. If a backend fails,
-playback falls back to spatial scaling and continues with a non-blocking
-warning.
-
-### Git LFS (review evidence only)
-
-The campaign review images under `review_harness/images/*.png` are stored
-with Git LFS. They are **not required to build, run, or test** the player —
-ordinary clones work without Git LFS and simply carry small pointer files
-for those images. To retrieve the actual review payloads:
-
-```sh
-git lfs install && git lfs pull
-```
-
-Check whether payloads are present with `git lfs ls-files` (pointer files
-show `*-`; real objects show `*`), or by size (`file
-review_harness/images/<name>.png` reports PNG data for a real payload and
-plain text for a pointer).
-
-## License
-
-Temporal Forge's original code and documentation are licensed under the
-[Apache License, Version 2.0](LICENSE). Third-party components and
-reverse-engineering-derived artifacts may carry separate licenses and rights
-status; see [`THIRD_PARTY_LICENSES.md`](THIRD_PARTY_LICENSES.md) for the
-inventory and [`PROVENANCE.md`](PROVENANCE.md) for provenance details
-(especially the FSR4-related artifacts).
-
-FSR4 weights have distinct repository states. The native INT8 packs'
-`initializers.bin` data and pack metadata **are tracked and redistributed
-here**; per [`PROVENANCE.md`](PROVENANCE.md) they are
-reverse-engineering-derived artifacts whose rights status is
-**UNRESOLVED / PROVENANCE HOLD** — they are not covered by this project's
-Apache-2.0 license. That is a record of unknown rights status, not a claim
-that redistribution is prohibited. The compiled `passN.spv` pack modules are
-not tracked and are generated locally with
-[`tools/build_native_int8_pack.sh`](tools/build_native_int8_pack.sh) as
-described in
-[`resources/fsr4/native_i8/README.md`](resources/fsr4/native_i8/README.md).
-The generic weight blobs are likewise not tracked; users provision them at
-runtime. The engine looks for native packs next to the executable
-(`<exe_dir>/../resources/fsr4`, then `./resources/fsr4`) and for generic
-weight blobs under `$TFORGE_FSR4_RE_ROOT` or
-`$XDG_DATA_HOME/temporal-forge-player/fsr4/` (see
-[`docs/reference/environment.md`](docs/reference/environment.md)). When the
-assets are absent, the engine falls back down the backend chain and logs the
-searched locations.
-
-## Requirements
-
-The runtime requires a **Vulkan 1.3** driver (instance created with
-`apiVersion = VK_API_VERSION_1_3`). A Vulkan 1.2-only machine cannot run the
-player.
-
-| Package | Role | Required? | Behavior when missing |
-|---|---|---|---|
-| C++23 compiler (GCC 13+/Clang 17+ class) | build | required | configure/build fails |
-| CMake ≥ 3.24 | build | required | configure fails |
-| Ninja | build | required (hard configure requirement, `find_program(... REQUIRED)`) | configure fails |
-| Qt 6.6+ — Core, Gui, Quick, Qml, Widgets, **ShaderTools** | build + runtime | required | configure fails (ShaderTools included in the required component list) |
-| glslangValidator | build | required (`cmake/ShaderCompile.cmake`) | configure fails |
-| Vulkan loader + headers, API 1.3 | build + runtime | required | build fails / runtime cannot start |
-| FFmpeg ≥ 5.1 dev libraries | build + runtime | required | configure/build fails |
-| Git LFS | review evidence only | optional | review-harness PNGs stay pointer files; build/runtime unaffected |
-| python3 | build tooling | required | tooling steps fail |
-| miniaudio (vendored single header, v0.11.25, `external/`) | build | bundled | none — tracked in-tree |
-| Vulkan headers shim (`external/vulkan_include/`) | build | bundled | none — tracked in-tree |
-| ffmpeg executable with libx264 + aac encoders | test only | optional | `sample.mp4` fixture generation skipped; external-data tests SKIP, not FAIL |
-| jq, magick (ImageMagick) | research/capture scripts | optional | affected scripts fail with a clear error |
-| dxc + spirv-tools | native pack builds | optional | `tools/build_native_int8_pack.sh` cannot run |
-| FidelityFX SDK (`TFORGE_ENABLE_FSR1_PROBE=ON`, default OFF) | optional probe | optional | probe target not built |
-
-## Status
-
-Phased build per `spec 06`. See [`docs/README.md`](docs/README.md) for current
-architecture, quality work, reports, research, and archived plans.
+Temporal Forge is active experimental R&D. Its purpose is not to claim that finished video supplies the same information as a game renderer; it is to determine, through controlled experiments, which missing temporal inputs matter, which useful surrogates can be synthesized, and where the approach reaches a hard information boundary.
