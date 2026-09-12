@@ -1,46 +1,45 @@
 # Temporal Forge current state
 
 **Status:** CURRENT
-**As of:** 2026-09-06
-**Source:** the Quality Lab production stack (reviewable PR branches #3
-runtime, #4 tooling, #5 documentation, #6 motion-confidence fallback, none
-merged as of 2026-09-06) on top of the immutable historical baseline commit
-`0425ab2e5a23d36c0de4cfc7b395a7ea7f83c148` ("link motion campaign lattice
-qualification"), plus the documentation audit
+**As of:** 2026-09-09
+**Source:** branch `portability/clean-clone-remediation` (portability
+remediation worktree)
 
-The worktree may also contain untracked capture-generated evidence while the
-quality campaign runs. That evidence is outside this documentation snapshot.
+This is a concise snapshot of what is true now. It is not an experiment
+journal; active work is described in
+[`../active/QUALITY_CAMPAIGN.md`](../active/QUALITY_CAMPAIGN.md) and
+[`../active/PORTABILITY_REMEDIATION_20260909.md`](../active/PORTABILITY_REMEDIATION_20260909.md).
 
 ## Project
 
 Temporal Forge Player is a GPU-native local-video player. It keeps a strict
 one-input-frame to one-output-frame relationship and performs temporal
 reconstruction without frame generation, interpolation, or cadence conversion.
+Runtime requires Vulkan 1.3.
 
-## Current implementation
+## Quality campaign line
 
-The current code is organized around FFmpeg decode, `PlaybackEngine`, a Vulkan
-upload/dispatch path, and a backend cascade. On RDNA3, `BackendSelector` tries
-the proof-gated FSR4 INT8 reconstruction path first, then FSR 3.1.5 when
-available, then spatial fallback. The implementation and its invariants are
-authoritatively described in [`../../ARCHITECTURE.md`](../../ARCHITECTURE.md).
+The quality-focused campaign closed its lattice fix (FP16 resolve) and
+completed the motion-campaign evidence. The authoritative record remains
+[`../active/QUALITY_CAMPAIGN.md`](../active/QUALITY_CAMPAIGN.md) with
+measurements in `benchmarks/quality_sweeps/`.
 
-The quality lab is runtime-configurable through `config/quality_lab.json` and
-the `TFORGE_*` environment contract. Diagnostic settings do not silently define
-the normal player path.
+## Portability remediation (in flight)
 
-## Quality phase
+A clean-clone portability audit found public documentation contradicting the
+executable. Remediation (this campaign) is correcting documentation, label
+consistency, and clean-machine build/test behavior on branch
+`portability/clean-clone-remediation`.
 
-The project is in the quality-focused M6 recovery and evidence phase. The
-historical M6 matrix and campaign audit show that earlier image payloads are
-not sufficient to establish every required campaign method. The current
-data-only campaign is active outside this documentation change; its generated
-directory is intentionally not managed by this commit.
+## Backend default (truth)
 
-The authoritative active-work description is
-[`../active/QUALITY_CAMPAIGN.md`](../active/QUALITY_CAMPAIGN.md). The primary
-measurement source remains `benchmarks/quality_sweeps/`, including manifests,
-CSV/JSON metrics, runtime traces, hashes, and campaign sidecars.
+The default backend is FSR4-RE Experimental INT8 (proof-gated;
+`SettingsStore` default with `allowExperimentalAsDefault = true`), default
+selection on supported RDNA3, falling back on failure. The FSR 3.1.5 SDK tier
+is a compiled-out stub in every build of this tree (`TFORGE_HAVE_FSR3_SDK`
+is never defined); the reliability floor is the always-available spatial
+fallback. See
+[`../reference/ARCHITECTURE.md`](../reference/ARCHITECTURE.md).
 
 ## Verified versus unresolved
 
@@ -48,13 +47,27 @@ CSV/JSON metrics, runtime traces, hashes, and campaign sidecars.
   [`../archive/plans/M6_REGRESSION_TRIAGE_20260902.md`](../archive/plans/M6_REGRESSION_TRIAGE_20260902.md).
 - Existing evidence supports keeping reconstruction and final delivery
   dimensions as separate controls. It does not justify a universal 3x default.
-- Current code, intended architecture, and dated evidence are not interchangeable.
-  When they diverge, the active plan and audit must name the divergence.
+- Current code, intended architecture, and dated evidence are not
+  interchangeable. When they diverge, the active plan and audit must name the
+  divergence.
 - The quality campaign is not complete merely because the harness or runner
   exists. Required coverage, provenance, measurements, and validation remain
   the completion gate.
 
+The worktree may contain untracked capture-generated evidence while the
+quality campaign runs; that evidence is outside this documentation snapshot.
+
+## Quality-lab policy (truth)
+
+The checked-in `config/quality_lab.json` profile (base-only composition,
+bilinear base filter) is loaded at startup and is the **shipped, measured
+default playback policy** — applied scale-aware, only at ≥3x scale
+(`PlaybackEngine`). `TFORGE_QUALITY_LAB_CONFIG` designates a deliberate
+experiment override that is honored at every scale. This is not a hidden
+diagnostic.
+
 ## Boundaries
 
-This document records the current repository state. It is not an experiment
-journal and does not replace the active plan, reports, or raw evidence.
+Current code, dated evidence, and plans are distinct. Code is executable
+truth; where documents disagree with it, the code wins and the documents get
+fixed (the subject of this campaign).

@@ -1,0 +1,52 @@
+{
+  "schema": "temporal_forge.quality_sweep_matrix.quality_lab_composition.v1",
+  "campaignId": "agent-composition-audit-20260824",
+  "status": "early-rejected-smoke",
+  "purpose": "Matched full-temporal comparison of current, direct_blend, and detail_residual composition modes.",
+  "controlCandidateId": "current_control",
+  "sharedQualityLab": {
+    "enabled": true,
+    "baseFilter": {"mode": "catmull_rom", "b": 0.0, "c": 0.5},
+    "residual": {"lowpassMode": "box3x3", "radius": 1.0, "sigma": 0.85},
+    "sharpen": {"mode": "none", "strength": 0.0, "limit": 0.25, "threshold": 0.05},
+    "tone": {"exposureEV": 0.0, "contrast": 0.0, "contrastPivot": 0.5, "gamma": 1.0},
+    "presentation": {"filter": "bicubic"}
+  },
+  "candidates": [
+    {"id": "current_control", "config": "current_control.json", "mode": "current", "learnedStrength": 0.55, "residualStrength": 1.0},
+    {"id": "direct_blend_005", "config": "direct_blend_005.json", "mode": "direct_blend", "learnedStrength": 0.05, "residualStrength": 0.0},
+    {"id": "direct_blend_010", "config": "direct_blend_010.json", "mode": "direct_blend", "learnedStrength": 0.10, "residualStrength": 0.0},
+    {"id": "direct_blend_015", "config": "direct_blend_015.json", "mode": "direct_blend", "learnedStrength": 0.15, "residualStrength": 0.0},
+    {"id": "detail_residual_005", "config": "detail_residual_005.json", "mode": "detail_residual", "learnedStrength": 0.0, "residualStrength": 0.05},
+    {"id": "detail_residual_010", "config": "detail_residual_010.json", "mode": "detail_residual", "learnedStrength": 0.0, "residualStrength": 0.10},
+    {"id": "detail_residual_025", "config": "detail_residual_025.json", "mode": "detail_residual", "learnedStrength": 0.0, "residualStrength": 0.25}
+  ],
+  "scenes": ["tos_daylight", "tos_debris", "sintel_rooftop", "sintel_cave"],
+  "inputResolutions": ["426x240", "1280x720"],
+  "outputDimensionsByInput": {"426x240": "1920x1080", "1280x720": "3840x2160"},
+  "framePolicy": {"warmupFrames": 36, "scoredFrames": 24},
+  "captureCount": 56,
+  "executedCaptureCount": 7,
+  "excludedControls": ["history", "recurrent", "jitter", "colorInterpretation", "baseFilter", "qualityLabAdaptiveSharpen", "postpassCAS", "tone", "presentationFilter"],
+  "decisionGate": {
+    "baseline": "current_control",
+    "perPairSsimFloorDelta": -0.0005,
+    "perPairTemporalErrorMaxRelativeIncrease": 0.02,
+    "minimumImprovedPairs": 3,
+    "meanSsimDeltaAtLeast": 0.0,
+    "meanTemporalErrorDeltaAtMost": 0.0,
+    "gpuTimeIncreaseMsAtMost": 0.25,
+    "aggregateOnly": false,
+    "earlyRejectAllowed": true,
+    "earlyRejectReason": "all six experimental candidates failed the same mandatory per-cell gate on the first real scene/resolution pair"
+  },
+  "result": "measured_results.json",
+  "evidence": [
+    "README.md",
+    "docs/exec-plans/QUALITY_RECONSTRUCTION_PLAN.md",
+    "benchmarks/quality_sweeps/swarm/agent_filter_full_audit/README.md",
+    "benchmarks/quality_sweeps/swarm/agent_next_audit/README.md",
+    "src/config/QualityLabConfig.cpp",
+    "benchmarks/video_corpus/run_temporal_quality.sh"
+  ]
+}

@@ -1,0 +1,31 @@
+{
+  "candidate": "generic_current_composition_learned_strength",
+  "status": "captured_not_promoted",
+  "settings": {
+    "genericPath": true,
+    "composition": "current",
+    "input": "426x240",
+    "output": "1920x1080",
+    "colorHistory": true,
+    "softwareDecode": true,
+    "warmupFrames": 12,
+    "scoredFrames": 12,
+    "strengths": [0.0, 0.1, 0.25, 0.4, 0.55, 0.7]
+  },
+  "pairs": [
+    {"scene": "tos_daylight", "strength": 0.0, "ssim": 0.857654, "temporalError": 1.487244},
+    {"scene": "tos_daylight", "strength": 0.1, "ssim": 0.855546, "temporalError": 1.466439},
+    {"scene": "tos_daylight", "strength": 0.25, "ssim": 0.841234, "temporalError": 1.278881},
+    {"scene": "tos_daylight", "strength": 0.4, "ssim": 0.820339, "temporalError": 0.978702},
+    {"scene": "tos_daylight", "strength": 0.55, "ssim": 0.797356, "temporalError": 0.601533},
+    {"scene": "tos_daylight", "strength": 0.7, "ssim": 0.774236, "temporalError": 0.166924},
+    {"scene": "sintel_cave", "strength": 0.0, "ssim": 0.932465, "temporalError": 0.624784},
+    {"scene": "sintel_cave", "strength": 0.1, "ssim": 0.933384, "temporalError": 0.639177},
+    {"scene": "sintel_cave", "strength": 0.25, "ssim": 0.934388, "temporalError": 0.630080},
+    {"scene": "sintel_cave", "strength": 0.4, "ssim": 0.934825, "temporalError": 0.592637},
+    {"scene": "sintel_cave", "strength": 0.55, "ssim": 0.934903, "temporalError": 0.531149},
+    {"scene": "sintel_cave", "strength": 0.7, "ssim": 0.934567, "temporalError": 0.452133}
+  ],
+  "decision": "reject_for_promotion",
+  "reason": "Positive learned strength consistently reduces daylight spatial quality. Cave-only gains do not generalize across the real corpus, and higher strengths trade spatial improvement for temporal instability."
+}

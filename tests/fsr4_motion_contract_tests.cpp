@@ -96,10 +96,21 @@ int main() {
     // audio loop must arm the flag after its decoder drains. Advancement is
     // paced on whichever clock owns the tail (audio clock or last video PTS),
     // so an audio tail cannot stall EOF waiting for a video PTS that can no
-    // longer arrive.
+    // longer arrive. The pacing decision itself lives in the pure
+    // PlaylistAdvancement module and must be driven by real drained-stream
+    // state, not a universal fixed tail allowance (long final frames).
     CHECK(playback.find("The audio decoder has drained.") != std::string::npos);
-    CHECK(playback.find("pacedUs") != std::string::npos);
     CHECK(playback.find("audio_.bufferedFrames()") != std::string::npos);
+    CHECK(playback.find("shouldAdvancePlaylistAtEnd") != std::string::npos);
+    CHECK(playback.find("videoDrained_.load") != std::string::npos);
+    // The pacing decision itself lives in the pure PlaylistAdvancement
+    // module, driven by real drained-stream state (paced tail slack only on
+    // an advancing clock — never a universal fixed allowance).
+    const std::string advancement = readSource("src/core/PlaylistAdvancement.cpp");
+    CHECK(advancement.find("pacedUs") != std::string::npos);
+    CHECK(advancement.find("kEosTailSlackUs") != std::string::npos);
+    CHECK(advancement.find("videoDrained && !audioStillPlaying") !=
+          std::string::npos);
 
     CHECK(decoder.find("static_cast<int8_t>(std::clamp(") !=
           std::string::npos);
@@ -109,6 +120,7 @@ int main() {
     // ambiguous case before it reaches history reprojection.
     CHECK(decoder.find("AV_PICTURE_TYPE_B") != std::string::npos);
     CHECK(decoderHeader.find("bFrame") != std::string::npos);
+    CHECK(decoderHeader.find("drainComplete") != std::string::npos);
     CHECK(playback.find("rejectBFrameMotion") != std::string::npos);
     CHECK(playback.find("TFORGE_FSR4_MOTION_ALLOW_B_FRAMES") !=
           std::string::npos);

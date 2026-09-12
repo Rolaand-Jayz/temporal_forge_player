@@ -1,0 +1,40 @@
+Input #0, png_pipe, from '/home/rolaandjayz/ZCodeProject/temporal_forge_player/benchmarks/quality_sweeps/quality_campaign_capture/resolution_1080_to_2160/fsr_none/scale_2_50/sintel_rooftop/quality_frames/sintel_rooftop_1920x1080_high_crf12_f48_scale_2_50.png':
+  Duration: N/A, bitrate: N/A
+  Stream #0:0: Video: png, rgb24(pc, gbr/bt709/unknown), 4800x2700, 25 fps, 25 tbr, 25 tbn
+Input #1, png_pipe, from '/home/rolaandjayz/ZCodeProject/temporal_forge_player/benchmarks/quality_sweeps/quality_campaign_capture/resolution_1080_to_2160/fsr_none/scale_2_50/sintel_rooftop/quality_frames/sintel_rooftop_reference_4800x2700_f48_scale_2_50.png':
+  Duration: N/A, bitrate: N/A
+  Stream #1:0: Video: png, rgb24(pc, gbr/unknown/unknown), 4800x2700 [SAR 1:1 DAR 16:9], 25 fps, 25 tbr, 25 tbn
+Stream mapping:
+  Stream #0:0 (png) -> psnr
+  Stream #1:0 (png) -> psnr
+  psnr:default -> Stream #0:0 (wrapped_avframe)
+Press [q] to stop, [?] for help
+Output #0, null, to 'pipe:':
+  Metadata:
+    encoder         : Lavf63.1.101
+  Stream #0:0: Video: wrapped_avframe, gbrp(pc, gbr/bt709/unknown, progressive), 4800x2700, q=2-31, 200 kb/s, 25 fps, 25 tbn
+    Metadata:
+      encoder         : Lavc63.1.101 wrapped_avframe
+[Parsed_psnr_0 @ 0x7f1390003e00] PSNR r:32.233917 g:33.504527 b:34.248610 average:33.248182 min:33.248182 max:33.248182
+[out#0/null @ 0x561f8badc1c0] video:0KiB audio:0KiB subtitle:0KiB other streams:0KiB global headers:0KiB muxing overhead: unknown
+frame=    1 fps=0.0 q=-0.0 Lsize=N/A time=00:00:00.04 bitrate=N/A speed=0.274x elapsed=0:00:00.14    
+Input #0, png_pipe, from '/home/rolaandjayz/ZCodeProject/temporal_forge_player/benchmarks/quality_sweeps/quality_campaign_capture/resolution_1080_to_2160/fsr_none/scale_2_50/sintel_rooftop/quality_frames/sintel_rooftop_1920x1080_high_crf12_f48_scale_2_50.png':
+  Duration: N/A, bitrate: N/A
+  Stream #0:0: Video: png, rgb24(pc, gbr/bt709/unknown), 4800x2700, 25 fps, 25 tbr, 25 tbn
+Input #1, png_pipe, from '/home/rolaandjayz/ZCodeProject/temporal_forge_player/benchmarks/quality_sweeps/quality_campaign_capture/resolution_1080_to_2160/fsr_none/scale_2_50/sintel_rooftop/quality_frames/sintel_rooftop_reference_4800x2700_f48_scale_2_50.png':
+  Duration: N/A, bitrate: N/A
+  Stream #1:0: Video: png, rgb24(pc, gbr/unknown/unknown), 4800x2700 [SAR 1:1 DAR 16:9], 25 fps, 25 tbr, 25 tbn
+Stream mapping:
+  Stream #0:0 (png) -> ssim
+  Stream #1:0 (png) -> ssim
+  ssim:default -> Stream #0:0 (wrapped_avframe)
+Press [q] to stop, [?] for help
+Output #0, null, to 'pipe:':
+  Metadata:
+    encoder         : Lavf63.1.101
+  Stream #0:0: Video: wrapped_avframe, gbrp(pc, gbr/bt709/unknown, progressive), 4800x2700, q=2-31, 200 kb/s, 25 fps, 25 tbn
+    Metadata:
+      encoder         : Lavc63.1.101 wrapped_avframe
+[Parsed_ssim_0 @ 0x7f4350003e00] SSIM R:0.942034 (12.368260) G:0.943899 (12.510329) B:0.906651 (10.298918) All:0.930862 (11.602804)
+[out#0/null @ 0x561dbd05f040] video:0KiB audio:0KiB subtitle:0KiB other streams:0KiB global headers:0KiB muxing overhead: unknown
+frame=    1 fps=0.0 q=-0.0 Lsize=N/A time=00:00:00.04 bitrate=N/A speed=0.268x elapsed=0:00:00.14    

@@ -1,0 +1,40 @@
+{
+  "candidate": "generic_fp8_exponent_bias7",
+  "status": "captured_not_promoted",
+  "settings": {
+    "genericPath": true,
+    "scalarGraph": true,
+    "qualityLabConfig": "../agent_recheck_current/config.json",
+    "learnedStrength": 0.55,
+    "colorHistory": true,
+    "softwareDecode": true,
+    "warmupFrames": 12,
+    "scoredFrames": 12,
+    "controlBias": 8,
+    "candidateBias": 7
+  },
+  "pairs": [
+    {
+      "scene": "tos_daylight",
+      "input": "426x240",
+      "ssimControl": 0.857542,
+      "ssimCandidate": 0.857938,
+      "ssimDelta": 0.000396,
+      "temporalErrorControl": 1.493213,
+      "temporalErrorCandidate": 1.493823,
+      "temporalErrorDelta": 0.000610
+    },
+    {
+      "scene": "sintel_cave",
+      "input": "426x240",
+      "ssimControl": 0.932946,
+      "ssimCandidate": 0.932983,
+      "ssimDelta": 0.000037,
+      "temporalErrorControl": 0.634208,
+      "temporalErrorCandidate": 0.634226,
+      "temporalErrorDelta": 0.000018
+    }
+  ],
+  "decision": "reject_for_promotion",
+  "reason": "Bias 7 produced a small spatial gain, but temporal absolute-error regressed on both completed real scenes. This is not a verified overall quality gain."
+}

@@ -1,0 +1,34 @@
+{
+  "schema": "temporal_forge.periodic_lattice_fixtures.v1",
+  "media_policy": "hash_addressed_local_only",
+  "fixtures": [
+    {
+      "name": "failed_sintel_cave_720_to_1080",
+      "candidate": "/tmp/tforge_semantic_1788476650/cave720/frames/sintel_cave_1280x720_high_crf12_f48_sem_720_1080.png",
+      "control": "/tmp/tforge_semantic_1788476650/cave720/frames/sintel_cave_1280x720_high_crf12_f48_sem_720_1080_bicubic.png",
+      "candidate_sha256": "616c7d269945d3211db28392cf62b5910a52b5c369e3c14e3b7b0fdaf8ad8e73",
+      "expected": "lattice_present"
+    },
+    {
+      "name": "failed_sintel_cave_360_to_1080",
+      "candidate": "/tmp/tforge_semantic_1788476650/cave360/frames/sintel_cave_640x360_high_crf12_f48_sem_360_1080.png",
+      "control": "/tmp/tforge_semantic_1788476650/cave360/frames/sintel_cave_640x360_high_crf12_f48_sem_360_1080_bicubic.png",
+      "candidate_sha256": "e111f66fe82f4aaba5c8f5622092ecacccbc1424246e380f17e867cad87f53c2",
+      "expected": "lattice_present"
+    },
+    {
+      "name": "fixed_sintel_cave_720_to_1080",
+      "candidate": "benchmarks/quality_sweeps/lattice_corruption_diagnostic/runs/20260904T-reopened-current/fix_downsample_bilinear/bad/scale_2_00/sintel_cave/candidate_final.png",
+      "control": "benchmarks/quality_sweeps/lattice_corruption_diagnostic/runs/20260904T-reopened-current/fix_downsample_bilinear/bad/scale_2_00/sintel_cave/quality_frames/sintel_cave_1280x720_high_crf12_f48_scale_2_00_bicubic.png",
+      "candidate_sha256": "521db0b637361bf0d1d04cdf250d1c04f537c5e90ade55d1d215d3f279746ff5",
+      "expected": "lattice_absent"
+    },
+    {
+      "name": "fixed_sintel_cave_360_to_1080",
+      "candidate": "benchmarks/quality_sweeps/lattice_corruption_diagnostic/runs/20260904T-reopened-current/fix_required_routes/source360/frame_48/scale_2_00/sintel_cave/candidate_final.png",
+      "control": "benchmarks/quality_sweeps/lattice_corruption_diagnostic/runs/20260904T-reopened-current/fix_required_routes/source360/frame_48/scale_2_00/sintel_cave/quality_frames/sintel_cave_640x360_high_crf12_f48_scale_2_00_bicubic.png",
+      "candidate_sha256": "159e32e99c77423be89f83dc6f624689987b71822d8a5a4089787a43e726b7bd",
+      "expected": "lattice_absent"
+    }
+  ]
+}

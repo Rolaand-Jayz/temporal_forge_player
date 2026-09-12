@@ -26,8 +26,21 @@ tforge_add_test(preset_math_tests
 
 tforge_add_test(quality_lab_config_tests
     SOURCES quality_lab_config_tests.cpp
-            ../src/config/QualityLabConfig.cpp)
+            ../src/config/QualityLabConfig.cpp
+            ../src/util/Fsr4Paths.cpp)
 target_link_libraries(quality_lab_config_tests PRIVATE Qt6::Core)
+target_compile_definitions(quality_lab_config_tests PRIVATE
+    TFORGE_SOURCE_ROOT="${CMAKE_SOURCE_DIR}")
+
+# Host-independent FSR4 asset-resolution contract (native packs + weight
+# blobs). Hermetic: env overrides + temp dirs, no machine paths.
+tforge_add_test(fsr4_paths_contract_tests
+    SOURCES fsr4_paths_contract_tests.cpp
+            ../src/util/Fsr4Paths.cpp)
+
+tforge_add_test(playlist_eos_tests
+    SOURCES playlist_eos_tests.cpp
+            ../src/core/PlaylistAdvancement.cpp)
 
 tforge_add_test(jitter_tests
     SOURCES jitter_tests.cpp)
@@ -61,11 +74,12 @@ tforge_add_test(backend_tests
             ../src/backend/BackendSelector.cpp
             ../src/backend/Fsr4PostpassParams.cpp
             ../src/render/Fsr4DispatchHarness.cpp
+            ../src/util/Fsr4Paths.cpp
             ../src/render/fsr4/Fsr4ConvSteps.cpp
             ../src/render/fsr4/Fsr4Memory.cpp
             ../src/util/Log.cpp)
 target_include_directories(backend_tests PRIVATE "${CMAKE_BINARY_DIR}/shaders/fsr4")
-target_link_libraries(backend_tests PRIVATE ${VULKAN_LIBRARIES})
+target_link_libraries(backend_tests PRIVATE Vulkan::Vulkan)
 add_dependencies(backend_tests temporal_forge_player)
 
 tforge_add_test(sidebuffer_tests
@@ -85,7 +99,8 @@ tforge_add_test(fsr4_weight_tests
             ../src/backend/WeightBlob.cpp
             ../src/util/Log.cpp)
 set_tests_properties(fsr4_weight_tests PROPERTIES
-    WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
+    WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
+    SKIP_RETURN_CODE 77)
 
 # M1 postpass contract test. This stays CPU-only: it validates the recovered
 # byte region, host decode rules, and source-level shader consumption evidence.
@@ -112,8 +127,7 @@ target_compile_definitions(fsr4_residual_quantization_contract_tests PRIVATE
 set_tests_properties(fsr4_residual_quantization_contract_tests PROPERTIES
     WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}")
 
-# Runner-dependent motion contract: this test reads the capture runner and
-# therefore belongs with the Quality Lab tooling layer.
+# M3 causal codec-motion boundary test.
 tforge_add_test(fsr4_motion_contract_tests
     SOURCES fsr4_motion_contract_tests.cpp)
 set_tests_properties(fsr4_motion_contract_tests PROPERTIES
@@ -161,14 +175,14 @@ tforge_add_test(gpu_probe
     SOURCES gpu_probe.cpp
             ../src/backend/GpuCapabilityProbe.cpp
             ../src/util/Log.cpp)
-target_link_libraries(gpu_probe PRIVATE ${VULKAN_LIBRARIES})
+target_link_libraries(gpu_probe PRIVATE Vulkan::Vulkan)
 # Not run as part of ctest (it's an interactive diagnostic).
 set_tests_properties(gpu_probe PROPERTIES DISABLED ON)
 
 # Cooperative-matrix mode dumper (diagnostic).
 tforge_add_test(cm_dump
     SOURCES cm_dump.cpp)
-target_link_libraries(cm_dump PRIVATE ${VULKAN_LIBRARIES})
+target_link_libraries(cm_dump PRIVATE Vulkan::Vulkan)
 set_tests_properties(cm_dump PROPERTIES DISABLED ON)
 
 # FSR4 dispatch harness + proof runner integration test (P-B/P-E). Live AMD GPU.
@@ -179,10 +193,11 @@ tforge_add_test(fsr4_harness_tests
             ../src/backend/WeightBlob.cpp
             ../src/backend/Fsr4ProofRunner.cpp
             ../src/render/Fsr4DispatchHarness.cpp
+            ../src/util/Fsr4Paths.cpp
             ../src/render/fsr4/Fsr4ConvSteps.cpp
             ../src/render/fsr4/Fsr4Memory.cpp
             ../src/util/Log.cpp)
-target_link_libraries(fsr4_harness_tests PRIVATE ${VULKAN_LIBRARIES})
+target_link_libraries(fsr4_harness_tests PRIVATE Vulkan::Vulkan)
 target_include_directories(fsr4_harness_tests PRIVATE "${CMAKE_BINARY_DIR}/shaders/fsr4")
 # Ensure the embedded SPIR-V header is generated before compiling.
 add_dependencies(fsr4_harness_tests temporal_forge_player)
@@ -221,20 +236,24 @@ if(FFMPEG_BIN)
 endif()
 
 # media_pipeline_tests exercises the real demux+decode path.
-tforge_add_test(media_pipeline_tests
-    SOURCES media_pipeline_tests.cpp
-            ../src/media/Demuxer.cpp
-            ../src/media/VideoDecoder.cpp
-            ../src/media/AudioDecoder.cpp
-            ../src/util/Log.cpp)
 pkg_check_modules(FFMPEG_TEST IMPORTED_TARGET libavformat libavcodec libavutil libswscale libswresample)
-target_link_libraries(media_pipeline_tests PRIVATE PkgConfig::FFMPEG_TEST)
-if(TARGET tforge_sample_mp4)
-    add_dependencies(media_pipeline_tests tforge_sample_mp4)
-    # Run from the build/tests dir where sample.mp4 is generated.
+if(FFMPEG_TEST_FOUND)
+    tforge_add_test(media_pipeline_tests
+        SOURCES media_pipeline_tests.cpp
+                ../src/media/Demuxer.cpp
+                ../src/media/VideoDecoder.cpp
+                ../src/media/AudioDecoder.cpp
+                ../src/util/Log.cpp)
+    target_link_libraries(media_pipeline_tests PRIVATE PkgConfig::FFMPEG_TEST)
+    if(TARGET tforge_sample_mp4)
+        add_dependencies(media_pipeline_tests tforge_sample_mp4)
+    endif()
+    # Run from the build/tests dir where sample.mp4 is generated; the test
+    # source returns 77 when the fixture is unavailable (deterministic skip).
     set_tests_properties(media_pipeline_tests PROPERTIES
         WORKING_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}"
-        ENVIRONMENT "TFORGE_SAMPLE=${CMAKE_CURRENT_BINARY_DIR}/sample.mp4")
+        ENVIRONMENT "TFORGE_SAMPLE=${CMAKE_CURRENT_BINARY_DIR}/sample.mp4"
+        SKIP_RETURN_CODE 77)
 endif()
 
 # file_switch_tests exercises the PlaybackEngine's openUrl/close cycle to
@@ -249,4 +268,15 @@ if(TARGET temporal_forge_lib AND TARGET tforge_sample_mp4)
     add_test(NAME file_switch_tests COMMAND file_switch_tests
         "${CMAKE_CURRENT_BINARY_DIR}/sample.mp4"
         "${CMAKE_CURRENT_BINARY_DIR}/sample.mp4")
+    # The test source returns 77 when the fixture is missing (deterministic
+    # skip instead of a hard failure on machines without ffmpeg).
+    set_tests_properties(file_switch_tests PROPERTIES SKIP_RETURN_CODE 77)
 endif()
+
+# M-05 device-request planner contract test. Hermetic: pure functions over
+# fabricated extension/feature availability; no GPU or Vulkan calls.
+tforge_add_test(vulkan_capability_plan_tests
+    SOURCES vulkan_capability_plan_tests.cpp
+            ../src/render/VulkanContext.cpp
+            ../src/util/Log.cpp)
+target_link_libraries(vulkan_capability_plan_tests PRIVATE Vulkan::Vulkan)

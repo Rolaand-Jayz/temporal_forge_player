@@ -1,0 +1,23 @@
+{
+  "capturedAt": "2026-08-24",
+  "status": "early-rejected",
+  "captureCount": 7,
+  "plannedCaptureCount": 56,
+  "scene": "tos_daylight",
+  "inputResolution": "426x240",
+  "outputResolution": "1920x1080",
+  "warmupFrames": 36,
+  "scoredFrames": 24,
+  "metric": "legacy_temporal_delta_abs_error",
+  "results": {
+    "current_control": {"learnedStrength": 0.55, "residualStrength": 1.0, "ssim": 0.854193, "temporalError": 2.176680},
+    "direct_blend_005": {"learnedStrength": 0.05, "residualStrength": 0.0, "ssim": 0.850922, "temporalError": 4.711394},
+    "direct_blend_010": {"learnedStrength": 0.10, "residualStrength": 0.0, "ssim": 0.850818, "temporalError": 4.707920},
+    "direct_blend_015": {"learnedStrength": 0.15, "residualStrength": 0.0, "ssim": 0.850634, "temporalError": 4.707873},
+    "detail_residual_005": {"learnedStrength": 0.0, "residualStrength": 0.05, "ssim": 0.850806, "temporalError": 4.728189},
+    "detail_residual_010": {"learnedStrength": 0.0, "residualStrength": 0.10, "ssim": 0.850613, "temporalError": 4.740073},
+    "detail_residual_025": {"learnedStrength": 0.0, "residualStrength": 0.25, "ssim": 0.849711, "temporalError": 4.788366}
+  },
+  "decision": "reject all experimental composition candidates; each violates the per-cell safety gate on the smoke pair",
+  "evidenceDirectory": "smoke"
+}

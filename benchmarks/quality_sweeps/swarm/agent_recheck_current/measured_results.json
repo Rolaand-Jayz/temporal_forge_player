@@ -1,0 +1,23 @@
+{
+  "candidate": "current_composition_reverse_tail_channels",
+  "status": "captured_not_promoted",
+  "settings": {
+    "genericPath": true,
+    "qualityLabConfig": "config.json",
+    "learnedStrength": 0.55,
+    "colorHistory": true,
+    "softwareDecode": true,
+    "warmupFrames": 24,
+    "scoredFrames": 24,
+    "completedCells": 4,
+    "missingCells": ["tos_daylight_1280x720", "tos_debris_1280x720", "sintel_rooftop_1280x720", "sintel_cave_1280x720"]
+  },
+  "pairs": [
+    {"scene": "tos_daylight", "input": "426x240", "ssimDelta": -0.000003, "temporalErrorDelta": -0.000098},
+    {"scene": "tos_debris", "input": "426x240", "ssimDelta": -0.000006, "temporalErrorDelta": -0.000029},
+    {"scene": "sintel_rooftop", "input": "426x240", "ssimDelta": 0.000000, "temporalErrorDelta": -0.000086},
+    {"scene": "sintel_cave", "input": "426x240", "ssimDelta": 0.000002, "temporalErrorDelta": 0.000038}
+  ],
+  "decision": "reject_for_promotion",
+  "reason": "The completed four-cell tier has tiny mixed SSIM changes and no meaningful spatial gain; the second resolution tier did not complete and is not treated as evidence."
+}

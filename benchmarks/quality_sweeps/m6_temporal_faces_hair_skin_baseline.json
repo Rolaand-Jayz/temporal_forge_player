@@ -1,0 +1,121 @@
+{
+  "schema": "temporal_forge.m6_temporal_baseline.v1",
+  "sliceId": "m6-faces-hair-skin-event-baseline-20260823",
+  "rowCount": 1,
+  "rows": [
+    {
+      "candidateId": "base_only_bilinear",
+      "configId": "stage_a/base_only_bilinear.json",
+      "configPath": "benchmarks/quality_sweeps/stage_a/base_only_bilinear.json",
+      "scene": "tos_daylight",
+      "qualityClass": "faces-hair-skin",
+      "identity": {
+        "candidateId": "base_only_bilinear",
+        "configId": "stage_a/base_only_bilinear.json",
+        "scene": "tos_daylight",
+        "qualityClass": "faces-hair-skin",
+        "inputResolution": "426x240",
+        "outputResolution": "1920x1080",
+        "startFrame": 42,
+        "endFrame": 59,
+        "frames": 18
+      },
+      "corpusSelection": {
+        "manifestPath": "benchmarks/video_corpus/manifest.csv",
+        "sourcePath": "benchmarks/video_corpus/clips/tos_daylight_426x240_high_crf12.mp4",
+        "sourceSha256": "e0447f80bc2cc71f2cbe82b923e81d4cfd6e046e8365cd38e2dd403daa7a25b0",
+        "referencePath": "benchmarks/video_corpus/references/tos_daylight_2160p_lossless.mkv",
+        "referenceSha256": "815512666c0c39a8bbd6dfc393bcb018dd4653eddd566e3e9406688f5e2987ac",
+        "selectedSourceFrames": [42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59],
+        "selectionRationale": "The existing grounded frame-48 faces-hair-skin annotation is an indoor ToS group shot. Frames 42-59 preserve the same face, hair, and skin region before and after the event window."
+      },
+      "derivedCapture": {
+        "inputPath": "/tmp/tforge-m6-face-event-20260823/input/tos_daylight_frames42-59_pts-gap-at-51.mp4",
+        "inputSha256": "cf0b986f32948968c943329669da94ff64f57b9b228c1bc25bd130310b60aaf2",
+        "referencePath": "/tmp/tforge-m6-face-event-20260823/reference/tos_daylight_frames42-59_lossless.mkv",
+        "referenceSha256": "7ab9b99fa02e24e7e6cfe8982f096cb9c1fc63c3f6cbd4e34d0fc615dbf473f8",
+        "construction": "Real corpus frames 42-59, with a 12-frame PTS offset introduced at captured frame 9 solely to exercise the runtime PTS-gap detector; pixels are not synthesized."
+      },
+      "staticMask": {
+        "path": "/tmp/tforge-m6-face-event-20260823/static_mask.json",
+        "sha256": "bf25ece4b9b93671ca12217071d80bd836ceae4dd16502d144fe5c20b71935ef",
+        "schema": "temporal_forge.static_mask.v1",
+        "rectangle": {"x": 250, "y": 100, "width": 800, "height": 700},
+        "analysisFrameIndices": [0, 1, 2, 3, 4, 5, 6, 7, 8],
+        "annotationSource": "benchmarks/quality_sweeps/m6_quality_class_annotations.json"
+      },
+      "causalMotion": {
+        "path": "/tmp/tforge-m6-face-event-20260823/causal_motion.json",
+        "sha256": "5e09146504ed39e1871b4f6803a07a3f509b7772e5fc5efb88dc0f350acababb",
+        "schema": "temporal_forge.codec_motion.v1",
+        "sourceResolution": "426x240",
+        "targetResolution": "1920x1080",
+        "frames": 18,
+        "resetFramesObserved": [0, 1, 8, 9]
+      },
+      "event": {
+        "tracePath": "/tmp/tforge-m6-face-event-20260823/events.json",
+        "traceSha256": "989e0d932d4c869f698ceaf7317f2a90fbdf13f4be5af48b375361a5ca5520e0",
+        "authoritativeCause": "pts_gap",
+        "signals": ["pts_gap"],
+        "authoritativeEventIndex": 9,
+        "eventFrameIndex": 9,
+        "eventTransitionIndex": 8,
+        "rawRuntimeLabels": {
+          "detectorSceneCut": true,
+          "resetCause": "detector_scene_cut",
+          "ghostCause": "detector_scene_cut"
+        },
+        "ptsProvenance": {
+          "ptsUs": 875000,
+          "ptsDeltaMs": 541.666992,
+          "expectedFrameIntervalMs": 29.7092056,
+          "ptsGapMultiplierGreaterThan": 2.5,
+          "triggerComparison": "541.666992 > 29.7092056 * 2.5",
+          "triggerThresholdMs": 74.273014
+        },
+        "detectorInputs": {
+          "histogramDelta": 0.0569714904,
+          "histogramDeltaGreaterThan": 0.65,
+          "motionConfidence": 0.737332225,
+          "motionConfidenceLessThan": 0.15,
+          "ptsGapMs": 541.666992,
+          "expectedFrameIntervalMs": 29.7092056
+        },
+        "thresholdProvenance": {
+          "contract": "side_buffer_scene_cut.v1",
+          "implementation": "SideBufferSynth::shouldReset",
+          "metricContract": "m6.event_metrics.v1",
+          "metricThresholdSource": "explicit_capture_arguments",
+          "ghostThreshold": 0.02,
+          "resetThreshold": 0.02,
+          "ghostMetricStart": "first_measured_transition_after_event_transition"
+        },
+        "source": "fresh runtime event trace from this faces-hair-skin capture",
+        "reusedFabricEventMetadata": false
+      },
+      "metrics": {
+        "static_flicker": 0.013911833,
+        "edge_variance": 0.000050430,
+        "motion_compensated_error": 0.015225080,
+        "ghost_duration_frames": 0,
+        "reset_recovery_frames": 0
+      },
+      "metricSource": {
+        "temporalCsv": "/tmp/tforge-m6-face-event-20260823/baseline_temporal_metrics.csv",
+        "temporalCsvSha256": "cb3697190c9f9cf7696bec90f9d2b14e312fc3f199ff8db94fb0ce8c298fb3da",
+        "allRequiredMetricsNonNull": true
+      },
+      "executionProvenance": {
+        "binaryPath": "/home/rolaandjayz/ZCodeProject/temporal_forge_player/build/temporal_forge_player",
+        "binarySha256": "5f80bbdbd9651ed82a677ddbf36c4ec905ba23537d19c811c31b96b08c1cc0f1",
+        "configSha256": "91800f566018a55bea418d840d4e6ddfcab7d96d7cf9862e789e1cb6e7ebed8c",
+        "gitHeadObserved": "7fdf43ce09015626940e37f9baea48c0210def0c",
+        "gitCommitAuthoritative": false,
+        "decode": "software",
+        "gpuDisplayAccess": "escalated",
+        "failureArtifactDirectory": "/tmp/tforge-m6-face-event-20260823/failure-retained"
+      }
+    }
+  ]
+}

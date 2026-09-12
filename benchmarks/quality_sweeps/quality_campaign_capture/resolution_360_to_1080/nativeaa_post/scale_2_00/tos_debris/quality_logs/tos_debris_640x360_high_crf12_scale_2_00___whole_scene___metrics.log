@@ -1,0 +1,40 @@
+Input #0, png_pipe, from '/home/rolaandjayz/ZCodeProject/temporal_forge_player/benchmarks/quality_sweeps/quality_campaign_capture/resolution_360_to_1080/nativeaa_post/scale_2_00/tos_debris/quality_frames/tos_debris_640x360_high_crf12_f48_scale_2_00.png':
+  Duration: N/A, bitrate: N/A
+  Stream #0:0: Video: png, rgb24(pc, gbr/bt709/unknown), 1920x1080, 25 fps, 25 tbr, 25 tbn
+Input #1, png_pipe, from '/home/rolaandjayz/ZCodeProject/temporal_forge_player/benchmarks/quality_sweeps/quality_campaign_capture/resolution_360_to_1080/nativeaa_post/scale_2_00/tos_debris/quality_frames/tos_debris_reference_1920x1080_f48_scale_2_00.png':
+  Duration: N/A, bitrate: N/A
+  Stream #1:0: Video: png, rgb24(pc, gbr/unknown/unknown), 1920x1080 [SAR 1:1 DAR 16:9], 25 fps, 25 tbr, 25 tbn
+Stream mapping:
+  Stream #0:0 (png) -> psnr
+  Stream #1:0 (png) -> psnr
+  psnr:default -> Stream #0:0 (wrapped_avframe)
+Press [q] to stop, [?] for help
+Output #0, null, to 'pipe:':
+  Metadata:
+    encoder         : Lavf63.1.101
+  Stream #0:0: Video: wrapped_avframe, gbrp(pc, gbr/bt709/unknown, progressive), 1920x1080, q=2-31, 200 kb/s, 25 fps, 25 tbn
+    Metadata:
+      encoder         : Lavc63.1.101 wrapped_avframe
+[Parsed_psnr_0 @ 0x7f5acc002540] PSNR r:27.548204 g:28.474494 b:29.435750 average:28.418135 min:28.418135 max:28.418135
+[out#0/null @ 0x55c63b912f40] video:0KiB audio:0KiB subtitle:0KiB other streams:0KiB global headers:0KiB muxing overhead: unknown
+frame=    1 fps=0.0 q=-0.0 Lsize=N/A time=00:00:00.04 bitrate=N/A speed=1.22x elapsed=0:00:00.03    
+Input #0, png_pipe, from '/home/rolaandjayz/ZCodeProject/temporal_forge_player/benchmarks/quality_sweeps/quality_campaign_capture/resolution_360_to_1080/nativeaa_post/scale_2_00/tos_debris/quality_frames/tos_debris_640x360_high_crf12_f48_scale_2_00.png':
+  Duration: N/A, bitrate: N/A
+  Stream #0:0: Video: png, rgb24(pc, gbr/bt709/unknown), 1920x1080, 25 fps, 25 tbr, 25 tbn
+Input #1, png_pipe, from '/home/rolaandjayz/ZCodeProject/temporal_forge_player/benchmarks/quality_sweeps/quality_campaign_capture/resolution_360_to_1080/nativeaa_post/scale_2_00/tos_debris/quality_frames/tos_debris_reference_1920x1080_f48_scale_2_00.png':
+  Duration: N/A, bitrate: N/A
+  Stream #1:0: Video: png, rgb24(pc, gbr/unknown/unknown), 1920x1080 [SAR 1:1 DAR 16:9], 25 fps, 25 tbr, 25 tbn
+Stream mapping:
+  Stream #0:0 (png) -> ssim
+  Stream #1:0 (png) -> ssim
+  ssim:default -> Stream #0:0 (wrapped_avframe)
+Press [q] to stop, [?] for help
+Output #0, null, to 'pipe:':
+  Metadata:
+    encoder         : Lavf63.1.101
+  Stream #0:0: Video: wrapped_avframe, gbrp(pc, gbr/bt709/unknown, progressive), 1920x1080, q=2-31, 200 kb/s, 25 fps, 25 tbn
+    Metadata:
+      encoder         : Lavc63.1.101 wrapped_avframe
+[Parsed_ssim_0 @ 0x7fd43c002540] SSIM R:0.853411 (8.338979) G:0.879314 (9.183433) B:0.848971 (8.209403) All:0.860565 (8.556292)
+[out#0/null @ 0x55a903654f00] video:0KiB audio:0KiB subtitle:0KiB other streams:0KiB global headers:0KiB muxing overhead: unknown
+frame=    1 fps=0.0 q=-0.0 Lsize=N/A time=00:00:00.04 bitrate=N/A speed=1.22x elapsed=0:00:00.03    

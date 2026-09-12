@@ -21,7 +21,14 @@ import time
 import uuid
 import json
 import hashlib
+import sys
 from pathlib import Path
+
+try:
+    from benchmarks.quality_sweeps.method_identity import canonical_method_for_arm
+except ImportError:  # direct path execution: repo root may not be on sys.path
+    sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+    from benchmarks.quality_sweeps.method_identity import canonical_method_for_arm
 
 
 SCALES = (2.00, 2.25, 2.50, 2.75, 3.00)
@@ -287,7 +294,7 @@ def validate_runtime_trace(path: Path, *, run_id: str, source: str,
 
 def main() -> int:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--player", type=Path, default=Path("build-fast/temporal_forge_player"))
+    parser.add_argument("--player", type=Path, default=Path(__file__).resolve().parents[2] / "build" / "temporal_forge_player")
     parser.add_argument("--repo", type=Path, default=Path(__file__).resolve().parents[2])
     parser.add_argument("--manifest", type=Path,
                         help="override the video-corpus manifest for controlled fixtures")
@@ -450,7 +457,14 @@ def main() -> int:
                     "schema": "temporal_forge.quality_experiment.v2",
                     "experiment_id": run_id,
                     "run_id": run_id,
-                    "arm_id": f"{args.preset.lower()}_{scale:.2f}x_{args.cas_placement}",
+                    "arm_id": (
+                        f"{args.preset.lower()}_{scale:.2f}x_"
+                        f"{('cas20_' + args.cas_placement) if args.cas_placement != 'none' else 'no_cas'}"
+                    ),
+                    "method": canonical_method_for_arm(
+                        f"{args.preset.lower()}_{scale:.2f}x_"
+                        f"{('cas20_' + args.cas_placement) if args.cas_placement != 'none' else 'no_cas'}"
+                    ),
                     "profile": args.profile,
                     "status": "failed",
                     "failure_reason": str(error),
@@ -553,6 +567,10 @@ def main() -> int:
                 "experiment_id": run_id,
                 "run_id": run_id,
                 "arm_id": (
+                    f"{args.preset.lower()}_{scale:.2f}x_"
+                    f"{('cas20_' + args.cas_placement) if args.cas_placement != 'none' else 'no_cas'}"
+                ),
+                "method": canonical_method_for_arm(
                     f"{args.preset.lower()}_{scale:.2f}x_"
                     f"{('cas20_' + args.cas_placement) if args.cas_placement != 'none' else 'no_cas'}"
                 ),

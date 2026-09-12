@@ -1,0 +1,27 @@
+Input #0, png_pipe, from '/home/rolaandjayz/ZCodeProject/temporal_forge_player/benchmarks/quality_sweeps/quality_campaign_capture/resolution_360_to_480/nativeaa_none/scale_2_00/tos_debris/candidate_final.png':
+  Duration: N/A, bitrate: N/A
+  Stream #0:0: Video: png, rgb24(pc, gbr/bt709/unknown), 854x480, 25 fps, 25 tbr, 25 tbn
+Input #1, png_pipe, from '/home/rolaandjayz/ZCodeProject/temporal_forge_player/benchmarks/quality_sweeps/quality_campaign_capture/resolution_360_to_480/shared_references/tos_debris__frame-0048__854x480.png':
+  Duration: N/A, bitrate: N/A
+  Stream #1:0: Video: png, rgb24(pc, gbr/unknown/unknown), 854x480 [SAR 1280:1281 DAR 16:9], 25 fps, 25 tbr, 25 tbn
+Stream mapping:
+  Stream #0:0 (png) -> psnr
+  Stream #0:0 (png) -> ssim
+  Stream #1:0 (png) -> psnr
+  Stream #1:0 (png) -> ssim
+  psnr:default -> Stream #0:0 (wrapped_avframe)
+  ssim:default -> Stream #0:1 (wrapped_avframe)
+Press [q] to stop, [?] for help
+Output #0, null, to 'pipe:':
+  Metadata:
+    encoder         : Lavf63.1.101
+  Stream #0:0: Video: wrapped_avframe, gbrp(pc, gbr/bt709/unknown, progressive), 854x480, q=2-31, 200 kb/s, 25 fps, 25 tbn (default)
+    Metadata:
+      encoder         : Lavc63.1.101 wrapped_avframe
+  Stream #0:1: Video: wrapped_avframe, gbrp(pc, gbr/bt709/unknown, progressive), 854x480, q=2-31, 200 kb/s, 25 fps, 25 tbn
+    Metadata:
+      encoder         : Lavc63.1.101 wrapped_avframe
+[Parsed_psnr_0 @ 0x7fb16c002a80] PSNR r:25.430344 g:26.893513 b:28.417861 average:26.744673 min:26.744673 max:26.744673
+[Parsed_ssim_1 @ 0x7fb16c002e80] SSIM R:0.798341 (6.953820) G:0.828138 (7.648196) B:0.818007 (7.399462) All:0.814829 (7.324262)
+[out#0/null @ 0x56366a0d1380] video:1KiB audio:0KiB subtitle:0KiB other streams:0KiB global headers:0KiB muxing overhead: unknown
+frame=    1 fps=0.0 q=-0.0 Lq=-0.0 size=N/A time=00:00:00.04 bitrate=N/A speed= 2.9x elapsed=0:00:00.01    

@@ -1,0 +1,18 @@
+{
+  "name": "swarm-agent-e2-unjittered-detail-residual-corrected",
+  "preset": "Quality",
+  "dimensions": "1280x720",
+  "outputDimensions": "1280x720",
+  "frame": 60,
+  "quality": "high",
+  "clipRegex": "^(tos_daylight|tos_debris|sintel_rooftop|sintel_cave)$",
+  "corpusManifest": "benchmarks/video_corpus/manifest.csv",
+  "jitter": { "mode": "current", "controlledStrength": 1.0 },
+  "experiments": [
+    {"id": "detail_residual_005", "config": "detail_residual_005.json"},
+    {"id": "detail_residual_010", "config": "detail_residual_010.json"},
+    {"id": "detail_residual_025", "config": "detail_residual_025.json"},
+    {"id": "detail_residual_050", "config": "detail_residual_050.json"},
+    {"id": "detail_residual_025_sharpen_003", "config": "detail_residual_025_sharpen_003.json"}
+  ]
+}

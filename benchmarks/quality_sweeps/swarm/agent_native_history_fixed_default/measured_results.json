@@ -1,0 +1,51 @@
+{
+  "status": "rejected_noop_on_native_int8",
+  "candidate": "native_int8_with_color_history_and_fixed_history_weight",
+  "control": "current_native_int8_default",
+  "source": "real_corpus",
+  "input": "426x240",
+  "output": "1920x1080",
+  "warmup_frames": 12,
+  "scored_frames": 12,
+  "native_int8": true,
+  "software_decode": true,
+  "controls": {
+    "color_history": "default",
+    "fixed_history_weight": false
+  },
+  "candidate_environment": {
+    "TFORGE_FSR4_ENABLE_COLOR_HISTORY": "1",
+    "TFORGE_FSR4_EXPERIMENTAL_FIXED_HISTORY_WEIGHT": "1"
+  },
+  "pairs": [
+    {
+      "scene": "tos_daylight",
+      "control_ssim": 0.861529,
+      "candidate_ssim": 0.861529,
+      "control_temporal_error": 1.755780,
+      "candidate_temporal_error": 1.755780
+    },
+    {
+      "scene": "tos_debris",
+      "control_ssim": 0.939253,
+      "candidate_ssim": 0.939253,
+      "control_temporal_error": 0.346234,
+      "candidate_temporal_error": 0.346234
+    },
+    {
+      "scene": "sintel_rooftop",
+      "control_ssim": 0.780647,
+      "candidate_ssim": 0.780647,
+      "control_temporal_error": 1.456409,
+      "candidate_temporal_error": 1.456409
+    },
+    {
+      "scene": "sintel_cave",
+      "control_ssim": 0.936432,
+      "candidate_ssim": 0.936432,
+      "control_temporal_error": 0.713605,
+      "candidate_temporal_error": 0.713605
+    }
+  ],
+  "decision": "Do not promote. The candidate is byte-identical to the clean native INT8 default on all four matched captures. The earlier fixed-history improvement belonged to the generic Quality Lab composition path and does not establish a native playback gain."
+}

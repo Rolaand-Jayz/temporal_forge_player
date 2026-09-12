@@ -1,0 +1,58 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://temporal-forge.invalid/schemas/agent-confidence-provenance-v1.json",
+  "title": "Temporal Forge confidence-gate campaign provenance",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema", "campaignId", "recordedAt", "captureFree", "repository", "inputs", "comparisons"],
+  "properties": {
+    "schema": {"const": "temporal_forge.quality_sweep_provenance.v1"},
+    "campaignId": {"const": "agent-confidence-gate-quality-candidate"},
+    "recordedAt": {"type": "string", "format": "date-time"},
+    "captureFree": {"const": true},
+    "repository": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["root", "head", "workingTreePolicy"],
+      "properties": {
+        "root": {"type": "string", "minLength": 1},
+        "head": {"type": "string", "pattern": "^[0-9a-f]{7,64}$"},
+        "workingTreePolicy": {"const": "Record unrelated working-tree changes separately; do not include them in campaign evidence."}
+      }
+    },
+    "inputs": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["binary", "corpusManifest", "sourceDimensions", "outputDimensions", "preset", "jitter", "sceneIds", "qualityTiers"],
+      "properties": {
+        "binary": {"type": "string", "minLength": 1},
+        "binarySha256": {"type": ["string", "null"], "pattern": "^[0-9a-f]{64}$"},
+        "corpusManifest": {"type": "string", "minLength": 1},
+        "corpusManifestSha256": {"type": ["string", "null"], "pattern": "^[0-9a-f]{64}$"},
+        "sourceDimensions": {"type": "string", "pattern": "^[0-9]+x[0-9]+$"},
+        "outputDimensions": {"type": "string", "pattern": "^[0-9]+x[0-9]+$"},
+        "preset": {"const": "Quality"},
+        "jitter": {"type": "object", "additionalProperties": false, "required": ["mode", "controlledStrength"], "properties": {"mode": {"const": "current"}, "controlledStrength": {"const": 1.0}}},
+        "sceneIds": {"type": "array", "minItems": 1, "items": {"type": "string", "minLength": 1}},
+        "qualityTiers": {"type": "array", "const": ["high", "medium", "low"]}
+      }
+    },
+    "comparisons": {
+      "type": "array",
+      "minItems": 2,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "role", "environment", "resultState"],
+        "properties": {
+          "id": {"type": "string", "minLength": 1},
+          "role": {"enum": ["baseline", "candidate"]},
+          "environment": {"type": "object", "additionalProperties": {"type": "string"}},
+          "resultState": {"enum": ["not-measured", "measured"]},
+          "measurementArtifact": {"type": ["string", "null"]}
+        }
+      }
+    },
+    "notes": {"type": "string"}
+  }
+}

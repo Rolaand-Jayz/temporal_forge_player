@@ -1,0 +1,18 @@
+{
+  "candidate": "native-motion-scale",
+  "baseline": "native-default-motion-scale",
+  "scope": {
+    "scenes": ["tos_daylight", "sintel_cave"],
+    "input": "426x240",
+    "output": "1920x1080",
+    "graph": "native-int8",
+    "warmup_frames": 12,
+    "scored_frames": 12
+  },
+  "pairs": [
+    {"scene":"tos_daylight", "scale_0_5_ssim":0.855339, "scale_2_0_ssim":0.855339, "default_ssim":0.855339, "scale_0_5_temporal_error":1.523408, "scale_2_0_temporal_error":1.523416, "default_temporal_error":1.523411},
+    {"scene":"sintel_cave", "scale_0_5_ssim":0.935429, "scale_2_0_ssim":0.935429, "default_ssim":0.935429, "scale_0_5_temporal_error":0.661521, "scale_2_0_temporal_error":0.661521, "default_temporal_error":0.661522}
+  ],
+  "decision": "no-effective-change",
+  "default_changed": false
+}

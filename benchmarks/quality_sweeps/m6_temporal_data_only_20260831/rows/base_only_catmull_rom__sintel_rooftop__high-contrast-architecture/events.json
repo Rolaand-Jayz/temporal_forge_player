@@ -1,0 +1,842 @@
+{
+  "schema": "temporal_forge.event_trace.v1",
+  "identity": {
+    "candidateId": "base_only_catmull_rom",
+    "scene": "sintel_rooftop",
+    "configId": "benchmarks/quality_sweeps/stage_b/base_only_catmull_rom.json",
+    "sourcePath": "/home/rolaandjayz/ZCodeProject/temporal_forge_player/benchmarks/quality_sweeps/m6_temporal_data_only_20260831/inputs/sintel_rooftop_48_65_gap.mkv",
+    "referencePath": "/home/rolaandjayz/ZCodeProject/temporal_forge_player/benchmarks/quality_sweeps/m6_temporal_data_only_20260831/references/sintel_rooftop_48_65.mkv",
+    "startFrame": 48,
+    "endFrame": 65,
+    "outputWidth": 1920,
+    "outputHeight": 1080,
+    "qualityClass": "high-contrast-architecture"
+  },
+  "capture": {
+    "frames": 18,
+    "recordDirectory": "/tmp/tmp.VLso0JXbuj/fsr"
+  },
+  "authoritativeEvent": {
+    "schema": "temporal_forge.event_trace.v1",
+    "eventIndex": 9,
+    "eventFrameIndex": 9,
+    "decoderReceiveIndex": 9,
+    "transitionIndex": 8,
+    "ptsUs": 875000,
+    "ptsDeltaMs": 542,
+    "jitterX": 0,
+    "jitterY": 0,
+    "jitterApplied": false,
+    "reset": true,
+    "forcedReset": false,
+    "detectorSceneCut": true,
+    "resetCause": "detector_scene_cut",
+    "ghostCause": "detector_scene_cut",
+    "detectorInputs": {
+      "histogramDelta": 0.0445811152,
+      "avgLumaDelta": 0.0015450418,
+      "motionConfidence": 0.767103553,
+      "reactiveAverage": 0.0149193769,
+      "ptsGapMs": 542,
+      "expectedFrameIntervalMs": 41.7739449
+    },
+    "thresholdProvenance": {
+      "contract": "side_buffer_scene_cut.v1",
+      "implementation": "SideBufferSynth::shouldReset",
+      "histogramDeltaGreaterThan": 0.65,
+      "motionConfidenceLessThan": 0.15,
+      "ptsGapMultiplierGreaterThan": 2.5
+    },
+    "event": true
+  },
+  "events": [
+    {
+      "schema": "temporal_forge.event_trace.v1",
+      "eventIndex": 8,
+      "eventFrameIndex": 8,
+      "decoderReceiveIndex": 8,
+      "transitionIndex": 7,
+      "ptsUs": 333000,
+      "ptsDeltaMs": 41,
+      "jitterX": 0,
+      "jitterY": 0,
+      "jitterApplied": false,
+      "reset": true,
+      "forcedReset": false,
+      "detectorSceneCut": true,
+      "resetCause": "detector_scene_cut",
+      "ghostCause": "detector_scene_cut",
+      "detectorInputs": {
+        "histogramDelta": 0.0621572137,
+        "avgLumaDelta": 0.000249132514,
+        "motionConfidence": 0,
+        "reactiveAverage": 0.0188962966,
+        "ptsGapMs": 41,
+        "expectedFrameIntervalMs": 41.8599434
+      },
+      "thresholdProvenance": {
+        "contract": "side_buffer_scene_cut.v1",
+        "implementation": "SideBufferSynth::shouldReset",
+        "histogramDeltaGreaterThan": 0.65,
+        "motionConfidenceLessThan": 0.15,
+        "ptsGapMultiplierGreaterThan": 2.5
+      },
+      "event": true
+    },
+    {
+      "schema": "temporal_forge.event_trace.v1",
+      "eventIndex": 9,
+      "eventFrameIndex": 9,
+      "decoderReceiveIndex": 9,
+      "transitionIndex": 8,
+      "ptsUs": 875000,
+      "ptsDeltaMs": 542,
+      "jitterX": 0,
+      "jitterY": 0,
+      "jitterApplied": false,
+      "reset": true,
+      "forcedReset": false,
+      "detectorSceneCut": true,
+      "resetCause": "detector_scene_cut",
+      "ghostCause": "detector_scene_cut",
+      "detectorInputs": {
+        "histogramDelta": 0.0445811152,
+        "avgLumaDelta": 0.0015450418,
+        "motionConfidence": 0.767103553,
+        "reactiveAverage": 0.0149193769,
+        "ptsGapMs": 542,
+        "expectedFrameIntervalMs": 41.7739449
+      },
+      "thresholdProvenance": {
+        "contract": "side_buffer_scene_cut.v1",
+        "implementation": "SideBufferSynth::shouldReset",
+        "histogramDeltaGreaterThan": 0.65,
+        "motionConfidenceLessThan": 0.15,
+        "ptsGapMultiplierGreaterThan": 2.5
+      },
+      "event": true
+    }
+  ],
+  "eventCauseClassifications": [
+    {
+      "eventIndex": 8,
+      "cause": "motion_confidence",
+      "signals": [
+        "motion_confidence"
+      ],
+      "ptsUs": 333000,
+      "ptsDeltaMs": 41,
+      "detectorInputs": {
+        "histogramDelta": 0.0621572137,
+        "avgLumaDelta": 0.000249132514,
+        "motionConfidence": 0,
+        "reactiveAverage": 0.0188962966,
+        "ptsGapMs": 41,
+        "expectedFrameIntervalMs": 41.8599434
+      },
+      "thresholdProvenance": {
+        "contract": "side_buffer_scene_cut.v1",
+        "implementation": "SideBufferSynth::shouldReset",
+        "histogramDeltaGreaterThan": 0.65,
+        "motionConfidenceLessThan": 0.15,
+        "ptsGapMultiplierGreaterThan": 2.5
+      },
+      "rawDetectorSceneCut": true,
+      "rawResetCause": "detector_scene_cut",
+      "rawGhostCause": "detector_scene_cut"
+    },
+    {
+      "eventIndex": 9,
+      "cause": "pts_gap",
+      "signals": [
+        "pts_gap"
+      ],
+      "ptsUs": 875000,
+      "ptsDeltaMs": 542,
+      "detectorInputs": {
+        "histogramDelta": 0.0445811152,
+        "avgLumaDelta": 0.0015450418,
+        "motionConfidence": 0.767103553,
+        "reactiveAverage": 0.0149193769,
+        "ptsGapMs": 542,
+        "expectedFrameIntervalMs": 41.7739449
+      },
+      "thresholdProvenance": {
+        "contract": "side_buffer_scene_cut.v1",
+        "implementation": "SideBufferSynth::shouldReset",
+        "histogramDeltaGreaterThan": 0.65,
+        "motionConfidenceLessThan": 0.15,
+        "ptsGapMultiplierGreaterThan": 2.5
+      },
+      "rawDetectorSceneCut": true,
+      "rawResetCause": "detector_scene_cut",
+      "rawGhostCause": "detector_scene_cut"
+    }
+  ],
+  "authoritativeCause": {
+    "eventIndex": 9,
+    "cause": "pts_gap",
+    "signals": [
+      "pts_gap"
+    ],
+    "ptsUs": 875000,
+    "ptsDeltaMs": 542,
+    "detectorInputs": {
+      "histogramDelta": 0.0445811152,
+      "avgLumaDelta": 0.0015450418,
+      "motionConfidence": 0.767103553,
+      "reactiveAverage": 0.0149193769,
+      "ptsGapMs": 542,
+      "expectedFrameIntervalMs": 41.7739449
+    },
+    "thresholdProvenance": {
+      "contract": "side_buffer_scene_cut.v1",
+      "implementation": "SideBufferSynth::shouldReset",
+      "histogramDeltaGreaterThan": 0.65,
+      "motionConfidenceLessThan": 0.15,
+      "ptsGapMultiplierGreaterThan": 2.5
+    },
+    "rawDetectorSceneCut": true,
+    "rawResetCause": "detector_scene_cut",
+    "rawGhostCause": "detector_scene_cut"
+  },
+  "authoritativeEventIndex": 9,
+  "eventFrameIndex": 9,
+  "eventTransitionIndex": 8,
+  "resetIndex": 8,
+  "resetCause": "detector_scene_cut",
+  "ghostEventIndex": 9,
+  "ghostCause": "detector_scene_cut",
+  "ghostThreshold": 0.02,
+  "resetThreshold": 0.02,
+  "thresholdProvenance": {
+    "detector": {
+      "contract": "side_buffer_scene_cut.v1",
+      "implementation": "SideBufferSynth::shouldReset",
+      "histogramDeltaGreaterThan": 0.65,
+      "motionConfidenceLessThan": 0.15,
+      "ptsGapMultiplierGreaterThan": 2.5
+    },
+    "metricContract": "m6.event_metrics.v1",
+    "metricThresholdSource": "explicit_capture_arguments",
+    "ghostThreshold": 0.02,
+    "resetThreshold": 0.02,
+    "ghostMetricStart": "first_measured_transition_after_event_transition"
+  },
+  "frames": [
+    {
+      "schema": "temporal_forge.event_trace.v1",
+      "eventIndex": 0,
+      "eventFrameIndex": 0,
+      "decoderReceiveIndex": 0,
+      "transitionIndex": null,
+      "ptsUs": 0,
+      "ptsDeltaMs": 0,
+      "jitterX": 0,
+      "jitterY": 0,
+      "jitterApplied": false,
+      "reset": true,
+      "forcedReset": true,
+      "detectorSceneCut": false,
+      "resetCause": "forced_reset",
+      "ghostCause": "forced_reset",
+      "detectorInputs": {
+        "histogramDelta": 1,
+        "avgLumaDelta": 0,
+        "motionConfidence": 0.5,
+        "reactiveAverage": 0.300000012,
+        "ptsGapMs": 0,
+        "expectedFrameIntervalMs": 16.6667004
+      },
+      "thresholdProvenance": {
+        "contract": "side_buffer_scene_cut.v1",
+        "implementation": "SideBufferSynth::shouldReset",
+        "histogramDeltaGreaterThan": 0.65,
+        "motionConfidenceLessThan": 0.15,
+        "ptsGapMultiplierGreaterThan": 2.5
+      },
+      "event": true
+    },
+    {
+      "schema": "temporal_forge.event_trace.v1",
+      "eventIndex": 1,
+      "eventFrameIndex": 1,
+      "decoderReceiveIndex": 1,
+      "transitionIndex": 0,
+      "ptsUs": 42000,
+      "ptsDeltaMs": 42,
+      "jitterX": 0,
+      "jitterY": 0,
+      "jitterApplied": false,
+      "reset": false,
+      "forcedReset": false,
+      "detectorSceneCut": false,
+      "resetCause": "none",
+      "ghostCause": "none",
+      "detectorInputs": {
+        "histogramDelta": 0.0556404591,
+        "avgLumaDelta": 0.00269880891,
+        "motionConfidence": 0.723290026,
+        "reactiveAverage": 0.0193909481,
+        "ptsGapMs": 42,
+        "expectedFrameIntervalMs": 42
+      },
+      "thresholdProvenance": {
+        "contract": "side_buffer_scene_cut.v1",
+        "implementation": "SideBufferSynth::shouldReset",
+        "histogramDeltaGreaterThan": 0.65,
+        "motionConfidenceLessThan": 0.15,
+        "ptsGapMultiplierGreaterThan": 2.5
+      },
+      "event": false
+    },
+    {
+      "schema": "temporal_forge.event_trace.v1",
+      "eventIndex": 2,
+      "eventFrameIndex": 2,
+      "decoderReceiveIndex": 2,
+      "transitionIndex": 1,
+      "ptsUs": 83000,
+      "ptsDeltaMs": 41,
+      "jitterX": 0,
+      "jitterY": 0,
+      "jitterApplied": false,
+      "reset": false,
+      "forcedReset": false,
+      "detectorSceneCut": false,
+      "resetCause": "none",
+      "ghostCause": "none",
+      "detectorInputs": {
+        "histogramDelta": 0.0624523759,
+        "avgLumaDelta": 1.36345625e-05,
+        "motionConfidence": 0.70754236,
+        "reactiveAverage": 0.0187493488,
+        "ptsGapMs": 41,
+        "expectedFrameIntervalMs": 42
+      },
+      "thresholdProvenance": {
+        "contract": "side_buffer_scene_cut.v1",
+        "implementation": "SideBufferSynth::shouldReset",
+        "histogramDeltaGreaterThan": 0.65,
+        "motionConfidenceLessThan": 0.15,
+        "ptsGapMultiplierGreaterThan": 2.5
+      },
+      "event": false
+    },
+    {
+      "schema": "temporal_forge.event_trace.v1",
+      "eventIndex": 3,
+      "eventFrameIndex": 3,
+      "decoderReceiveIndex": 3,
+      "transitionIndex": 2,
+      "ptsUs": 125000,
+      "ptsDeltaMs": 42,
+      "jitterX": 0,
+      "jitterY": 0,
+      "jitterApplied": false,
+      "reset": false,
+      "forcedReset": false,
+      "detectorSceneCut": false,
+      "resetCause": "none",
+      "ghostCause": "none",
+      "detectorInputs": {
+        "histogramDelta": 0.0680437684,
+        "avgLumaDelta": 0.00242166221,
+        "motionConfidence": 0.655441225,
+        "reactiveAverage": 0.0228347927,
+        "ptsGapMs": 42,
+        "expectedFrameIntervalMs": 41.8999977
+      },
+      "thresholdProvenance": {
+        "contract": "side_buffer_scene_cut.v1",
+        "implementation": "SideBufferSynth::shouldReset",
+        "histogramDeltaGreaterThan": 0.65,
+        "motionConfidenceLessThan": 0.15,
+        "ptsGapMultiplierGreaterThan": 2.5
+      },
+      "event": false
+    },
+    {
+      "schema": "temporal_forge.event_trace.v1",
+      "eventIndex": 4,
+      "eventFrameIndex": 4,
+      "decoderReceiveIndex": 4,
+      "transitionIndex": 3,
+      "ptsUs": 167000,
+      "ptsDeltaMs": 42,
+      "jitterX": 0,
+      "jitterY": 0,
+      "jitterApplied": false,
+      "reset": false,
+      "forcedReset": false,
+      "detectorSceneCut": false,
+      "resetCause": "none",
+      "ghostCause": "none",
+      "detectorInputs": {
+        "histogramDelta": 0.0571253896,
+        "avgLumaDelta": 0.00364938378,
+        "motionConfidence": 0.665305495,
+        "reactiveAverage": 0.0207870007,
+        "ptsGapMs": 42,
+        "expectedFrameIntervalMs": 41.909996
+      },
+      "thresholdProvenance": {
+        "contract": "side_buffer_scene_cut.v1",
+        "implementation": "SideBufferSynth::shouldReset",
+        "histogramDeltaGreaterThan": 0.65,
+        "motionConfidenceLessThan": 0.15,
+        "ptsGapMultiplierGreaterThan": 2.5
+      },
+      "event": false
+    },
+    {
+      "schema": "temporal_forge.event_trace.v1",
+      "eventIndex": 5,
+      "eventFrameIndex": 5,
+      "decoderReceiveIndex": 5,
+      "transitionIndex": 4,
+      "ptsUs": 208000,
+      "ptsDeltaMs": 41,
+      "jitterX": 0,
+      "jitterY": 0,
+      "jitterApplied": false,
+      "reset": false,
+      "forcedReset": false,
+      "detectorSceneCut": false,
+      "resetCause": "none",
+      "ghostCause": "none",
+      "detectorInputs": {
+        "histogramDelta": 0.0529618859,
+        "avgLumaDelta": 0.000201031566,
+        "motionConfidence": 0.68537581,
+        "reactiveAverage": 0.0160895977,
+        "ptsGapMs": 41,
+        "expectedFrameIntervalMs": 41.9189949
+      },
+      "thresholdProvenance": {
+        "contract": "side_buffer_scene_cut.v1",
+        "implementation": "SideBufferSynth::shouldReset",
+        "histogramDeltaGreaterThan": 0.65,
+        "motionConfidenceLessThan": 0.15,
+        "ptsGapMultiplierGreaterThan": 2.5
+      },
+      "event": false
+    },
+    {
+      "schema": "temporal_forge.event_trace.v1",
+      "eventIndex": 6,
+      "eventFrameIndex": 6,
+      "decoderReceiveIndex": 6,
+      "transitionIndex": 5,
+      "ptsUs": 250000,
+      "ptsDeltaMs": 42,
+      "jitterX": 0,
+      "jitterY": 0,
+      "jitterApplied": false,
+      "reset": false,
+      "forcedReset": false,
+      "detectorSceneCut": false,
+      "resetCause": "none",
+      "ghostCause": "none",
+      "detectorInputs": {
+        "histogramDelta": 0.0633373857,
+        "avgLumaDelta": 0.000851497054,
+        "motionConfidence": 0.717809081,
+        "reactiveAverage": 0.0198527128,
+        "ptsGapMs": 42,
+        "expectedFrameIntervalMs": 41.8270912
+      },
+      "thresholdProvenance": {
+        "contract": "side_buffer_scene_cut.v1",
+        "implementation": "SideBufferSynth::shouldReset",
+        "histogramDeltaGreaterThan": 0.65,
+        "motionConfidenceLessThan": 0.15,
+        "ptsGapMultiplierGreaterThan": 2.5
+      },
+      "event": false
+    },
+    {
+      "schema": "temporal_forge.event_trace.v1",
+      "eventIndex": 7,
+      "eventFrameIndex": 7,
+      "decoderReceiveIndex": 7,
+      "transitionIndex": 6,
+      "ptsUs": 292000,
+      "ptsDeltaMs": 42,
+      "jitterX": 0,
+      "jitterY": 0,
+      "jitterApplied": false,
+      "reset": false,
+      "forcedReset": false,
+      "detectorSceneCut": false,
+      "resetCause": "none",
+      "ghostCause": "none",
+      "detectorInputs": {
+        "histogramDelta": 0.0624523759,
+        "avgLumaDelta": 0.00172884762,
+        "motionConfidence": 0.735807955,
+        "reactiveAverage": 0.0204645619,
+        "ptsGapMs": 42,
+        "expectedFrameIntervalMs": 41.8443832
+      },
+      "thresholdProvenance": {
+        "contract": "side_buffer_scene_cut.v1",
+        "implementation": "SideBufferSynth::shouldReset",
+        "histogramDeltaGreaterThan": 0.65,
+        "motionConfidenceLessThan": 0.15,
+        "ptsGapMultiplierGreaterThan": 2.5
+      },
+      "event": false
+    },
+    {
+      "schema": "temporal_forge.event_trace.v1",
+      "eventIndex": 8,
+      "eventFrameIndex": 8,
+      "decoderReceiveIndex": 8,
+      "transitionIndex": 7,
+      "ptsUs": 333000,
+      "ptsDeltaMs": 41,
+      "jitterX": 0,
+      "jitterY": 0,
+      "jitterApplied": false,
+      "reset": true,
+      "forcedReset": false,
+      "detectorSceneCut": true,
+      "resetCause": "detector_scene_cut",
+      "ghostCause": "detector_scene_cut",
+      "detectorInputs": {
+        "histogramDelta": 0.0621572137,
+        "avgLumaDelta": 0.000249132514,
+        "motionConfidence": 0,
+        "reactiveAverage": 0.0188962966,
+        "ptsGapMs": 41,
+        "expectedFrameIntervalMs": 41.8599434
+      },
+      "thresholdProvenance": {
+        "contract": "side_buffer_scene_cut.v1",
+        "implementation": "SideBufferSynth::shouldReset",
+        "histogramDeltaGreaterThan": 0.65,
+        "motionConfidenceLessThan": 0.15,
+        "ptsGapMultiplierGreaterThan": 2.5
+      },
+      "event": true
+    },
+    {
+      "schema": "temporal_forge.event_trace.v1",
+      "eventIndex": 9,
+      "eventFrameIndex": 9,
+      "decoderReceiveIndex": 9,
+      "transitionIndex": 8,
+      "ptsUs": 875000,
+      "ptsDeltaMs": 542,
+      "jitterX": 0,
+      "jitterY": 0,
+      "jitterApplied": false,
+      "reset": true,
+      "forcedReset": false,
+      "detectorSceneCut": true,
+      "resetCause": "detector_scene_cut",
+      "ghostCause": "detector_scene_cut",
+      "detectorInputs": {
+        "histogramDelta": 0.0445811152,
+        "avgLumaDelta": 0.0015450418,
+        "motionConfidence": 0.767103553,
+        "reactiveAverage": 0.0149193769,
+        "ptsGapMs": 542,
+        "expectedFrameIntervalMs": 41.7739449
+      },
+      "thresholdProvenance": {
+        "contract": "side_buffer_scene_cut.v1",
+        "implementation": "SideBufferSynth::shouldReset",
+        "histogramDeltaGreaterThan": 0.65,
+        "motionConfidenceLessThan": 0.15,
+        "ptsGapMultiplierGreaterThan": 2.5
+      },
+      "event": true
+    },
+    {
+      "schema": "temporal_forge.event_trace.v1",
+      "eventIndex": 10,
+      "eventFrameIndex": 10,
+      "decoderReceiveIndex": 10,
+      "transitionIndex": 9,
+      "ptsUs": 917000,
+      "ptsDeltaMs": 42,
+      "jitterX": 0,
+      "jitterY": 0,
+      "jitterApplied": false,
+      "reset": false,
+      "forcedReset": false,
+      "detectorSceneCut": false,
+      "resetCause": "none",
+      "ghostCause": "none",
+      "detectorInputs": {
+        "histogramDelta": 0.052067399,
+        "avgLumaDelta": 0.00249131024,
+        "motionConfidence": 0.745938122,
+        "reactiveAverage": 0.0181115307,
+        "ptsGapMs": 42,
+        "expectedFrameIntervalMs": 41.7739449
+      },
+      "thresholdProvenance": {
+        "contract": "side_buffer_scene_cut.v1",
+        "implementation": "SideBufferSynth::shouldReset",
+        "histogramDeltaGreaterThan": 0.65,
+        "motionConfidenceLessThan": 0.15,
+        "ptsGapMultiplierGreaterThan": 2.5
+      },
+      "event": false
+    },
+    {
+      "schema": "temporal_forge.event_trace.v1",
+      "eventIndex": 11,
+      "eventFrameIndex": 11,
+      "decoderReceiveIndex": 11,
+      "transitionIndex": 10,
+      "ptsUs": 958000,
+      "ptsDeltaMs": 41,
+      "jitterX": 0,
+      "jitterY": 0,
+      "jitterApplied": false,
+      "reset": false,
+      "forcedReset": false,
+      "detectorSceneCut": false,
+      "resetCause": "none",
+      "ghostCause": "none",
+      "detectorInputs": {
+        "histogramDelta": 0.0577187538,
+        "avgLumaDelta": 0.00259685516,
+        "motionConfidence": 0.747482657,
+        "reactiveAverage": 0.0199124813,
+        "ptsGapMs": 41,
+        "expectedFrameIntervalMs": 41.7965508
+      },
+      "thresholdProvenance": {
+        "contract": "side_buffer_scene_cut.v1",
+        "implementation": "SideBufferSynth::shouldReset",
+        "histogramDeltaGreaterThan": 0.65,
+        "motionConfidenceLessThan": 0.15,
+        "ptsGapMultiplierGreaterThan": 2.5
+      },
+      "event": false
+    },
+    {
+      "schema": "temporal_forge.event_trace.v1",
+      "eventIndex": 12,
+      "eventFrameIndex": 12,
+      "decoderReceiveIndex": 12,
+      "transitionIndex": 11,
+      "ptsUs": 1000000,
+      "ptsDeltaMs": 42,
+      "jitterX": 0,
+      "jitterY": 0,
+      "jitterApplied": false,
+      "reset": false,
+      "forcedReset": false,
+      "detectorSceneCut": false,
+      "resetCause": "none",
+      "ghostCause": "none",
+      "detectorInputs": {
+        "histogramDelta": 0.0615665913,
+        "avgLumaDelta": 0.00147181749,
+        "motionConfidence": 0.742735386,
+        "reactiveAverage": 0.0199417956,
+        "ptsGapMs": 42,
+        "expectedFrameIntervalMs": 41.7168922
+      },
+      "thresholdProvenance": {
+        "contract": "side_buffer_scene_cut.v1",
+        "implementation": "SideBufferSynth::shouldReset",
+        "histogramDeltaGreaterThan": 0.65,
+        "motionConfidenceLessThan": 0.15,
+        "ptsGapMultiplierGreaterThan": 2.5
+      },
+      "event": false
+    },
+    {
+      "schema": "temporal_forge.event_trace.v1",
+      "eventIndex": 13,
+      "eventFrameIndex": 13,
+      "decoderReceiveIndex": 13,
+      "transitionIndex": 12,
+      "ptsUs": 1042000,
+      "ptsDeltaMs": 42,
+      "jitterX": 0,
+      "jitterY": 0,
+      "jitterApplied": false,
+      "reset": false,
+      "forcedReset": false,
+      "detectorSceneCut": false,
+      "resetCause": "none",
+      "ghostCause": "none",
+      "detectorInputs": {
+        "histogramDelta": 0.053855598,
+        "avgLumaDelta": 0.00285674632,
+        "motionConfidence": 0.739275277,
+        "reactiveAverage": 0.0190134272,
+        "ptsGapMs": 42,
+        "expectedFrameIntervalMs": 41.7452011
+      },
+      "thresholdProvenance": {
+        "contract": "side_buffer_scene_cut.v1",
+        "implementation": "SideBufferSynth::shouldReset",
+        "histogramDeltaGreaterThan": 0.65,
+        "motionConfidenceLessThan": 0.15,
+        "ptsGapMultiplierGreaterThan": 2.5
+      },
+      "event": false
+    },
+    {
+      "schema": "temporal_forge.event_trace.v1",
+      "eventIndex": 14,
+      "eventFrameIndex": 14,
+      "decoderReceiveIndex": 14,
+      "transitionIndex": 13,
+      "ptsUs": 1083000,
+      "ptsDeltaMs": 41,
+      "jitterX": 0,
+      "jitterY": 0,
+      "jitterApplied": false,
+      "reset": false,
+      "forcedReset": false,
+      "detectorSceneCut": false,
+      "resetCause": "none",
+      "ghostCause": "none",
+      "detectorInputs": {
+        "histogramDelta": 0.0636321902,
+        "avgLumaDelta": 0.00146175921,
+        "motionConfidence": 0.75706172,
+        "reactiveAverage": 0.020551417,
+        "ptsGapMs": 41,
+        "expectedFrameIntervalMs": 41.7706795
+      },
+      "thresholdProvenance": {
+        "contract": "side_buffer_scene_cut.v1",
+        "implementation": "SideBufferSynth::shouldReset",
+        "histogramDeltaGreaterThan": 0.65,
+        "motionConfidenceLessThan": 0.15,
+        "ptsGapMultiplierGreaterThan": 2.5
+      },
+      "event": false
+    },
+    {
+      "schema": "temporal_forge.event_trace.v1",
+      "eventIndex": 15,
+      "eventFrameIndex": 15,
+      "decoderReceiveIndex": 15,
+      "transitionIndex": 14,
+      "ptsUs": 1125000,
+      "ptsDeltaMs": 42,
+      "jitterX": 0,
+      "jitterY": 0,
+      "jitterApplied": false,
+      "reset": false,
+      "forcedReset": false,
+      "detectorSceneCut": false,
+      "resetCause": "none",
+      "ghostCause": "none",
+      "detectorInputs": {
+        "histogramDelta": 0.0529618859,
+        "avgLumaDelta": 0.00168935955,
+        "motionConfidence": 0.76230222,
+        "reactiveAverage": 0.0175779257,
+        "ptsGapMs": 42,
+        "expectedFrameIntervalMs": 41.6936073
+      },
+      "thresholdProvenance": {
+        "contract": "side_buffer_scene_cut.v1",
+        "implementation": "SideBufferSynth::shouldReset",
+        "histogramDeltaGreaterThan": 0.65,
+        "motionConfidenceLessThan": 0.15,
+        "ptsGapMultiplierGreaterThan": 2.5
+      },
+      "event": false
+    },
+    {
+      "schema": "temporal_forge.event_trace.v1",
+      "eventIndex": 16,
+      "eventFrameIndex": 16,
+      "decoderReceiveIndex": 16,
+      "transitionIndex": 15,
+      "ptsUs": 1167000,
+      "ptsDeltaMs": 42,
+      "jitterX": 0,
+      "jitterY": 0,
+      "jitterApplied": false,
+      "reset": false,
+      "forcedReset": false,
+      "detectorSceneCut": false,
+      "resetCause": "none",
+      "ghostCause": "none",
+      "detectorInputs": {
+        "histogramDelta": 0.0574221015,
+        "avgLumaDelta": 0.00152638555,
+        "motionConfidence": 0.78913182,
+        "reactiveAverage": 0.0187530164,
+        "ptsGapMs": 42,
+        "expectedFrameIntervalMs": 41.724247
+      },
+      "thresholdProvenance": {
+        "contract": "side_buffer_scene_cut.v1",
+        "implementation": "SideBufferSynth::shouldReset",
+        "histogramDeltaGreaterThan": 0.65,
+        "motionConfidenceLessThan": 0.15,
+        "ptsGapMultiplierGreaterThan": 2.5
+      },
+      "event": false
+    },
+    {
+      "schema": "temporal_forge.event_trace.v1",
+      "eventIndex": 17,
+      "eventFrameIndex": 17,
+      "decoderReceiveIndex": 17,
+      "transitionIndex": 16,
+      "ptsUs": 1208000,
+      "ptsDeltaMs": 41,
+      "jitterX": 0,
+      "jitterY": 0,
+      "jitterApplied": false,
+      "reset": false,
+      "forcedReset": false,
+      "detectorSceneCut": false,
+      "resetCause": "none",
+      "ghostCause": "none",
+      "detectorInputs": {
+        "histogramDelta": 0.0523656607,
+        "avgLumaDelta": 0.00196863711,
+        "motionConfidence": 0.827363312,
+        "reactiveAverage": 0.0176783353,
+        "ptsGapMs": 41,
+        "expectedFrameIntervalMs": 41.7518234
+      },
+      "thresholdProvenance": {
+        "contract": "side_buffer_scene_cut.v1",
+        "implementation": "SideBufferSynth::shouldReset",
+        "histogramDeltaGreaterThan": 0.65,
+        "motionConfidenceLessThan": 0.15,
+        "ptsGapMultiplierGreaterThan": 2.5
+      },
+      "event": false
+    }
+  ],
+  "analysisFrameIndices": [
+    0,
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7,
+    8,
+    9,
+    10,
+    11,
+    12,
+    13,
+    14,
+    15,
+    16,
+    17
+  ]
+}

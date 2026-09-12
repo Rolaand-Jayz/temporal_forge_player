@@ -1,0 +1,2 @@
+candidateId,scene,configId,startFrame,endFrame,class,frames,width,height,static_flicker,edge_variance,motion_compensated_error,ghost_duration_frames,reset_recovery_frames
+base_only_catmull_rom,tos_daylight,benchmarks/quality_sweeps/stage_b/base_only_catmull_rom.json,48,65,faces-hair-skin,18,1920,1080,0.010412233,0.000061894,0.013312163,0,1

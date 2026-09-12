@@ -6,45 +6,34 @@ This is the documentation entry point. The governing structure is defined by
 | Need | Start here |
 |---|---|
 | What is true now? | [`current/STATE.md`](current/STATE.md) |
-| How does the current system work? | [`../ARCHITECTURE.md`](../ARCHITECTURE.md) |
-| What is being worked on now? | [`active/QUALITY_CAMPAIGN.md`](active/QUALITY_CAMPAIGN.md) (the single active quality authority) |
+| How does the current system work? | [`reference/ARCHITECTURE.md`](reference/ARCHITECTURE.md), [`reference/environment.md`](reference/environment.md) (the `TFORGE_*` environment contract) |
+| What is being worked on now? | [`active/QUALITY_CAMPAIGN.md`](active/QUALITY_CAMPAIGN.md) (the single active quality authority) and [`active/PORTABILITY_REMEDIATION_20260909.md`](active/PORTABILITY_REMEDIATION_20260909.md) |
 | Where is the campaign progress log and historical gate record? | [`active/progress-state.md`](active/progress-state.md) (supporting record, not an authority) |
-| Where is the historical FSR4 reverse-engineering research log? | [`FSR4_RE_STATUS.md`](FSR4_RE_STATUS.md) (dated historical research) |
-| Why did the design change? | [`reports/QUALITY_LAB_REVIEW_ADJUDICATION_20260906.md`](reports/QUALITY_LAB_REVIEW_ADJUDICATION_20260906.md) |
-| What did a dated campaign find? | [`reports/`](reports/) and the benchmark READMEs |
-| Where is exploratory research? | benchmark analysis under [`../benchmarks/quality_sweeps/`](../benchmarks/quality_sweeps/) |
+| Why did the design change? | [`decisions/TECHNICAL_HISTORY.md`](decisions/TECHNICAL_HISTORY.md) |
+| What did a dated campaign find? | [`reports/`](reports/) (e.g. the review adjudication of 2026-09-06, [`reports/QUALITY_LAB_REVIEW_ADJUDICATION_20260906.md`](reports/QUALITY_LAB_REVIEW_ADJUDICATION_20260906.md)) and the benchmark READMEs |
+| Where is exploratory research? | [`research/`](research/) |
 | Where are completed plans and old prompts? | [`archive/`](archive/) |
 | Where is detailed measurement evidence? | [`../benchmarks/quality_sweeps/`](../benchmarks/quality_sweeps/) |
 
-Root-level [`README.md`](../README.md) describes the product.
+Root-level [`README.md`](../README.md) describes the product. Root-level
+[`AGENTS.md`](../AGENTS.md) contains operating instructions and points back to
+this map.
 
 ## Authority map
 
 - Current state: [`current/STATE.md`](current/STATE.md).
 - Current architecture and durable implementation invariants:
-  [`../ARCHITECTURE.md`](../ARCHITECTURE.md).
-- Current FSR input and motion contracts:
-  [`../ARCHITECTURE.md`](../ARCHITECTURE.md) and
-  [`../tests/motion_estimator_tests.cpp`](../tests/motion_estimator_tests.cpp).
+  [`reference/ARCHITECTURE.md`](reference/ARCHITECTURE.md).
+- Current FSR input and motion contracts: [`reference/motion/`](reference/motion/).
 - Active quality work: [`active/QUALITY_CAMPAIGN.md`](active/QUALITY_CAMPAIGN.md)
   is the single canonical active quality authority.
+- Active portability/reproducibility remediation:
+  [`active/PORTABILITY_REMEDIATION_20260909.md`](active/PORTABILITY_REMEDIATION_20260909.md).
 - [`active/progress-state.md`](active/progress-state.md) is a supporting
-  orchestration/progress log for the same workstream. It records what was done
-  and when; it does not direct current execution. Where it and the active plan
-  disagree, the active plan governs.
+  orchestration/progress log for the quality workstream. It records what was
+  done and when; it does not direct current execution. Where it and the
+  active plan disagree, the active plan governs.
 - Detailed measurements: benchmark manifests and artifacts, not copied tables
   in narrative documents.
 - Completed plans, dated reports, and research are historical or exploratory
   unless they explicitly link a verified conclusion into a current document.
-
-## Historical preservation
-
-The production-stack branches deliberately exclude historical evidence dumps
-and superseded documents. The full pre-stack history — including the lattice
-corruption chronology (`docs/LATTICE_CORRUPTION_DIAGNOSTIC.md`, introduced at
-commit `f09a302dd` and developed through the lattice close-out commits), the
-archived M0–M7 gate plans, the superseded `QUALITY_RECONSTRUCTION_PLAN.md`
-classification, and the benchmark evidence trees cited by historical
-documents — remains available from the immutable PR #1 baseline branch
-(`pr/quality-lab-baseline`). Historical documents in this tree that cite
-those paths refer to that baseline, not to this branch.

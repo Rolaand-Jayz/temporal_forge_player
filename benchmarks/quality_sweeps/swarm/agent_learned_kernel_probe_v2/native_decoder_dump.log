@@ -1,0 +1,71 @@
+lsfg-vk: Placing default configuration file at /home/rolaandjayz/ZCodeProject/temporal_forge_player/.quality-tmp/native-config/lsfg-vk/conf.toml
+[2026-08-25 01:00:36] INFO  ?:0: Vulkan: using Qt shared instance
+[2026-08-25 01:00:36] DEBUG ?:0: Vulkan: candidate 'AMD Radeon RX 7900 GRE (RADV NAVI31)' vendor=0x1002 type=2 vram=16368MiB [AMD/RADV]
+[2026-08-25 01:00:36] DEBUG ?:0: Vulkan: candidate 'AMD Ryzen 7 7800X3D 8-Core Processor (RADV RAPHAEL_MENDOCINO)' vendor=0x1002 type=1 vram=10748MiB [AMD/RADV]
+[2026-08-25 01:00:36] INFO  ?:0: Vulkan: graphics queue family 0, FSR compute queue family 1
+[2026-08-25 01:00:36] INFO  ?:0: Vulkan: device 'AMD Radeon RX 7900 GRE (RADV NAVI31)' selected, queue family 0
+[2026-08-25 01:00:36] INFO  ?:0: Settings: loaded (path: /home/rolaandjayz/ZCodeProject/temporal_forge_player/.quality-tmp/native-config/temporal-forge-player/settings.json)
+[2026-08-25 01:00:36] INFO  ?:0: QualityLab: /home/rolaandjayz/ZCodeProject/temporal_forge_player/config/quality_lab.json enabled=false composition=base_only base=bilinear sharpen=none toneEV=-0.015
+[2026-08-25 01:00:36] INFO  ?:0: PlaybackEngine: Vulkan handles set; FSR4 will be initialized on first frame
+[2026-08-25 01:00:36] INFO  ?:0: PlaybackEngine: FSR4 upscaling enabled
+[2026-08-25 01:00:36] INFO  ?:0: Auto-opening playlist with 1 item(s)
+[2026-08-25 01:00:36] INFO  ?:0: PlaybackEngine: openUrl('file:///home/rolaandjayz/ZCodeProject/temporal_forge_player/benchmarks/video_corpus/clips/tos_daylight_426x240_high_crf12.mp4')
+[2026-08-25 01:00:36] INFO  ?:0: PlaybackEngine: close() stopThreads
+[2026-08-25 01:00:36] INFO  ?:0: PlaybackEngine: close() audio.stop
+[2026-08-25 01:00:36] INFO  ?:0: PlaybackEngine: FSR4 path torn down
+[2026-08-25 01:00:36] INFO  ?:0: PlaybackEngine: close() fully done
+[2026-08-25 01:00:36] INFO  ?:0: PlaybackEngine: close() done, opening demuxer
+[2026-08-25 01:00:36] INFO  ?:0: PlaybackEngine: demux->open('/home/rolaandjayz/ZCodeProject/temporal_forge_player/benchmarks/video_corpus/clips/tos_daylight_426x240_high_crf12.mp4')
+[2026-08-25 01:00:36] INFO  ?:0: Demuxer: opened '/home/rolaandjayz/ZCodeProject/temporal_forge_player/benchmarks/video_corpus/clips/tos_daylight_426x240_high_crf12.mp4' [mov,mp4,m4a,3gp,3g2,mj2] duration=10.000s streams=1 video=0 audio=-1381258232 sub=-1381258232
+[2026-08-25 01:00:36] DEBUG ?:0: Demuxer: video 426x240 24 fps
+[2026-08-25 01:00:36] INFO  ?:0: PlaybackEngine: demux opened ok
+[2026-08-25 01:00:36] INFO  ?:0: VideoDecoder: VAAPI device created
+[2026-08-25 01:00:36] INFO  ?:0: VideoDecoder: opened codec 'h264' 426x240 pix_fmt=yuv420p
+[2026-08-25 01:00:36] INFO  ?:0: PlaybackEngine: starting decode threads
+[2026-08-25 01:00:36] INFO  ?:0: PlaybackEngine: opened '/home/rolaandjayz/ZCodeProject/temporal_forge_player/benchmarks/video_corpus/clips/tos_daylight_426x240_high_crf12.mp4', playing=true
+[2026-08-25 01:00:36] INFO  ?:0: Temporal Forge Player: ready
+[2026-08-25 01:00:36] INFO  ?:0: VideoDecoder: DRM PRIME map objects=1 layers=2 planes=1 fourcc=[0x20203852,0x38385247] modifier=0x200000028a01f04
+[2026-08-25 01:00:36] INFO  ?:0: PlaybackEngine: FSR4 pass decoded 426x240 -> model 426x240 -> 1920x1080
+[2026-08-25 01:00:36] INFO  ?:0: Fsr4Harness: generic pipeline cache loaded (514080 bytes)
+[2026-08-25 01:00:36] INFO  ?:0: Fsr4Harness: prepass pipeline created (5990 words SPIR-V)
+[2026-08-25 01:00:36] INFO  ?:0: Fsr4Harness: conv pipelines created (dw 5875 words, pw scalar 3024 words, pw coop 5468 words, fp16 coop 3858 words, pw direct 2516 words, spatial direct 2894 words, upscale coop 3273 words, downscale coop 2614 words)
+[2026-08-25 01:00:36] INFO  ?:0: Fsr4Harness: scatter pipeline created (799 words)
+[2026-08-25 01:00:36] INFO  ?:0: Fsr4Harness: postpass pipeline created (21358 words)
+[2026-08-25 01:00:36] INFO  ?:0: Fsr4Harness: SPD pipeline created (954 words)
+[2026-08-25 01:00:36] INFO  ?:0: Fsr4Harness: native INT8 pipeline cache loaded (1851936 bytes)
+[2026-08-25 01:00:36] INFO  ?:0: Fsr4Harness: initialized on selected GPU (all 6 pipelines: prepass+conv+scatter+postpass+spd)
+[2026-08-25 01:00:36] INFO  ?:0: Fsr4Harness: native 14-pass INT8 graph loaded (quality_1080)
+[2026-08-25 01:00:36] INFO  ?:0: Fsr4Harness: resources allocated src=426x240 out=1920x1080 (scratch=20250KB accum=4KB feat=4KB)
+[2026-08-25 01:00:36] INFO  ?:0: Fsr4Harness: native INT8 graph quality active for 1920x1080
+[2026-08-25 01:00:36] INFO  ?:0: GpuImageUploader: EASU RGBA8 format features optimal=0x1dd83
+[2026-08-25 01:00:36] INFO  ?:0: GpuImageUploader: allocated source 426x240 -> model 426x240 -> output 1920x1080
+[2026-08-25 01:00:36] INFO  ?:0: PlaybackEngine: FSR4 pass decoded 426x240 -> model 426x240 -> 1920x1080
+[2026-08-25 01:00:36] INFO  ?:0: Fsr4Harness: generic pipeline cache loaded (514080 bytes)
+[2026-08-25 01:00:36] INFO  ?:0: Fsr4Harness: prepass pipeline created (5990 words SPIR-V)
+[2026-08-25 01:00:36] INFO  ?:0: Fsr4Harness: conv pipelines created (dw 5875 words, pw scalar 3024 words, pw coop 5468 words, fp16 coop 3858 words, pw direct 2516 words, spatial direct 2894 words, upscale coop 3273 words, downscale coop 2614 words)
+[2026-08-25 01:00:36] INFO  ?:0: Fsr4Harness: scatter pipeline created (799 words)
+[2026-08-25 01:00:36] INFO  ?:0: Fsr4Harness: postpass pipeline created (21358 words)
+[2026-08-25 01:00:36] INFO  ?:0: Fsr4Harness: SPD pipeline created (954 words)
+[2026-08-25 01:00:36] INFO  ?:0: Fsr4Harness: native INT8 pipeline cache loaded (1851936 bytes)
+[2026-08-25 01:00:36] INFO  ?:0: Fsr4Harness: initialized on selected GPU (all 6 pipelines: prepass+conv+scatter+postpass+spd)
+[2026-08-25 01:00:36] INFO  ?:0: Fsr4Harness: native 14-pass INT8 graph loaded (quality_1080)
+[2026-08-25 01:00:36] INFO  ?:0: Fsr4Harness: resources allocated src=426x240 out=1920x1080 (scratch=20250KB accum=4KB feat=4KB)
+[2026-08-25 01:00:36] INFO  ?:0: Fsr4Harness: native INT8 graph quality active for 1920x1080
+[2026-08-25 01:00:36] INFO  ?:0: GpuImageUploader: EASU RGBA8 format features optimal=0x1dd83
+[2026-08-25 01:00:36] INFO  ?:0: GpuImageUploader: allocated source 426x240 -> model 426x240 -> output 1920x1080
+[2026-08-25 01:00:36] INFO  ?:0: PlaybackEngine: FSR4 path ready decoded 426x240 -> model 426x240 -> 1920x1080
+[2026-08-25 01:00:36] INFO  ?:0: PlaybackEngine: FSR4 progressive chain passes=1
+[2026-08-25 01:00:36] INFO  GpuImageUploader.cpp:1354: GpuImageUploader: DRM frame hw=true format=178 objects=1 layers=2 planes=1 layerPlanes=[1,1] fourcc=[538982482,943215175]
+[2026-08-25 01:00:38] INFO  ?:0: PlaybackEngine: decoder frame=8 pixels=2073600 sample_stride=31
+[2026-08-25 01:00:38] INFO  ?:0: PlaybackEngine: decoder c0 min=-1.52734 p01=-0.79590 p50=-0.03748 p99=0.68652 max=1.34375 mean=-0.04142
+[2026-08-25 01:00:38] INFO  ?:0: PlaybackEngine: decoder c1 min=-3.74219 p01=-2.10547 p50=-0.65967 p99=0.26855 max=1.30762 mean=-0.66537
+[2026-08-25 01:00:38] INFO  ?:0: PlaybackEngine: decoder c2 min=-4.09766 p01=-2.14844 p50=-0.70459 p99=0.26831 max=2.79102 mean=-0.73649
+[2026-08-25 01:00:38] INFO  ?:0: PlaybackEngine: decoder c3 min=-11.29688 p01=-8.18750 p50=-4.49609 p99=-2.33203 max=-1.03516 mean=-4.86672
+[2026-08-25 01:00:38] INFO  ?:0: PlaybackEngine: decoder c4 min=-0.82764 p01=-0.46021 p50=-0.00102 p99=0.70703 max=1.35547 mean=0.02541
+[2026-08-25 01:00:38] INFO  ?:0: PlaybackEngine: decoder c5 min=-1.89453 p01=-1.11426 p50=-0.30347 p99=0.20117 max=0.32666 mean=-0.30838
+[2026-08-25 01:00:38] INFO  ?:0: PlaybackEngine: decoder c6 min=-1.59863 p01=-0.86621 p50=-0.18005 p99=0.36938 max=1.14355 mean=-0.17177
+[2026-08-25 01:00:38] INFO  ?:0: PlaybackEngine: decoder c7 min=-1.36035 p01=-0.66650 p50=-0.13062 p99=0.38281 max=0.97705 mean=-0.13127
+[2026-08-25 01:00:38] INFO  ?:0: PlaybackEngine: FSR4 frame pipelineCPU=1.442ms dispatchCPU(all 1 passes)=1.418ms GPU(all 1 passes)=1.325ms
+[2026-08-25 01:00:38] INFO  ?:0: PlaybackEngine: FSR4 frame pipelineCPU=1.431ms dispatchCPU(all 1 passes)=1.407ms GPU(all 1 passes)=1.328ms
+[2026-08-25 01:00:38] INFO  ?:0: PlaybackEngine: FSR4 frame pipelineCPU=1.434ms dispatchCPU(all 1 passes)=1.406ms GPU(all 1 passes)=1.329ms
+[2026-08-25 01:00:38] INFO  ?:0: PlaybackEngine: FSR4 frame pipelineCPU=1.428ms dispatchCPU(all 1 passes)=1.401ms GPU(all 1 passes)=1.333ms

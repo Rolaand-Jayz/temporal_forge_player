@@ -278,31 +278,22 @@ class PausingRunner:
     def run(self, command: list[str], label: str, cwd: Path = ROOT) -> None:
         started = time.monotonic()
         print(f"[{now()}] START {label}", flush=True)
+        # Capture provenance records the observed running-game state on both
+        # sides of every capture so a later reviewer can distinguish a clean
+        # capture from one contaminated by concurrently running games. This
+        # is observation only: capture work is never paused, stopped, or
+        # otherwise influenced by game processes.
+        games_before = self.games()
+        self.record("game_state", {"label": label, "phase": "pre", "games": games_before})
         self.record("command_start", {"label": label, "command": command})
-        merged = os.environ.copy()
-        process = subprocess.Popen(command, cwd=cwd, env=merged)
         try:
-            while process.poll() is None:
-                matches = self.games()
-                self.record("game_activity", {
-                    "label": label,
-                    "active": bool(matches),
-                    "matches": matches,
-                })
-                time.sleep(self.poll_seconds)
-            returncode = process.wait()
-            self.record("command_complete", {
-                "label": label,
-                "returncode": returncode,
-            })
-            if returncode:
-                raise subprocess.CalledProcessError(returncode, command)
-            print(f"[{now()}] DONE  {label} ({time.monotonic() - started:.1f}s)", flush=True)
-        except BaseException:
-            if process.poll() is None:
-                process.kill()
-                process.wait()
-            raise
+            run_renderer(command, cwd=cwd)
+        finally:
+            games_after = self.games()
+            self.record("game_state", {"label": label, "phase": "post", "games": games_after})
+        self.record("command_complete", {"label": label, "returncode": 0,
+                                         "game_detected_during_capture": bool(games_before or games_after)})
+        print(f"[{now()}] DONE  {label} ({time.monotonic() - started:.1f}s)", flush=True)
 
 
 def filename(scene: str, input_height: int, method: str, output_height: int) -> str:
@@ -481,11 +472,10 @@ def validate_resume_data_only_pair(pair_root: Path, input_height: int,
 
 def main() -> int:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--player", type=Path, default=Path("build-fast/temporal_forge_player"))
+    parser.add_argument("--player", type=Path, default=ROOT / "build" / "temporal_forge_player")
     parser.add_argument("--artifact-root", type=Path,
-                        help="fresh output root; defaults to a timestamped run directory")
-    parser.add_argument("--harness-root", type=Path,
-                        help="fresh harness root; defaults to a timestamped run directory")
+                        default=Path("benchmarks/quality_sweeps/quality_campaign_capture_canonical_v1"))
+    parser.add_argument("--harness-root", type=Path, default=Path("review_harness_canonical_v1"))
     parser.add_argument("--only", action="append", metavar="INPUTxOUTPUT",
                         help="limit this invocation to selected pair(s); repeatable")
     parser.add_argument("--execute", action="store_true",
@@ -504,11 +494,6 @@ def main() -> int:
                         help="additional game process pattern; repeatable")
     parser.add_argument("--poll-seconds", type=float, default=2.0)
     args = parser.parse_args()
-    run_stamp = dt.datetime.now(dt.timezone.utc).strftime("%Y%m%dT%H%M%SZ")
-    if args.artifact_root is None:
-        args.artifact_root = Path("benchmarks/quality_sweeps") / f"quality_campaign_capture_{run_stamp}"
-    if args.harness_root is None:
-        args.harness_root = Path(f"review_harness_{run_stamp}")
     legal_pair_names = {f"{input_height}x{output_height}"
                         for input_height, _, output_height, _ in PAIRS}
     requested_pairs = set(args.only or legal_pair_names)

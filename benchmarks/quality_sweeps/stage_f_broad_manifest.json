@@ -1,0 +1,19 @@
+{
+  "name": "stage-f-broad-post-jitter-fix",
+  "preset": "Quality",
+  "dimensions": "426x240",
+  "frame": 48,
+  "quality": "high",
+  "clipRegex": "^(tos_daylight|tos_debris|sintel_rooftop|sintel_cave|bbb_branches|bbb_grass|synthetic_edges_text|synthetic_dark|synthetic_4_3)$",
+  "experiments": [
+    {
+      "id": "stable_base_tone_m015",
+      "baseConfig": "stage_e/tone_template.json",
+      "overrides": {
+        "qualityLab": {
+          "tone": { "exposureEV": -0.015 }
+        }
+      }
+    }
+  ]
+}

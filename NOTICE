@@ -1,0 +1,27 @@
+Temporal Forge
+Copyright 2026 Rolaand Jayz
+
+This product is licensed under the Apache License, Version 2.0
+(see LICENSE). That license covers Temporal Forge's original code and
+documentation only.
+
+This product includes third-party material that retains its own licensing:
+
+* Khronos Vulkan headers (bundled developer header shim under
+  external/vulkan_include/) — Copyright 2015-2026 The Khronos Group Inc.,
+  SPDX-License-Identifier: Apache-2.0 OR MIT (each header carries its
+  own notice).
+
+* miniaudio v0.11.25 (external/miniaudio.h) — Copyright 2026 David Reid;
+  public domain or MIT No Attribution (choice stated in the header, which
+  embeds the full license statements).
+
+Native INT8 FSR4 pack data under resources/fsr4/native_i8/ is
+reverse-engineering-derived material. Per the repository's own pack
+documentation, the generated model source from which these artifacts
+derive is copyright Advanced Micro Devices, Inc., and no license grant
+from AMD over that data is evidenced in this repository. Its presence is
+documented in PROVENANCE.md (PROVENANCE HOLD); it is not licensed under
+the Apache License 2.0, and nothing in this NOTICE or in LICENSE asserts
+rights Temporal Forge does not possess. See THIRD_PARTY_LICENSES.md and
+PROVENANCE.md for the full inventory.

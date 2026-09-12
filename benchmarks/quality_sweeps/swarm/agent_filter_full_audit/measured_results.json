@@ -1,0 +1,20 @@
+{
+  "capturedAt": "2026-08-24",
+  "status": "captured-not-promoted",
+  "captureCount": 32,
+  "scenes": ["tos_daylight", "tos_debris", "sintel_rooftop", "sintel_cave"],
+  "inputResolutions": ["426x240", "1280x720"],
+  "outputResolutions": {"426x240": "1920x1080", "1280x720": "3840x2160"},
+  "warmupFrames": 36,
+  "scoredFrames": 24,
+  "composition": {"mode": "current", "learnedStrength": 0.55, "residualStrength": 1.0},
+  "aggregate": {
+    "bilinear": {"meanSsim": 0.912479, "meanTemporalError": 0.762048},
+    "mitchell": {"meanSsim": 0.912283, "meanTemporalError": 0.727577},
+    "catmull_rom": {"meanSsim": 0.909590, "meanTemporalError": 0.585703},
+    "lanczos2": {"meanSsim": 0.909478, "meanTemporalError": 0.583162}
+  },
+  "decision": "retain catmull_rom; alternatives trade spatial SSIM against temporal error",
+  "evidenceDirectory": "captures_post_wiring",
+  "preWiringEvidenceDirectory": "captures"
+}

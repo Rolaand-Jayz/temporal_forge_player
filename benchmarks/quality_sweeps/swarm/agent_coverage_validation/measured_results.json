@@ -1,0 +1,48 @@
+{
+  "schema": "temporal_forge.quality_sweep_measurements.v1",
+  "candidate": "explicit-motion-coverage",
+  "binary": "build-fast/temporal_forge_player",
+  "input": "1280x720 high CRF12",
+  "output": "1920x1080",
+  "warmupFrames": 36,
+  "scoredFrames": 24,
+  "history": "TFORGE_FSR4_ENABLE_COLOR_HISTORY=1",
+  "scenes": {
+    "tos_daylight": {
+      "legacyTemporalError": 0.504760,
+      "fixedTemporalError": 0.497498,
+      "legacySsim": 0.973090,
+      "fixedSsim": 0.973075
+    },
+    "tos_debris": {
+      "legacyTemporalError": 0.006454,
+      "fixedTemporalError": 0.001041,
+      "legacySsim": 0.986988,
+      "fixedSsim": 0.986975
+    },
+    "sintel_rooftop": {
+      "legacyTemporalError": 0.023678,
+      "fixedTemporalError": 0.030473,
+      "legacySsim": 0.918387,
+      "fixedSsim": 0.918347
+    },
+    "sintel_cave": {
+      "legacyTemporalError": 0.217294,
+      "fixedTemporalError": 0.208848,
+      "legacySsim": 0.940799,
+      "fixedSsim": 0.940739
+    }
+  },
+  "aggregate": {
+    "legacyMeanTemporalError": 0.1880465,
+    "fixedMeanTemporalError": 0.184465,
+    "legacyMeanSsim": 0.954816,
+    "fixedMeanSsim": 0.954784
+  },
+  "decision": "keep-default-coverage-fix; do-not-promote-history",
+  "notes": [
+    "Coverage is enabled by default; the legacy path exists only for matched A/B evidence.",
+    "The history-enabled combination improves aggregate temporal error but regresses Sintel rooftop and slightly lowers SSIM.",
+    "Color-history enablement remains opt-in and is not changed by this slice."
+  ]
+}

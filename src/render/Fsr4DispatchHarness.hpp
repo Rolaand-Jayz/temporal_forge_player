@@ -305,6 +305,9 @@ private:
   VkQueue queue_ = VK_NULL_HANDLE;
   uint32_t queueFamily_ = ~0u;
   GpuCapability cap_;
+  // GLM-NEW-04: one-shot flag so the missing-subgroup-size-control
+  // degradation is logged once, not once per pipeline.
+  bool subgroupSizeDegradationLogged_ = false;
 
   VkDescriptorSetLayout descLayout_ = VK_NULL_HANDLE;
   VkDescriptorSetLayout convDescLayout_ = VK_NULL_HANDLE;

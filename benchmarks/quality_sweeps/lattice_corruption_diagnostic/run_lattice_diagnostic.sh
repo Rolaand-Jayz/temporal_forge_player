@@ -5,6 +5,10 @@ set -euo pipefail
 # Never reuses a run directory; this deliberately does not invoke the campaign.
 repo="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
 run_root="${1:-$repo/benchmarks/quality_sweeps/lattice_corruption_diagnostic/runs/$(date -u +%Y%m%dT%H%M%SZ)}"
+# Player binary defaults to the canonical <repo>/build location; override via
+# the second positional argument or TFORGE_LATTICE_PLAYER (e.g. build-fast).
+player="${TFORGE_LATTICE_PLAYER:-${2:-$repo/build/temporal_forge_player}}"
+[[ -x "$player" ]] || { echo "player binary is not executable: $player" >&2; exit 2; }
 [[ ! -e "$run_root" ]] || { echo "refusing to overwrite $run_root" >&2; exit 2; }
 mkdir -p "$run_root"
 
@@ -14,7 +18,7 @@ run_case() {
   mkdir -p "$root/stages"
   local -a extra=()
   (( reference )) && extra+=(TFORGE_FSR4_REFERENCE_RESIZE=1)
-  env "${common[@]}" "${extra[@]}" TFORGE_QUALITY_ARTIFACT_ROOT="$root" TFORGE_QUALITY_FRAMES_DIR="$root/frames" TFORGE_QUALITY_LOGS_DIR="$root/logs" TFORGE_FSR4_DUMP_STAGE_DIR="$root/stages" TFORGE_FSR4_FORCE_VIEWPORT="$viewport" TFORGE_QUALITY_TAG="$name" python3 -m benchmarks.quality_sweeps.capture_engine -- bash "$repo/benchmarks/video_corpus/run_quality.sh" "$repo/build-fast/temporal_forge_player" "$selector" "$root/results.csv"
+  env "${common[@]}" "${extra[@]}" TFORGE_QUALITY_ARTIFACT_ROOT="$root" TFORGE_QUALITY_FRAMES_DIR="$root/frames" TFORGE_QUALITY_LOGS_DIR="$root/logs" TFORGE_FSR4_DUMP_STAGE_DIR="$root/stages" TFORGE_FSR4_FORCE_VIEWPORT="$viewport" TFORGE_QUALITY_TAG="$name" python3 -m benchmarks.quality_sweeps.capture_engine -- bash "$repo/benchmarks/video_corpus/run_quality.sh" "$player" "$selector" "$root/results.csv"
 }
 run_case bad_gpu 1280x720 1920x1080
 run_case healthy_gpu 640x360 1280x720

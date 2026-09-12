@@ -23,9 +23,24 @@ std::string extractString(std::string_view body, std::string_view key) {
     if (colon == std::string_view::npos) return {};
     auto q1 = body.find('"', colon);
     if (q1 == std::string_view::npos) return {};
+    // Closing quote = first '"' preceded by an even number of backslashes.
     auto q2 = body.find('"', q1 + 1);
+    while (q2 != std::string_view::npos) {
+        size_t slashes = 0;
+        auto probe = q2;
+        while (probe > q1 + 1 && body[probe - 1] == '\\') { ++slashes; --probe; }
+        if (slashes % 2 == 0) break;
+        q2 = body.find('"', q2 + 1);
+    }
     if (q2 == std::string_view::npos) return {};
-    return std::string(body.substr(q1 + 1, q2 - q1 - 1));
+    std::string value(body.substr(q1 + 1, q2 - q1 - 1));
+    for (size_t i = 0; i < value.size(); ++i) {
+        if (value[i] == '\\' && i + 1 < value.size() &&
+            (value[i + 1] == '"' || value[i + 1] == '\\')) {
+            value.erase(i, 1);
+        }
+    }
+    return value;
 }
 
 long extractInt(std::string_view body, std::string_view key, long fallback) {
@@ -174,6 +189,21 @@ const char* presentationKey(PresentationScaler p) {
     return "Bicubic";
 }
 
+// Minimal JSON string escaping for free-text values written by save().
+// Backslash and double-quote are the two characters that corrupt the
+// hand-rolled writer's output; Linux paths cannot contain the other JSON
+// control characters (\n, \t, etc. are impossible in POSIX path names).
+// extractString() unescapes exactly these two, so written values round-trip.
+std::string jsonStringEscape(std::string_view s) {
+    std::string out;
+    out.reserve(s.size());
+    for (const char c : s) {
+        if (c == '\\' || c == '"') out += '\\';
+        out += c;
+    }
+    return out;
+}
+
 } // namespace
 
 SettingsStore::SettingsStore(std::filesystem::path path) : path_(std::move(path)) {}
@@ -198,6 +228,10 @@ bool SettingsStore::load(Settings& out) {
     out.depthMode = parseDepth(extractString(v, "depthMode"));
     out.reactiveMode = parseReactive(extractString(v, "reactiveMode"));
     out.presentationScaler = parsePresentation(extractString(v, "presentationScaler"));
+    // Older files may explicitly contain Auto. Keep the file readable while
+    // making the new default deterministic after the next save.
+    if (out.presentationScaler == PresentationScaler::Auto)
+        out.presentationScaler = PresentationScaler::Bicubic;
     out.brightness = static_cast<float>(extractDouble(v, "brightness", 0.0));
     out.contrast = static_cast<float>(extractDouble(v, "contrast", 0.0));
     out.saturation = static_cast<float>(extractDouble(v, "saturation", 0.0));
@@ -243,7 +277,7 @@ void SettingsStore::save(const Settings& s) {
         f << "  \"windowW\": " << s.windowW << ",\n";
         f << "  \"windowH\": " << s.windowH << ",\n";
         f << "  \"fullscreen\": " << (s.fullscreen ? "true" : "false") << ",\n";
-        f << "  \"lastOpenDir\": \"" << s.lastOpenDir << "\",\n";
+        f << "  \"lastOpenDir\": \"" << jsonStringEscape(s.lastOpenDir) << "\",\n";
         f << "  \"allowExperimentalAsDefault\": "
           << (s.allowExperimentalAsDefault ? "true" : "false") << "\n";
         f << "}\n";

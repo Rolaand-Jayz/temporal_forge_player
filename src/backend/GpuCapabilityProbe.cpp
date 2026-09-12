@@ -201,6 +201,85 @@ GpuCapability GpuCapabilityProbe::probe(VkPhysicalDevice device, VkInstance inst
         return g;
     }
 
+    // M-05 FSR4-class capability gate: cooperative matrix alone is not
+    // sufficient. The FSR4 shaders use float16_t buffers (shaderFloat16),
+    // uint8_t buffers (shaderInt8), and coopmat subgroup typing
+    // (shaderSubgroupExtendedTypes); the native INT8 pipelines additionally
+    // pin requiredSubgroupSize=64 (VK_EXT_subgroup_size_control features).
+    // This mirrors the FSR4-class checks in VulkanContext's
+    // planVulkanDeviceRequests so device creation and backend selection
+    // cannot disagree. Missing items decline the FSR4-RE backend
+    // (valid=false) without weakening any existing proof gate.
+    {
+        VkPhysicalDeviceFeatures2 f2{};
+        f2.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2;
+        VkPhysicalDeviceVulkan12Features v12{};
+        v12.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES;
+        VkPhysicalDeviceSubgroupSizeControlFeatures ssc{};
+        ssc.sType =
+            VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SUBGROUP_SIZE_CONTROL_FEATURES;
+        VkPhysicalDeviceVulkan13Features v13{};
+        v13.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_FEATURES;
+        f2.pNext = &v12;
+        v12.pNext = &ssc;
+        ssc.pNext = &v13;
+        vkGetPhysicalDeviceFeatures2(device, &f2);
+        if (v12.shaderFloat16 != VK_TRUE || v12.shaderInt8 != VK_TRUE ||
+            v12.shaderSubgroupExtendedTypes != VK_TRUE) {
+            g.failReason =
+                "FSR4-class features unavailable (shaderFloat16/shaderInt8/"
+                "shaderSubgroupExtendedTypes)";
+            logWarn("GpuCapabilityProbe: {} — {}", g.deviceName, g.failReason);
+            return g;
+        }
+        // N-3: FSR4 shaders declare uint8_t members in std430 storage
+        // buffers (GL_EXT_shader_16bit_storage WeightBlob), so the Vulkan 1.2
+        // storageBuffer8BitAccess feature is a hard requirement. float16_t
+        // SSBO access needs no enable (16-bit storage is core-mandatory since
+        // Vulkan 1.1). Mirrors the planner's fsr4ClassFeaturesPresent.
+        if (v12.storageBuffer8BitAccess != VK_TRUE) {
+            g.failReason =
+                "FSR4-class storage feature unavailable (storageBuffer8BitAccess)";
+            logWarn("GpuCapabilityProbe: {} — {}", g.deviceName, g.failReason);
+            return g;
+        }
+        // N-4: the planner counts shaderIntegerDotProduct in
+        // fsr4ClassFeaturesPresent; the probe must check it too so planner
+        // and probe cannot disagree (over-strict is the safe direction).
+        if (v13.shaderIntegerDotProduct != VK_TRUE) {
+            g.failReason = "FSR4-class feature unavailable (shaderIntegerDotProduct)";
+            logWarn("GpuCapabilityProbe: {} — {}", g.deviceName, g.failReason);
+            return g;
+        }
+        uint32_t sec = 0;
+        vkEnumerateDeviceExtensionProperties(device, nullptr, &sec, nullptr);
+        std::vector<VkExtensionProperties> sexts(sec);
+        vkEnumerateDeviceExtensionProperties(device, nullptr, &sec, sexts.data());
+        bool hasSscExt = false;
+        for (const auto& e : sexts)
+            if (std::strcmp(e.extensionName,
+                            VK_EXT_SUBGROUP_SIZE_CONTROL_EXTENSION_NAME) == 0) {
+                hasSscExt = true;
+                break;
+            }
+        if (!hasSscExt || ssc.subgroupSizeControl != VK_TRUE ||
+            ssc.computeFullSubgroups != VK_TRUE) {
+            g.failReason = "VK_EXT_subgroup_size_control features unavailable";
+            logWarn("GpuCapabilityProbe: {} — {}", g.deviceName, g.failReason);
+            return g;
+        }
+        VkPhysicalDeviceProperties2 sp2{};
+        sp2.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2;
+        VkPhysicalDeviceSubgroupSizeControlProperties sp{};
+        sp.sType =
+            VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SUBGROUP_SIZE_CONTROL_PROPERTIES;
+        sp2.pNext = &sp;
+        vkGetPhysicalDeviceProperties2(device, &sp2);
+        g.hasSubgroupSizeControl = true;
+        g.subgroupMinSize = sp.minSubgroupSize;
+        g.subgroupMaxSize = sp.maxSubgroupSize;
+    }
+
     // Resolve profile: RDNA3 -> Int8Dot4 (SINT8->SINT32). FP16 available as
     // a secondary path if we later derive an FP16 weight encoding.
     g.profile = Fsr4Profile::Int8Dot4;

@@ -13,6 +13,7 @@ Menu {
 
     // Required so the menu can call into the engine and surface item.
     property var videoSurface: null
+    property var playlistPopup: null
 
     // Top-level: Play/Pause + Mute.
     MenuItem {
@@ -144,16 +145,30 @@ Menu {
 
     MenuSeparator {}
 
-    // --- File ops ---
+    // --- Playlist transport + file ops ---
     MenuItem {
-        text: "📁  Open File…"
+        text: "⏮  Previous item (or restart)"
+        enabled: playback.hasMedia
+        onTriggered: playback.previous()
+    }
+    MenuItem {
+        text: "⏭  Next item"
+        enabled: playback.hasNext
+        onTriggered: playback.next()
+    }
+    MenuItem {
+        text: "☷  Show Playlist"
+        onTriggered: if (root.playlistPopup) root.playlistPopup.open()
+    }
+    MenuItem {
+        text: "📁  Open Videos…"
         onTriggered: openDialog.open()
     }
     MenuItem {
         text: "↻  Reload"
         enabled: playback.hasMedia
         onTriggered: {
-            const path = playback.mediaInfo.fileName || ""
+            const path = playback.mediaInfo.path || ""
             if (path.length > 0)
                 playback.openUrl("file://" + path)
         }

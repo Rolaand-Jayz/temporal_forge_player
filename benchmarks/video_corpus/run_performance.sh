@@ -3,13 +3,13 @@ set -euo pipefail
 
 # run_performance.sh — measure player timing over manifest-selected clips.
 #
-# Upstream: prepare_corpus.sh's manifest and a build-fast player. Downstream:
+# Upstream: prepare_corpus.sh's manifest and a build/ player. Downstream:
 # performance.csv plus per-clip logs used to compare frame-time behavior. It
 # intentionally reports timings and does not alter quality settings or images.
 
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 repo="$(cd "$root/../.." && pwd)"
-binary="${1:-$repo/build-fast/temporal_forge_player}"
+binary="${1:-$repo/build/temporal_forge_player}"
 selector="${2:-.*}"
 results="${3:-$root/results/performance.csv}"
 logs="$root/results/logs"

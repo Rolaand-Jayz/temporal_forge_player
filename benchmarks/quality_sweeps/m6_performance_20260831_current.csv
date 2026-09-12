@@ -1,0 +1,1 @@
+clip_id,width,height,quality,crf,input_mbps,frames,decode_mean_ms,decode_p50_ms,decode_p95_ms,upload_mean_ms,upload_p50_ms,upload_p95_ms,presentation_mean_ms,presentation_p50_ms,presentation_p95_ms,pipeline_mean_ms,pipeline_p50_ms,pipeline_p95_ms,dispatch_mean_ms,record_mean_ms,wait_gpu_mean_ms,gpu_mean_ms,gpu_p50_ms,gpu_p95_ms

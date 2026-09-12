@@ -1,0 +1,8 @@
+{
+  "schema": "temporal_forge.static_mask.v1",
+  "scene": "tos_daylight",
+  "frameRange": {"start": 48, "end": 65},
+  "width": 1920,
+  "height": 1080,
+  "rectangles": [{"x": 850, "y": 400, "width": 600, "height": 500}]
+}

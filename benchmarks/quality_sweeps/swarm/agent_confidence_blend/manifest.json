@@ -1,0 +1,53 @@
+{
+  "schema": "temporal_forge.quality_sweep_campaign.v1",
+  "campaignId": "agent-confidence-blend-intermediate",
+  "description": "Capture-free reproducibility package for opt-in learned-confidence interpolation.",
+  "decision": {
+    "status": "not-promoted",
+    "reason": "Intermediate evidence only; requires broader paired metrics and human visual review."
+  },
+  "executionPolicy": {
+    "captureFree": true,
+    "gpuCapturesAllowed": false,
+    "plannedOnly": true,
+    "doNotRunCaptureCommand": true
+  },
+  "control": {
+    "name": "TFORGE_FSR4_LEARNED_CONFIDENCE_BLEND",
+    "type": "float",
+    "acceptedRange": [0.0, 1.0],
+    "clamping": "finite value is clamped to [0, 1]",
+    "semantics": {
+      "0": "legacy confidence gate",
+      "1": "ungated",
+      "interpolation": "blend + (1 - blend) * historyConfidence"
+    },
+    "unsetBehavior": "preserve legacy path"
+  },
+  "reproducibility": {
+    "preset": "Quality",
+    "sourceDimensions": "426x240",
+    "outputDimensions": "1280x720",
+    "frameCount": 24,
+    "sceneIds": ["sintel_cave", "sintel_rooftop", "tos_daylight", "tos_debris"],
+    "runnerAllowlist": ["benchmarks/video_corpus/run_quality.sh", "benchmarks/video_corpus/run_temporal_quality.sh"],
+    "forwardingRule": "For each allowlisted name, if its caller value is non-empty, append name=value to the runner environment; invoke the player with that assembled environment.",
+    "qualityViewportRule": "For selector 1280x720, run_quality.sh adds TFORGE_FSR4_FORCE_VIEWPORT=1281x720 when no caller viewport is set.",
+    "plannedCommand": "python3 benchmarks/quality_sweeps/run_quality_sweep.py --manifest benchmarks/quality_sweeps/swarm/agent_confidence_blend/manifest.json --binary build/temporal_forge_player --output-root <capture-output> --workers 1"
+  },
+  "experiments": [
+    {
+      "id": "confidence-blend-010",
+      "control": {"TFORGE_FSR4_LEARNED_CONFIDENCE_BLEND": "0.10"},
+      "evidence": "measured_results.json#/experiments/0"
+    },
+    {
+      "id": "confidence-blend-015",
+      "control": {"TFORGE_FSR4_LEARNED_CONFIDENCE_BLEND": "0.15"},
+      "evidence": "measured_results.json#/experiments/1"
+    }
+  ],
+  "evidencePolicy": "Existing /tmp CSVs are read-only evidence. Do not run captures, copy generated frames, or infer missing metrics.",
+  "analysis": "analysis.json",
+  "template": "analysis.template.json"
+}

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # run_quality_sweep.py — orchestrate auditable, non-overwriting quality runs.
 #
-# Upstream: a checked-in candidate manifest and a build-fast player binary.
+# Upstream: a checked-in candidate manifest and a canonical build/ player binary.
 # Downstream: one run directory containing copied configs, capture CSVs, timing
 # summaries, and deterministic rankings. It coordinates experiments only; the
 # actual frame production remains in video_corpus/run_quality.sh.
@@ -15,7 +15,7 @@ GPU/pipeline timings, per-candidate CSV rows, and a deterministic ranking.
 Example:
   ./benchmarks/quality_sweeps/run_quality_sweep.py \
       --manifest benchmarks/quality_sweeps/stage_a_manifest.json \
-      --binary ./build-fast/temporal_forge_player \
+      --binary ./build/temporal_forge_player \
       --output-root /tmp/tforge-quality-stageA-20260821/full
 """
 

@@ -1,0 +1,83 @@
+{
+  "schema": "temporal_forge.lattice_required_routes.v1",
+  "rows": [
+    {
+      "case": "source360",
+      "frame": 47,
+      "source_resolution": "640x360",
+      "model_resolution": "960x540",
+      "output_resolution": "1920x1080",
+      "history_enabled": true,
+      "recurrent_enabled": true,
+      "jitter_mode": "prepass_input_resolve",
+      "cas_enabled": false,
+      "candidate_sha256": "81870c05154b8dc79ff1cf811b0beac3c23792c07d9cdc7d8ed89e2eb67d78bd",
+      "human_review": "PASS"
+    },
+    {
+      "case": "source360",
+      "frame": 48,
+      "source_resolution": "640x360",
+      "model_resolution": "960x540",
+      "output_resolution": "1920x1080",
+      "history_enabled": true,
+      "recurrent_enabled": true,
+      "jitter_mode": "prepass_input_resolve",
+      "cas_enabled": false,
+      "candidate_sha256": "159e32e99c77423be89f83dc6f624689987b71822d8a5a4089787a43e726b7bd",
+      "human_review": "PASS"
+    },
+    {
+      "case": "source360",
+      "frame": 49,
+      "source_resolution": "640x360",
+      "model_resolution": "960x540",
+      "output_resolution": "1920x1080",
+      "history_enabled": true,
+      "recurrent_enabled": true,
+      "jitter_mode": "prepass_input_resolve",
+      "cas_enabled": false,
+      "candidate_sha256": "32a0f3c2f58f2347b6cb6f0f74bd9d5a4467fda9397cb33965047cf084a17784",
+      "human_review": "PASS"
+    },
+    {
+      "case": "source720",
+      "frame": 47,
+      "source_resolution": "1280x720",
+      "model_resolution": "960x540",
+      "output_resolution": "1920x1080",
+      "history_enabled": true,
+      "recurrent_enabled": true,
+      "jitter_mode": "prepass_input_resolve",
+      "cas_enabled": false,
+      "candidate_sha256": "ddc322b61659a05a2cecee0f27773e7b1984ba7a27b674f317c59f1940bfc796",
+      "human_review": "PASS"
+    },
+    {
+      "case": "source720",
+      "frame": 48,
+      "source_resolution": "1280x720",
+      "model_resolution": "960x540",
+      "output_resolution": "1920x1080",
+      "history_enabled": true,
+      "recurrent_enabled": true,
+      "jitter_mode": "prepass_input_resolve",
+      "cas_enabled": false,
+      "candidate_sha256": "cda75eee86169a6d13cfe29dd73460023407ef7cb23c972c0408e8725d81d399",
+      "human_review": "PASS"
+    },
+    {
+      "case": "source720",
+      "frame": 49,
+      "source_resolution": "1280x720",
+      "model_resolution": "960x540",
+      "output_resolution": "1920x1080",
+      "history_enabled": true,
+      "recurrent_enabled": true,
+      "jitter_mode": "prepass_input_resolve",
+      "cas_enabled": false,
+      "candidate_sha256": "8796559542de666e4eda61004744779d515281c14bf462b0ec863f1af253e5fd",
+      "human_review": "PASS"
+    }
+  ]
+}

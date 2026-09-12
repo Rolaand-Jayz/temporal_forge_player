@@ -1,0 +1,20 @@
+{
+  "capturedAt": "2026-08-24",
+  "status": "not-promoted",
+  "captureCount": 32,
+  "scenes": ["tos_daylight", "tos_debris", "sintel_rooftop", "sintel_cave"],
+  "inputResolutions": ["426x240", "1280x720"],
+  "outputResolutions": {"426x240": "1920x1080", "1280x720": "3840x2160"},
+  "warmupFrames": 36,
+  "scoredFrames": 24,
+  "composition": "base_only",
+  "metric": "legacy_temporal_delta_abs_error",
+  "aggregate": {
+    "bilinear": {"meanSsim": 0.912690, "meanTemporalError": 0.801369},
+    "mitchell": {"meanSsim": 0.912517, "meanTemporalError": 0.762713},
+    "catmull_rom": {"meanSsim": 0.909496, "meanTemporalError": 0.589874},
+    "lanczos2": {"meanSsim": 0.909366, "meanTemporalError": 0.586486}
+  },
+  "decision": "retain existing defaults; no filter passes both spatial and temporal gates",
+  "evidenceDirectory": "captures"
+}

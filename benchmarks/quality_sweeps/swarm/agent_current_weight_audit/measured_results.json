@@ -1,0 +1,32 @@
+{
+  "candidate": "current-weight-010",
+  "status": "captured-not-promoted",
+  "settings": {
+    "postpassCurrentWeight": 0.1,
+    "disableHardwareDecode": true,
+    "enableColorHistory": true,
+    "learnedStrength": 0.55,
+    "warmupFrames": 8,
+    "scoredFrames": 12,
+    "scenes": ["tos_daylight", "tos_debris", "sintel_cave", "sintel_rooftop"],
+    "inputResolutions": ["426x240", "1280x720"],
+    "outputResolutions": ["1920x1080", "3840x2160"]
+  },
+  "aggregateDeltaCandidateMinusFixed": {
+    "meanSsim": 0.000070,
+    "meanTemporalAbsError": 0.001183,
+    "perPairGatesPassed": true
+  },
+  "pairs": [
+    {"scene":"tos_daylight","input":"426x240","fixed":{"ssim":0.856815,"temporalAbsError":0.405046},"candidate":{"ssim":0.857057,"temporalAbsError":0.411282}},
+    {"scene":"tos_debris","input":"426x240","fixed":{"ssim":0.935953,"temporalAbsError":0.041505},"candidate":{"ssim":0.936235,"temporalAbsError":0.040688}},
+    {"scene":"sintel_cave","input":"426x240","fixed":{"ssim":0.950722,"temporalAbsError":0.381750},"candidate":{"ssim":0.950709,"temporalAbsError":0.381043}},
+    {"scene":"sintel_rooftop","input":"426x240","fixed":{"ssim":0.782518,"temporalAbsError":0.724800},"candidate":{"ssim":0.782741,"temporalAbsError":0.719491}},
+    {"scene":"tos_daylight","input":"1280x720","fixed":{"ssim":0.934599,"temporalAbsError":1.117341},"candidate":{"ssim":0.934563,"temporalAbsError":1.115018}},
+    {"scene":"tos_debris","input":"1280x720","fixed":{"ssim":0.986951,"temporalAbsError":0.016842},"candidate":{"ssim":0.986915,"temporalAbsError":0.016074}},
+    {"scene":"sintel_cave","input":"1280x720","fixed":{"ssim":0.967782,"temporalAbsError":0.187929},"candidate":{"ssim":0.967771,"temporalAbsError":0.187637}},
+    {"scene":"sintel_rooftop","input":"1280x720","fixed":{"ssim":0.930415,"temporalAbsError":0.248509},"candidate":{"ssim":0.930322,"temporalAbsError":0.247682}}
+  ],
+  "sourceChanged": false,
+  "benchmarkImagesChanged": false
+}

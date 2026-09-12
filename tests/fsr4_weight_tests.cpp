@@ -6,6 +6,8 @@
 #include <cstdio>
 #include <cstdlib>
 #include <filesystem>
+#include <string>
+#include <vector>
 
 using namespace temporal_forge;
 
@@ -17,6 +19,11 @@ static int g_failures = 0;
 int main() {
     // Locate the RE blobs. The RE dataset was extracted next to the project.
     std::string blobDir;
+    std::vector<std::string> candidates;
+    // Documented env override first (same layout the runtime uses):
+    // $TFORGE_FSR4_RE_ROOT/extracted/v410_initializers.
+    if (const char* reRoot = std::getenv("TFORGE_FSR4_RE_ROOT"); reRoot && *reRoot)
+        candidates.push_back(std::string(reRoot) + "/extracted/v410_initializers");
     for (const char* cand : {
         "/mnt/workdrive/fsr-re/extracted/v410_initializers",
         "/mnt/workdrive/fsr-re/dist/fsr4-swap/extracted/v410_initializers",
@@ -24,7 +31,10 @@ int main() {
         "../RE-of-FSR-4.1.0-Upscaling-1.0/extracted/v410_initializers",
         "../../RE-of-FSR-4.1.0-Upscaling-1.0/extracted/v410_initializers",
     }) {
-        if (std::filesystem::exists(std::string(cand) + "/quality.bin")) {
+        candidates.emplace_back(cand);
+    }
+    for (const auto& cand : candidates) {
+        if (std::filesystem::exists(cand + "/quality.bin")) {
             blobDir = cand; break;
         }
     }

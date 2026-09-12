@@ -10,7 +10,14 @@ set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
-add_compile_definitions(TFORGE_SOURCE_ROOT="${CMAKE_CURRENT_SOURCE_DIR}")
+# NOTE: TFORGE_SOURCE_ROOT is intentionally NOT defined globally. Baking the
+# build-host source path into shipped binaries made runtime FSR4 asset
+# resolution host-dependent. Test targets that need the source root define
+# it per-target in tests/CMakeLists.txt; runtime resolution is
+# host-independent (see src/util/Fsr4Paths.hpp).
+# Likewise strip the build-host source prefix from __FILE__ diagnostics so no
+# absolute build-machine path is baked into shipped binaries.
+add_compile_options("-ffile-prefix-map=${CMAKE_CURRENT_SOURCE_DIR}=.")
 
 if(NOT CMAKE_BUILD_TYPE)
     set(CMAKE_BUILD_TYPE Release CACHE STRING "" FORCE)
@@ -26,15 +33,26 @@ find_program(NINJA_EXE ninja REQUIRED)
 find_package(PkgConfig REQUIRED)
 
 # FFmpeg (spec: libavformat/libavcodec/libavutil/libswscale/libswresample)
+# Version floors: the code uses the ch_layout audio API (AVChannelLayout,
+# av_channel_layout_copy in src/media/AudioDecoder.cpp/Demuxer.cpp), which
+# arrived in FFmpeg 5.1 (libavcodec 59, libavformat 59, libavutil 57,
+# libswscale 6, libswresample 4). README promises FFmpeg >= 5.1 behavior;
+# these MAJOR floors enforce that at configure time.
 pkg_check_modules(FFMPEG REQUIRED
-    libavcodec libavformat libavutil libswscale libswresample)
+    libavcodec>=59
+    libavformat>=59
+    libavutil>=57
+    libswscale>=6
+    libswresample>=4)
 
 # Vulkan
-# The loader's pkg-config file is useful for diagnostics, but it is not the
-# source of truth for the headers.  Some systems ship the loader/ICD without
-# the SDK development package, and stale CMake caches can also retain a
-# `Vulkan_INCLUDE_DIR-NOTFOUND` value.
-pkg_check_modules(VULKAN QUIET vulkan)
+# FindVulkan is the single authoritative Vulkan dependency: it provides the
+# Vulkan::Vulkan imported target (loader library + include dirs).  The
+# loader's pkg-config file is NOT consulted, so hosts without vulkan.pc
+# still configure and link correctly.  Some runtime-only installations ship
+# the loader/ICD without development headers; the bundled public headers
+# under external/vulkan_include cover that case (including stale NOTFOUND
+# cache entries).
 # Some runtime-only Vulkan installations provide the loader and ICD but not
 # the development headers.  This repository carries the matching public
 # headers needed to compile the player, so use them when CMake cannot find a
@@ -80,10 +98,37 @@ tforge_compile_shaders(
 # dedicated sampled-image descriptor set and FSR1 constant generation before
 # this can be enabled safely. Building it here prevents the probe from
 # drifting or being mistaken for the local spatial fallback.
+#
+# The probe is opt-in because it requires the FidelityFX SDK headers under
+# external/FidelityFX-SDK (host-local, gitignored). When the option is OFF,
+# a no-op placeholder shader is compiled to the same generated-header
+# contract, because src/render/GpuImageUploader.cpp unconditionally embeds
+# fsr1_easu.spv.h and creates its shader module during Vulkan init.
+option(TFORGE_ENABLE_FSR1_PROBE
+    "Compile the FSR1 EASU research probe (requires FidelityFX SDK under external/FidelityFX-SDK)"
+    OFF)
+if(TFORGE_ENABLE_FSR1_PROBE)
+    if(NOT EXISTS
+        "${CMAKE_CURRENT_SOURCE_DIR}/external/FidelityFX-SDK/sdk/include/FidelityFX/ffx_core.h")
+        message(FATAL_ERROR
+            "TFORGE_ENABLE_FSR1_PROBE=ON requires the AMD FidelityFX SDK headers, "
+            "but external/FidelityFX-SDK/sdk/include/FidelityFX/ffx_core.h was not found. "
+            "Provision the SDK at external/FidelityFX-SDK/ (host-local, gitignored) so that "
+            "external/FidelityFX-SDK/sdk/include/FidelityFX/ffx_core.h exists, or reconfigure "
+            "with -DTFORGE_ENABLE_FSR1_PROBE=OFF.")
+    endif()
+    set(TFORGE_FSR1_SHADER_SOURCE
+        "${CMAKE_CURRENT_SOURCE_DIR}/shaders/fsr1/fsr1_easu.comp")
+    add_compile_definitions(TFORGE_FSR1_PROBE_STUB=0)
+else()
+    set(TFORGE_FSR1_SHADER_SOURCE
+        "${CMAKE_CURRENT_SOURCE_DIR}/cmake/stubs/fsr1_easu.comp")
+    add_compile_definitions(TFORGE_FSR1_PROBE_STUB=1)
+endif()
 tforge_compile_shaders(
     OUT_VAR FSR1_SHADER_FILES
     OUT_DIR ${CMAKE_BINARY_DIR}/shaders/fsr1
-    SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/shaders/fsr1/fsr1_easu.comp)
+    SOURCES ${TFORGE_FSR1_SHADER_SOURCE})
 
 # Qt6 (spec: Core/Gui/Quick/Qml/Widgets)
 find_package(Qt6 6.6 REQUIRED COMPONENTS Core Gui Quick Qml Widgets ShaderTools)
@@ -118,10 +163,10 @@ target_include_directories(temporal_forge_lib PUBLIC
     "${CMAKE_CURRENT_SOURCE_DIR}/external"
     "${CMAKE_CURRENT_SOURCE_DIR}/external/vulkan_include"
     ${FFMPEG_INCLUDE_DIRS}
-    ${VULKAN_INCLUDE_DIRS})
+    ${Vulkan_INCLUDE_DIRS})
 target_link_libraries(temporal_forge_lib PUBLIC
     Qt6::Core Qt6::Gui Qt6::Quick Qt6::Qml Qt6::Widgets
-    ${VULKAN_LIBRARIES}
+    Vulkan::Vulkan
     Threads::Threads ${CMAKE_DL_LIBS})
 foreach(lib ${FFMPEG_LIBRARIES})
     target_link_libraries(temporal_forge_lib PUBLIC ${lib})
@@ -178,5 +223,5 @@ add_subdirectory(tests)
 
 message(STATUS "Temporal Forge Player configured:")
 message(STATUS "  FFmpeg: ${FFMPEG_VERSION} (libs: ${FFMPEG_LIBRARIES})")
-message(STATUS "  Vulkan: ${VULKAN_VERSION}")
+message(STATUS "  Vulkan: ${Vulkan_VERSION}")
 message(STATUS "  Qt6:    ${Qt6_VERSION}")

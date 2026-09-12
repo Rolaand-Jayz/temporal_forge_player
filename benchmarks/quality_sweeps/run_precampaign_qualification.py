@@ -24,7 +24,6 @@ def digest(path: Path) -> str:
 def ppm_png(root: Path, scene: str, inp: int, out: int, cas: str) -> Path:
     return root / f"{scene}_{inp}to{out}_{cas}.png"
 
-
 def configure_cas_environment(env: dict[str, str], cas_name: str, cas_strength: str) -> None:
     """Use the runtime's presence-based disable switch without ambient leakage."""
     env["TFORGE_FSR4_CAS_STRENGTH"] = cas_strength
@@ -44,7 +43,7 @@ def checker_score(path: Path) -> float:
 
 def main() -> int:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--player", type=Path, default=ROOT / "build-fast/temporal_forge_player")
+    ap.add_argument("--player", type=Path, default=ROOT / "build" / "temporal_forge_player")
     ap.add_argument("--output-root", type=Path)
     ap.add_argument("--manifest", type=Path, default=ROOT / "benchmarks/video_corpus/manifest.csv")
     args = ap.parse_args()

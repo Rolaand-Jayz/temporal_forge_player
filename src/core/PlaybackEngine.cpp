@@ -2,7 +2,9 @@
 #include "core/PlaybackEngine.hpp"
 #include "backend/GpuCapabilityProbe.hpp"
 #include "backend/WeightBlob.hpp"
+#include "core/PlaylistAdvancement.hpp"
 #include "util/FsrTargetMath.hpp"
+#include "util/Fsr4Paths.hpp"
 #include "util/Log.hpp"
 #include "util/TemporalFrameContinuity.hpp"
 
@@ -1424,35 +1426,21 @@ bool PlaybackEngine::initFsr4Path(int decodedW, int decodedH, int modelW,
     fsr4Blob_ = {};
     const std::string blobName =
         WeightBlobLoader::presetFileName(blobFilePreset);
-    const char *reRoot = std::getenv("TFORGE_FSR4_RE_ROOT");
-    std::filesystem::path blobFile;
-    std::vector<std::filesystem::path> candidates;
-    if (reRoot && *reRoot) {
-      candidates.emplace_back(
-          std::filesystem::path(reRoot) /
-          ("extracted/v410_initializers/" + blobName));
-    }
-    for (auto p : {
-             std::filesystem::path(
-                 "/home/rolaandjayz/ZCodeProject/RE-of-FSR-4.1.0-Upscaling-1.0/"
-                 "extracted/v410_initializers/") / blobName,
-             std::filesystem::path(
-                 "/mnt/workdrive/fsr-re/extracted/v410_initializers/") / blobName,
-             std::filesystem::path(
-                 "/mnt/workdrive/fsr-re/dist/fsr4-swap/extracted/"
-                 "v410_initializers/") / blobName,
-             std::filesystem::path("RE-of-FSR-4.1.0-Upscaling-1.0/extracted/"
-                                   "v410_initializers/") / blobName,
-             std::filesystem::path("../RE-of-FSR-4.1.0-Upscaling-1.0/extracted/"
-                                   "v410_initializers/") / blobName})
-      candidates.push_back(std::move(p));
-    for (const auto &p : candidates) {
-      if (std::filesystem::exists(p)) { blobFile = p; break; }
-    }
-    if (blobFile.empty()) {
-      logWarn("PlaybackEngine: FSR4 weight blob not found; upscaling disabled");
+    const auto resolved = tforge::fsr4paths::resolveWeightBlob(blobName);
+    if (!resolved.found()) {
+      std::string searched;
+      for (const auto &p : resolved.searched)
+        searched += (searched.empty() ? "" : ", ") + p.string();
+      if (searched.empty())
+        searched = "<no search locations: TFORGE_FSR4_RE_ROOT, XDG_DATA_HOME "
+                   "and HOME are all unset>";
+      logWarn("PlaybackEngine: FSR4 weight blob '{}' not found; upscaling "
+              "disabled (searched: {}; override: point TFORGE_FSR4_RE_ROOT "
+              "at the RE tree root containing extracted/v410_initializers/)",
+              blobName, searched);
       return false;
     }
+    const std::filesystem::path blobFile = resolved.path;
     auto loaded = WeightBlobLoader::load(blobFilePreset, blobFile.string());
     if (!loaded.ok) {
       logWarn("PlaybackEngine: FSR4 weight blob load failed ({}); upscaling disabled",
@@ -2788,8 +2776,14 @@ void PlaybackEngine::videoDecodeLoop() {
         previousRenderHeight = 0;
         lastAnalysisPtsUs_ = -1;
         temporalFrameContinuity.clear();
+        videoDrained_.store(false, std::memory_order_release);
         handledSeekGeneration = currentSeekGeneration;
       }
+      // Track real decoder end-of-stream for the advancement decision. The
+      // decoder sets its drain flag when avcodec_receive_frame reports
+      // AVERROR_EOF; reset happens at the seek generation boundary above.
+      videoDrained_.store(vdec_ && vdec_->drainComplete(),
+                          std::memory_order_release);
       if (hasPendingDecodedFrame) {
         // A pending frame may have been copied out of the decoder just before
         // a seek request. It belongs to the old source sequence and must be
@@ -5020,34 +5014,23 @@ void PlaybackEngine::onPollTick() {
   const qint64 duration = durationUs();
   const qint64 lastPts = lastRenderedPtsUs_.load(std::memory_order_acquire);
   // The decoder can drain a short tail before the UI has consumed the final
-  // frame. Wait until the last displayed PTS is close to the container end so
-  // automatic advancement never cuts off the last visible frame.
-  // Audio is the master clock (spec 01) and frequently outlives the last
-  // video frame (audio tail). Once the video decoder drained, lastPts can
-  // never advance again, so pacing the tail on the video PTS would stall
-  // advancement forever on files whose container duration extends past the
-  // last video-frame PTS. Pace the tail on the audio clock instead; with no
-  // audio clock, a drained video queue means the final frame is already on
-  // screen and no PTS will arrive to change lastPts.
-  const qint64 audioClock = audio_.clockUs();
-  // Either side may own the tail: audio frequently outlives the last video
-  // frame, and video can outlive a shorter audio track (the audio clock
-  // freezes once its ring drains because only real samples advance it).
-  // Pace on whichever clock has progressed furthest, so EOF never waits
-  // forever for a PTS that side can no longer produce.
-  qint64 pacedUs = -1;
-  if (audioClock >= 0)
-    pacedUs = audioClock;
-  if (lastPts > pacedUs)
-    pacedUs = lastPts;
-  if (pacedUs < 0)
-    return; // nothing has been displayed yet
-  const qint64 endUs = duration > 0 ? duration : pacedUs;
-  if (pacedUs + 250'000 < endUs)
-    return;
-  if (duration <= 0 && audioClock >= 0 && audio_.bufferedFrames() > 0)
-    return; // unknown duration: wait until the buffered audio tail has played
-  advancePlaylistAtEnd();
+  // frame. End-of-stream advancement is driven by actual decoded/drained
+  // stream state (see PlaylistAdvancement): once the video decoder reported
+  // EOF and the frame queue is empty, the final frame is on screen and no
+  // future video PTS exists. Audio that is still playing owns the tail
+  // (spec 01: audio is the master clock and frequently outlives the last
+  // video frame); a fixed tail allowance is used only as jitter slack on
+  // that advancing clock, never as the sole gate — a universal 250 ms
+  // assumption stalled forever on content whose final frame legitimately
+  // spans longer than the allowance.
+  const EndOfStreamState endOfStream{
+      .durationUs = duration,
+      .lastRenderedPtsUs = lastPts,
+      .audioClockUs = audio_.clockUs(),
+      .bufferedAudioFrames = static_cast<size_t>(audio_.bufferedFrames()),
+      .videoDrained = videoDrained_.load(std::memory_order_acquire)};
+  if (shouldAdvancePlaylistAtEnd(endOfStream))
+    advancePlaylistAtEnd();
 }
 
 } // namespace temporal_forge

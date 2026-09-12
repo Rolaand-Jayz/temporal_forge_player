@@ -9,6 +9,7 @@
 #include "render/fsr4/Fsr4ConvSteps.hpp"
 #include "render/fsr4/Fsr4Memory.hpp"
 #include "util/FsrTargetMath.hpp"
+#include "util/Fsr4Paths.hpp"
 #include "util/Log.hpp"
 
 #include <algorithm>
@@ -808,13 +809,24 @@ bool Fsr4DispatchHarness::ensureNativeInt8Pipelines(NativeInt8Graph graph) {
   if (*available)
     return true;
 
-  const std::string assetDir =
-      std::string(TFORGE_SOURCE_ROOT) + "/resources/fsr4/native_i8/" + name;
+  const auto packDir = tforge::fsr4paths::resolveNativePackDir(name);
+  if (!packDir.found()) {
+    std::string searched;
+    for (const auto &p : packDir.searched)
+      searched += (searched.empty() ? "" : ", ") + p.string();
+    logWarn("Fsr4Harness: native INT8 pack directory not found: {} "
+            "(searched: {})", name, searched);
+    return false;
+  }
+  const std::string assetDir = packDir.path.string();
   for (uint32_t i = 0; i < pipelines->size(); ++i) {
     const std::string path = assetDir + "/pass" + std::to_string(i) + ".spv";
     std::ifstream file(path, std::ios::binary | std::ios::ate);
     if (!file) {
-      logWarn("Fsr4Harness: cannot open native INT8 shader {}", path);
+      logWarn("Fsr4Harness: native INT8 pack '{}' present but incomplete: "
+              "pass{}.spv missing (provisioning required — see "
+              "resources/fsr4/native_i8/README.md); looked at {}",
+              name, i, path);
       return false;
     }
     const auto byteCount = static_cast<size_t>(file.tellg());
@@ -836,6 +848,20 @@ bool Fsr4DispatchHarness::ensureNativeInt8Pipelines(NativeInt8Graph graph) {
         VK_SUCCESS)
       return false;
     const std::string entry = "fsr4_model_v07_i8_pass" + std::to_string(i);
+    // GLM-NEW-04: pin requiredSubgroupSize=64 only when the subgroup-size-
+    // control features were enabled and 64 lies within the device's
+    // min/max required-subgroup-size bounds; otherwise build the pipeline
+    // without a required size (degradation logged once per pack load).
+    const bool useRequired64 =
+        cap_.hasSubgroupSizeControl &&
+        cap_.subgroupMinSize <= 64 && 64 <= cap_.subgroupMaxSize;
+    if (!useRequired64 && !subgroupSizeDegradationLogged_) {
+      subgroupSizeDegradationLogged_ = true;
+      logWarn("Fsr4Harness: subgroup size control unavailable or required "
+              "size 64 out of bounds [{}..{}]; native INT8 pipelines are "
+              "built without a required subgroup size",
+              cap_.subgroupMinSize, cap_.subgroupMaxSize);
+    }
     VkPipelineShaderStageRequiredSubgroupSizeCreateInfo subgroupSize{};
     subgroupSize.sType =
         VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_REQUIRED_SUBGROUP_SIZE_CREATE_INFO;
@@ -847,7 +873,7 @@ bool Fsr4DispatchHarness::ensureNativeInt8Pipelines(NativeInt8Graph graph) {
     pipelineInfo.stage.stage = VK_SHADER_STAGE_COMPUTE_BIT;
     pipelineInfo.stage.module = module;
     pipelineInfo.stage.pName = entry.c_str();
-    pipelineInfo.stage.pNext = &subgroupSize;
+    pipelineInfo.stage.pNext = useRequired64 ? &subgroupSize : nullptr;
     pipelineInfo.layout = nativeInt8Layout_;
     const VkResult result =
         vkCreateComputePipelines(device_, nativeInt8PipelineCache_, 1,
@@ -1214,12 +1240,28 @@ bool Fsr4DispatchHarness::prepareNativeInt8Resources() {
     initializerPack = "ultraperf_4x3_2880";
   else if (nativeInt8Graph_ == NativeInt8Graph::PerformanceFourThree2880)
     initializerPack = "performance_4x3_2880";
-  const std::string path = std::string(TFORGE_SOURCE_ROOT) +
-                           "/resources/fsr4/native_i8/" + initializerPack +
-                           "/initializers.bin";
+  const auto packDir = tforge::fsr4paths::resolveNativePackDir(initializerPack);
+  if (!packDir.found()) {
+    std::string searched;
+    for (const auto &p : packDir.searched)
+      searched += (searched.empty() ? "" : ", ") + p.string();
+    logError("Fsr4Harness: native INT8 pack directory not found: {} "
+             "(searched: {})", initializerPack, searched);
+    return false;
+  }
+  const std::string path = packDir.path.string() + "/initializers.bin";
   std::ifstream file(path, std::ios::binary | std::ios::ate);
-  if (!file || static_cast<VkDeviceSize>(file.tellg()) != initializerSize) {
-    logError("Fsr4Harness: invalid native INT8 initializer {}", path);
+  if (!file) {
+    logError("Fsr4Harness: native INT8 pack '{}' present but incomplete: "
+             "initializers.bin missing (provisioning required — see "
+             "resources/fsr4/native_i8/README.md); looked at {}",
+             initializerPack, path);
+    return false;
+  }
+  if (static_cast<VkDeviceSize>(file.tellg()) != initializerSize) {
+    logError("Fsr4Harness: native INT8 initializer invalid (expected {} "
+             "bytes, got {}) at {}", static_cast<uint64_t>(initializerSize),
+             static_cast<uint64_t>(file.tellg()), path);
     return false;
   }
   std::vector<uint8_t> data(initializerSize);

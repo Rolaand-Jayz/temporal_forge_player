@@ -1,0 +1,31 @@
+{
+  "schema": 1,
+  "status": "promising_not_promoted",
+  "candidate": {
+    "environment": {
+      "TFORGE_FSR4_POSTPASS_TAIL_MAPPING": "swap"
+    },
+    "control": "unset",
+    "shared": {
+      "TFORGE_FSR4_DISABLE_NATIVE_INT8": "1",
+      "TFORGE_FSR4_LEARNED_STRENGTH": "0.55",
+      "TFORGE_FSR4_ENABLE_COLOR_HISTORY": "1",
+      "TFORGE_DISABLE_HW_DECODE": "1"
+    }
+  },
+  "pairs": [
+    {"scene":"tos_daylight","input":"426x240","control":{"ssim":0.837977,"temporal_error":0.663364},"candidate":{"ssim":0.840202,"temporal_error":0.652933}},
+    {"scene":"tos_daylight","input":"1280x720","control":{"ssim":0.931868,"temporal_error":1.376907},"candidate":{"ssim":0.932328,"temporal_error":1.357658}},
+    {"scene":"tos_debris","input":"426x240","control":{"ssim":0.902935,"temporal_error":0.410147},"candidate":{"ssim":0.906336,"temporal_error":0.360138}},
+    {"scene":"tos_debris","input":"1280x720","control":{"ssim":0.982169,"temporal_error":0.112385},"candidate":{"ssim":0.982817,"temporal_error":0.107147}},
+    {"scene":"sintel_rooftop","input":"426x240","control":{"ssim":0.748044,"temporal_error":0.947706},"candidate":{"ssim":0.752059,"temporal_error":0.930152}},
+    {"scene":"sintel_rooftop","input":"1280x720","control":{"ssim":0.904353,"temporal_error":1.014866},"candidate":{"ssim":0.905039,"temporal_error":0.939900}},
+    {"scene":"sintel_cave","input":"426x240","control":{"ssim":0.924641,"temporal_error":0.819206},"candidate":{"ssim":0.924503,"temporal_error":0.817485}},
+    {"scene":"sintel_cave","input":"1280x720","control":{"ssim":0.952848,"temporal_error":0.375595},"candidate":{"ssim":0.952712,"temporal_error":0.364180}}
+  ],
+  "default_path_smoke": [
+    {"scene":"tos_daylight","input":"426x240","control":{"ssim":0.858986,"temporal_error":1.441088},"candidate":{"ssim":0.858986,"temporal_error":1.441089}},
+    {"scene":"sintel_cave","input":"426x240","control":{"ssim":0.950477,"temporal_error":0.501186},"candidate":{"ssim":0.950477,"temporal_error":0.501185}}
+  ],
+  "decision": "Do not change defaults. The generic candidate is numerically eligible but remains opt-in pending broader visual review and an explicit native-vs-generic policy decision."
+}

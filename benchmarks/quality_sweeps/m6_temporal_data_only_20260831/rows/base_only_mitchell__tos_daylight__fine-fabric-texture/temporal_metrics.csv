@@ -1,0 +1,2 @@
+candidateId,scene,configId,startFrame,endFrame,class,frames,width,height,static_flicker,edge_variance,motion_compensated_error,ghost_duration_frames,reset_recovery_frames
+base_only_mitchell,tos_daylight,benchmarks/quality_sweeps/stage_b/base_only_mitchell.json,48,65,fine-fabric-texture,18,1920,1080,0.017197146,0.000081071,0.013041862,0,1

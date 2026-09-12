@@ -1,0 +1,57 @@
+{
+  "name": "stage-f-local-neighborhood",
+  "preset": "Quality",
+  "dimensions": "426x240",
+  "frame": 48,
+  "quality": "high",
+  "clipRegex": "^(tos_daylight|sintel_rooftop|synthetic_edges_text)$",
+  "experiments": [
+    {
+      "id": "tone_m015_none",
+      "baseConfig": "stage_e/tone_template.json",
+      "overrides": {
+        "qualityLab": {
+          "tone": { "exposureEV": -0.015 }
+        }
+      }
+    },
+    {
+      "id": "tone_m010_none",
+      "baseConfig": "stage_e/tone_template.json",
+      "overrides": {
+        "qualityLab": {
+          "tone": { "exposureEV": -0.010 }
+        }
+      }
+    },
+    {
+      "id": "tone_m005_none",
+      "baseConfig": "stage_e/tone_template.json",
+      "overrides": {
+        "qualityLab": {
+          "tone": { "exposureEV": -0.005 }
+        }
+      }
+    },
+    {
+      "id": "tone_m010_sharpen_s005",
+      "baseConfig": "stage_e/tone_template.json",
+      "overrides": {
+        "qualityLab": {
+          "tone": { "exposureEV": -0.010 },
+          "sharpen": { "mode": "adaptive", "strength": 0.05, "limit": 0.125, "threshold": 0.05 }
+        }
+      }
+    },
+    {
+      "id": "tone_m010_sharpen_s010",
+      "baseConfig": "stage_e/tone_template.json",
+      "overrides": {
+        "qualityLab": {
+          "tone": { "exposureEV": -0.010 },
+          "sharpen": { "mode": "adaptive", "strength": 0.10, "limit": 0.125, "threshold": 0.05 }
+        }
+      }
+    }
+  ]
+}

@@ -2298,8 +2298,22 @@ bool GpuImageUploader::uploadExposure(float scalar) {
 //               active frame-upload command buffer (must be called after
 //               uploadColor + dispatchYuvConvert, before endFrameUploads).
 bool GpuImageUploader::dispatchEasu() {
-  if (std::getenv("TFORGE_FSR4_TRUE_FSR1_EASU"))
+  if (std::getenv("TFORGE_FSR4_TRUE_FSR1_EASU")) {
+#if TFORGE_FSR1_PROBE_STUB
+    // Default builds compile the no-op stub into the fsr1_easu.spv.h
+    // contract; the opt-in research flag then leaves the intermediate
+    // undefined. Warn once instead of failing silently.
+    static const bool stubProbeWarned = [] {
+      logWarn("GpuImageUploader: TFORGE_FSR4_TRUE_FSR1_EASU is set, but this "
+              "build contains the no-op FSR1 EASU probe stub; the flag will "
+              "not produce real FSR1 EASU output (build with "
+              "TFORGE_ENABLE_FSR1_PROBE=ON for the real probe)");
+      return true;
+    }();
+    (void)stubProbeWarned;
+#endif
     return dispatchTrueFsr1Easu();
+  }
   if (easuPipeline_ == VK_NULL_HANDLE || easuImage_.image == VK_NULL_HANDLE ||
       rawPresentation_.image == VK_NULL_HANDLE || easuSet_ == VK_NULL_HANDLE)
     return false;

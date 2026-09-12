@@ -361,7 +361,7 @@ ApplicationWindow {
                             title: "Display Scaler"
                             description: "How the (already upscaled) texture is sampled to the window."
                             ComboBox {
-                                model: ["Auto", "Bilinear", "Bicubic", "Lanczos", "EASU-style"]
+                                model: ["Auto (Bicubic)", "Bilinear", "Bicubic", "Lanczos", "EASU-style"]
                                 currentIndex: videoSettings.presentationScaler
                                 onActivated: videoSettings.presentationScaler = currentIndex
                                 width: 240

@@ -1,0 +1,48 @@
+{
+  "schema": "temporal_forge.quality_sweep_results.v1",
+  "campaignId": "agent-learned055-jitter-20260824",
+  "status": "captured-candidate-review",
+  "captureCount": 22,
+  "smoke": {
+    "tos_daylight_426x240": {
+      "jitter0.0": {"dSsim": -0.001077, "dTemporalError": 0.010943, "decision": "rejected_ssim_floor"},
+      "jitter0.5": {"dSsim": -0.000846, "dTemporalError": -0.234844, "decision": "rejected_ssim_floor"},
+      "jitter1.0": {"dSsim": -0.000227, "dTemporalError": -0.469621, "decision": "advanced"}
+    }
+  },
+  "jitter1.0AgainstCurrentDefault": {
+    "pairs": 8,
+    "meanSsimDelta": 0.000196375,
+    "meanTemporalErrorDelta": -0.105450250,
+    "badPairs": 0,
+    "improvedPairs": 4,
+    "minSsimDelta": -0.000228000,
+    "timingMeasured": true,
+    "timing": {
+      "scene": "tos_daylight_426x240",
+      "samplesPerArm": 20,
+      "currentDefaultGpuMedianMs": 1.323,
+      "learnedJitter1GpuMedianMs": 1.326,
+      "gpuMedianDeltaMs": 0.003,
+      "currentDefaultGpuP95Ms": 1.341,
+      "learnedJitter1GpuP95Ms": 1.344,
+      "currentDefaultPipelineMedianMs": 1.6795,
+      "learnedJitter1PipelineMedianMs": 1.682
+    },
+    "humanReviewCompleted": true,
+    "humanReview": {
+      "decision": "blocked_softness",
+      "scope": "tos_daylight_426x240_frame48",
+      "notes": "Matched stills show the learned jitter=1.0 candidate softer in hair, beard, and facial texture than current_default. No ringing or obvious shimmer was observed in this spot check."
+    }
+  },
+  "decision": {
+    "promoted": null,
+    "numericallyEligible": ["learned_055_control_jitter_1.0"],
+    "reason": "Jitter 0.0 and 0.5 failed the SSIM floor in smoke. Jitter 1.0 passed all eight full numeric pairs but remains blocked pending matched timing and human visual review.",
+    "sourceChanged": false,
+    "shaderChanged": false,
+    "benchmarkImagesChanged": false
+  },
+  "captureRoot": "captures/"
+}

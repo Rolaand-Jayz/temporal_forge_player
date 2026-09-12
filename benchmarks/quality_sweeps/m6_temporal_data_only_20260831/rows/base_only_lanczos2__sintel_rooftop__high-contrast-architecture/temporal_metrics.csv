@@ -1,0 +1,2 @@
+candidateId,scene,configId,startFrame,endFrame,class,frames,width,height,static_flicker,edge_variance,motion_compensated_error,ghost_duration_frames,reset_recovery_frames
+base_only_lanczos2,sintel_rooftop,benchmarks/quality_sweeps/stage_b/base_only_lanczos2.json,48,65,high-contrast-architecture,18,1920,1080,0.020756868,0.000201683,0.015184483,0,1

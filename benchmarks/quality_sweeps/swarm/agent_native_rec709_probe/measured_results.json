@@ -1,0 +1,20 @@
+{
+  "candidate": "native-explicit-rec709-input-transfer",
+  "baseline": "native-default-input-transfer",
+  "scope": {
+    "scenes": ["tos_daylight", "tos_debris", "sintel_rooftop", "sintel_cave"],
+    "input": "426x240",
+    "output": "1920x1080",
+    "graph": "native-int8",
+    "warmup_frames": 12,
+    "scored_frames": 12
+  },
+  "pairs": [
+    {"scene":"tos_daylight", "default_ssim":0.855339, "rec709_ssim":0.845355, "ssim_delta":-0.009984, "default_temporal_error":1.523411, "rec709_temporal_error":1.549737, "temporal_error_delta":0.026326},
+    {"scene":"tos_debris", "default_ssim":0.930991, "rec709_ssim":0.914676, "ssim_delta":-0.016315, "default_temporal_error":0.126140, "rec709_temporal_error":0.312883, "temporal_error_delta":0.186743},
+    {"scene":"sintel_rooftop", "default_ssim":0.772943, "rec709_ssim":0.771929, "ssim_delta":-0.001014, "default_temporal_error":0.686263, "rec709_temporal_error":1.719900, "temporal_error_delta":1.033637},
+    {"scene":"sintel_cave", "default_ssim":0.935429, "rec709_ssim":0.919728, "ssim_delta":-0.015701, "default_temporal_error":0.661521, "rec709_temporal_error":0.473741, "temporal_error_delta":-0.187780}
+  ],
+  "decision": "reject-for-promotion",
+  "default_changed": false
+}

@@ -1,0 +1,44 @@
+Input #0, png_pipe, from '/home/rolaandjayz/ZCodeProject/temporal_forge_player/benchmarks/quality_sweeps/quality_campaign_capture/resolution_360_to_1080/fsr_pre/scale_2_75/sintel_cave/quality_frames/sintel_cave_reference_2640x1486_f48_scale_2_75.png':
+  Duration: N/A, bitrate: N/A
+  Stream #0:0: Video: png, rgb24(pc, gbr/unknown/unknown), 2640x1486 [SAR 1486:1485 DAR 16:9], 25 fps, 25 tbr, 25 tbn
+Stream mapping:
+  Stream #0:0 -> #0:0 (png (native) -> wrapped_avframe (native))
+Press [q] to stop, [?] for help
+[swscaler @ 0x7fe33a77e740] deprecated pixel format used, make sure you did set range correctly
+[Parsed_metadata_3 @ 0x7fe338004680] frame:0    pts:0       pts_time:0
+[Parsed_metadata_3 @ 0x7fe338004680] lavfi.signalstats.YMIN=0
+[Parsed_metadata_3 @ 0x7fe338004680] lavfi.signalstats.YLOW=0
+[Parsed_metadata_3 @ 0x7fe338004680] lavfi.signalstats.YAVG=9.09743
+[Parsed_metadata_3 @ 0x7fe338004680] lavfi.signalstats.YHIGH=27
+[Parsed_metadata_3 @ 0x7fe338004680] lavfi.signalstats.YMAX=253
+[Parsed_metadata_3 @ 0x7fe338004680] lavfi.signalstats.UMIN=128
+[Parsed_metadata_3 @ 0x7fe338004680] lavfi.signalstats.ULOW=128
+[Parsed_metadata_3 @ 0x7fe338004680] lavfi.signalstats.UAVG=128
+[Parsed_metadata_3 @ 0x7fe338004680] lavfi.signalstats.UHIGH=128
+[Parsed_metadata_3 @ 0x7fe338004680] lavfi.signalstats.UMAX=128
+[Parsed_metadata_3 @ 0x7fe338004680] lavfi.signalstats.VMIN=128
+[Parsed_metadata_3 @ 0x7fe338004680] lavfi.signalstats.VLOW=128
+[Parsed_metadata_3 @ 0x7fe338004680] lavfi.signalstats.VAVG=128
+[Parsed_metadata_3 @ 0x7fe338004680] lavfi.signalstats.VHIGH=128
+[Parsed_metadata_3 @ 0x7fe338004680] lavfi.signalstats.VMAX=128
+[Parsed_metadata_3 @ 0x7fe338004680] lavfi.signalstats.SATMIN=0
+[Parsed_metadata_3 @ 0x7fe338004680] lavfi.signalstats.SATLOW=0
+[Parsed_metadata_3 @ 0x7fe338004680] lavfi.signalstats.SATAVG=0
+[Parsed_metadata_3 @ 0x7fe338004680] lavfi.signalstats.SATHIGH=0
+[Parsed_metadata_3 @ 0x7fe338004680] lavfi.signalstats.SATMAX=0
+[Parsed_metadata_3 @ 0x7fe338004680] lavfi.signalstats.HUEMED=180
+[Parsed_metadata_3 @ 0x7fe338004680] lavfi.signalstats.HUEAVG=180
+[Parsed_metadata_3 @ 0x7fe338004680] lavfi.signalstats.YDIF=0
+[Parsed_metadata_3 @ 0x7fe338004680] lavfi.signalstats.UDIF=0
+[Parsed_metadata_3 @ 0x7fe338004680] lavfi.signalstats.VDIF=0
+[Parsed_metadata_3 @ 0x7fe338004680] lavfi.signalstats.YBITDEPTH=8
+[Parsed_metadata_3 @ 0x7fe338004680] lavfi.signalstats.UBITDEPTH=1
+[Parsed_metadata_3 @ 0x7fe338004680] lavfi.signalstats.VBITDEPTH=1
+Output #0, null, to 'pipe:':
+  Metadata:
+    encoder         : Lavf63.1.101
+  Stream #0:0: Video: wrapped_avframe, yuvj444p(pc, progressive), 2640x1486 [SAR 1486:1485 DAR 16:9], q=2-31, 200 kb/s, 25 fps, 25 tbn
+    Metadata:
+      encoder         : Lavc63.1.101 wrapped_avframe
+[out#0/null @ 0x55a7af803100] video:0KiB audio:0KiB subtitle:0KiB other streams:0KiB global headers:0KiB muxing overhead: unknown
+frame=    1 fps=0.0 q=-0.0 Lsize=N/A time=00:00:00.04 bitrate=N/A speed=0.73x elapsed=0:00:00.05    

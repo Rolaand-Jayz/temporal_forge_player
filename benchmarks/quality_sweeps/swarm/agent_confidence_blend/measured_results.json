@@ -1,0 +1,29 @@
+{
+  "schema": "temporal_forge.quality_sweep_measurements.v1",
+  "sourcePolicy": "read-only existing /tmp artifacts; no captures run for package creation",
+  "common": {"frames": 24, "output": "1280x720", "label": "fsr", "metrics": "CSV header order is preserved in each scene record"},
+  "experiments": [
+    {
+      "id": "confidence-blend-010",
+      "controlValue": 0.1,
+      "sourceDirectory": "/tmp/tforge-confidence-strength-sweep-20260824",
+      "scenes": {
+        "sintel_cave": {"source": "/tmp/tforge-confidence-strength-sweep-20260824/s0.10_sintel_cave.csv", "fsrSsimMean": 0.900049, "fsrSsimMin": 0.896358, "fsrTemporalDeltaMean": 2.208365, "referenceTemporalDeltaMean": 2.800689, "fsrTemporalDeltaAbsError": 0.592324, "fsrTemporalDeltaVsBilinearAbsError": 0.276863},
+        "sintel_rooftop": {"source": "/tmp/tforge-confidence-strength-sweep-20260824/s0.10_sintel_rooftop.csv", "fsrSsimMean": 0.851772, "fsrSsimMin": 0.834920, "fsrTemporalDeltaMean": 5.687242, "referenceTemporalDeltaMean": 5.910165, "fsrTemporalDeltaAbsError": 0.222923, "fsrTemporalDeltaVsBilinearAbsError": 0.434532},
+        "tos_daylight": {"source": "/tmp/tforge-confidence-strength-sweep-20260824/s0.10_tos_daylight.csv", "fsrSsimMean": 0.912325, "fsrSsimMin": 0.905702, "fsrTemporalDeltaMean": 2.513386, "referenceTemporalDeltaMean": 3.244683, "fsrTemporalDeltaAbsError": 0.731297, "fsrTemporalDeltaVsBilinearAbsError": 0.360131},
+        "tos_debris": {"source": "/tmp/tforge-confidence-strength-sweep-20260824/s0.10_tos_debris.csv", "fsrSsimMean": 0.957802, "fsrSsimMin": 0.951915, "fsrTemporalDeltaMean": 6.774240, "referenceTemporalDeltaMean": 6.808825, "fsrTemporalDeltaAbsError": 0.034585, "fsrTemporalDeltaVsBilinearAbsError": 0.293017}
+      }
+    },
+    {
+      "id": "confidence-blend-015",
+      "controlValue": 0.15,
+      "sourceDirectory": "/tmp/tforge-confidence-strength-sweep-20260824",
+      "scenes": {
+        "sintel_cave": {"source": "/tmp/tforge-confidence-strength-sweep-20260824/s0.15_sintel_cave.csv", "fsrSsimMean": 0.900384, "fsrSsimMin": 0.895686, "fsrTemporalDeltaMean": 2.199363, "referenceTemporalDeltaMean": 2.800689, "fsrTemporalDeltaAbsError": 0.601326, "fsrTemporalDeltaVsBilinearAbsError": 0.267861},
+        "sintel_rooftop": {"source": "/tmp/tforge-confidence-strength-sweep-20260824/s0.15_sintel_rooftop.csv", "fsrSsimMean": 0.852006, "fsrSsimMin": 0.833144, "fsrTemporalDeltaMean": 5.727500, "referenceTemporalDeltaMean": 5.910165, "fsrTemporalDeltaAbsError": 0.182665, "fsrTemporalDeltaVsBilinearAbsError": 0.474790},
+        "tos_daylight": {"source": "/tmp/tforge-confidence-strength-sweep-20260824/s0.15_tos_daylight.csv", "fsrSsimMean": 0.912359, "fsrSsimMin": 0.904740, "fsrTemporalDeltaMean": 2.557150, "referenceTemporalDeltaMean": 3.244683, "fsrTemporalDeltaAbsError": 0.687533, "fsrTemporalDeltaVsBilinearAbsError": 0.403895},
+        "tos_debris": {"source": "/tmp/tforge-confidence-strength-sweep-20260824/s0.15_tos_debris.csv", "fsrSsimMean": 0.957864, "fsrSsimMin": 0.951379, "fsrTemporalDeltaMean": 6.772564, "referenceTemporalDeltaMean": 6.808825, "fsrTemporalDeltaAbsError": 0.036261, "fsrTemporalDeltaVsBilinearAbsError": 0.291341}
+      }
+    }
+  ]
+}

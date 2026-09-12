@@ -1,0 +1,18 @@
+{
+  "auditDate": "2026-08-24",
+  "status": "capture-ready-not-run",
+  "sourceChanges": false,
+  "matrix": [
+    {"id":"coverage_control","environment":{}},
+    {"id":"history_control","environment":{"TFORGE_FSR4_ENABLE_COLOR_HISTORY":"1"}},
+    {"id":"history_blend075_s015","environment":{"TFORGE_FSR4_ENABLE_COLOR_HISTORY":"1","TFORGE_FSR4_LEARNED_STRENGTH":"0.15","TFORGE_FSR4_LEARNED_CONFIDENCE_BLEND":"0.75"}},
+    {"id":"history_blend100_s015","environment":{"TFORGE_FSR4_ENABLE_COLOR_HISTORY":"1","TFORGE_FSR4_LEARNED_STRENGTH":"0.15","TFORGE_FSR4_LEARNED_CONFIDENCE_BLEND":"1.0"}}
+  ],
+  "scenes":["tos_daylight","tos_debris","sintel_rooftop","sintel_cave"],
+  "inputResolutions":["426x240","1280x720"],
+  "warmupFrames":36,
+  "scoredFrames":24,
+  "captureCount":32,
+  "mustNotSet":["TFORGE_FSR4_DISABLE_MOTION_VALIDITY","TFORGE_FSR4_ENABLE_RECURRENT","TFORGE_FSR4_DISABLE_LEARNED_CONFIDENCE_GATE","TFORGE_FSR4_JITTER_MODE","TFORGE_FSR4_CAS_STRENGTH","TFORGE_FSR4_USE_DISPLAY_BASE"],
+  "evidence":["benchmarks/quality_sweeps/swarm/agent_coverage_validation/measured_results.json","benchmarks/quality_sweeps/swarm/agent_next_combo/measured_results.json","benchmarks/quality_sweeps/swarm/agent_confidence_blend/README.md","benchmarks/quality_sweeps/swarm/agent_inventory/manifest.md","src/render/Fsr4DispatchHarness.cpp","benchmarks/video_corpus/run_temporal_quality.sh"]
+}

@@ -1,0 +1,72 @@
+{
+  "version": 1,
+  "updated_at": "2026-09-04T02:44:23.260227+00:00",
+  "pairs": [
+    {
+      "pair": "resolution_360_to_480",
+      "marker": "/home/rolaandjayz/ZCodeProject/temporal_forge_player/benchmarks/quality_sweeps/quality_campaign_capture_canonical_v1/resolution_360_to_480/harness_pair_complete.json",
+      "completed_at": "2026-09-04T00:50:16.921960+00:00",
+      "assets": 92
+    },
+    {
+      "pair": "resolution_360_to_720",
+      "marker": "/home/rolaandjayz/ZCodeProject/temporal_forge_player/benchmarks/quality_sweeps/quality_campaign_capture_canonical_v1/resolution_360_to_720/harness_pair_complete.json",
+      "completed_at": "2026-09-04T00:54:59.956379+00:00",
+      "assets": 92
+    },
+    {
+      "pair": "resolution_360_to_1080",
+      "marker": "/home/rolaandjayz/ZCodeProject/temporal_forge_player/benchmarks/quality_sweeps/quality_campaign_capture_canonical_v1/resolution_360_to_1080/harness_pair_complete.json",
+      "completed_at": "2026-09-04T01:01:57.349946+00:00",
+      "assets": 92
+    },
+    {
+      "pair": "resolution_480_to_720",
+      "marker": "/home/rolaandjayz/ZCodeProject/temporal_forge_player/benchmarks/quality_sweeps/quality_campaign_capture_canonical_v1/resolution_480_to_720/harness_pair_complete.json",
+      "completed_at": "2026-09-04T01:06:57.867007+00:00",
+      "assets": 92
+    },
+    {
+      "pair": "resolution_480_to_1080",
+      "marker": "/home/rolaandjayz/ZCodeProject/temporal_forge_player/benchmarks/quality_sweeps/quality_campaign_capture_canonical_v1/resolution_480_to_1080/harness_pair_complete.json",
+      "completed_at": "2026-09-04T01:14:17.054217+00:00",
+      "assets": 92
+    },
+    {
+      "pair": "resolution_480_to_1440",
+      "marker": "/home/rolaandjayz/ZCodeProject/temporal_forge_player/benchmarks/quality_sweeps/quality_campaign_capture_canonical_v1/resolution_480_to_1440/harness_pair_complete.json",
+      "completed_at": "2026-09-04T01:40:01.840586+00:00",
+      "assets": 92
+    },
+    {
+      "pair": "resolution_720_to_1080",
+      "marker": "/home/rolaandjayz/ZCodeProject/temporal_forge_player/benchmarks/quality_sweeps/quality_campaign_capture_canonical_v1/resolution_720_to_1080/harness_pair_complete.json",
+      "completed_at": "2026-09-04T01:47:07.132012+00:00",
+      "assets": 92
+    },
+    {
+      "pair": "resolution_720_to_1440",
+      "marker": "/home/rolaandjayz/ZCodeProject/temporal_forge_player/benchmarks/quality_sweeps/quality_campaign_capture_canonical_v1/resolution_720_to_1440/harness_pair_complete.json",
+      "completed_at": "2026-09-04T01:57:07.159359+00:00",
+      "assets": 92
+    },
+    {
+      "pair": "resolution_720_to_2160",
+      "marker": "/home/rolaandjayz/ZCodeProject/temporal_forge_player/benchmarks/quality_sweeps/quality_campaign_capture_canonical_v1/resolution_720_to_2160/harness_pair_complete.json",
+      "completed_at": "2026-09-04T02:15:19.513561+00:00",
+      "assets": 92
+    },
+    {
+      "pair": "resolution_1080_to_1440",
+      "marker": "/home/rolaandjayz/ZCodeProject/temporal_forge_player/benchmarks/quality_sweeps/quality_campaign_capture_canonical_v1/resolution_1080_to_1440/harness_pair_complete.json",
+      "completed_at": "2026-09-04T02:25:34.840992+00:00",
+      "assets": 92
+    },
+    {
+      "pair": "resolution_1080_to_2160",
+      "marker": "/home/rolaandjayz/ZCodeProject/temporal_forge_player/benchmarks/quality_sweeps/quality_campaign_capture_canonical_v1/resolution_1080_to_2160/harness_pair_complete.json",
+      "completed_at": "2026-09-04T02:44:23.241404+00:00",
+      "assets": 92
+    }
+  ]
+}

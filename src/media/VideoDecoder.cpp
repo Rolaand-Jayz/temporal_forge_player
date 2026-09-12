@@ -77,6 +77,7 @@ VideoDecoder::VideoDecoder() = default;
 VideoDecoder::~VideoDecoder() { close(); }
 
 bool VideoDecoder::open(AVFormatContext* fmt, int streamIndex) {
+    drainComplete_ = false;
     close();
     if (!fmt || streamIndex < 0 || streamIndex >= static_cast<int>(fmt->nb_streams)) {
         logError("VideoDecoder: invalid stream index {}", streamIndex);
@@ -211,6 +212,7 @@ bool VideoDecoder::receiveFrame(DecodedVideoFrame& out) {
     for (auto& layer : out.drmLayerPlane)
         for (auto& plane : layer) plane = {};
     int err = avcodec_receive_frame(codec_, frame_);
+    if (err == AVERROR_EOF) drainComplete_ = true;
     if (err < 0) return false; // EAGAIN or EOF
 
     const AVPixelFormat decodedFmt = static_cast<AVPixelFormat>(frame_->format);
@@ -455,6 +457,7 @@ bool VideoDecoder::gpuFriendlyFormat() const {
 void VideoDecoder::flush() {
     if (codec_) avcodec_flush_buffers(codec_);
     frameCounter_ = 0;
+    drainComplete_ = false;
 }
 
 } // namespace temporal_forge

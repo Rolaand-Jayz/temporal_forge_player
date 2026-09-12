@@ -1,0 +1,47 @@
+{
+  "candidate": "motion-aware-display-base",
+  "status": "rejected",
+  "settings": {
+    "displayBaseStrength": 0.5,
+    "motionAwareDisplayBase": true,
+    "disableHardwareDecode": true,
+    "enableColorHistory": true,
+    "learnedStrength": 0.15,
+    "warmupFrames": 8,
+    "scoredFrames": 12,
+    "input": "426x240",
+    "output": "1920x1080"
+  },
+  "comparisons": [
+    {
+      "scene": "tos_daylight",
+      "fixed": {
+        "ssim": 0.859688,
+        "temporalAbsError": 1.479497
+      },
+      "motionAware": {
+        "ssim": 0.859747,
+        "temporalAbsError": 1.48563
+      },
+      "deltaMotionAwareMinusFixed": {
+        "ssim": 0.000059,
+        "temporalAbsError": 0.006133
+      }
+    },
+    {
+      "scene": "sintel_cave",
+      "fixed": {
+        "ssim": 0.950649,
+        "temporalAbsError": 0.503946
+      },
+      "motionAware": {
+        "ssim": 0.950655,
+        "temporalAbsError": 0.503985
+      },
+      "deltaMotionAwareMinusFixed": {
+        "ssim": 0.000006,
+        "temporalAbsError": 0.000039
+      }
+    }
+  ]
+}

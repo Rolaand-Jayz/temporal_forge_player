@@ -1,0 +1,25 @@
+{
+  "schema": "temporal_forge.quality_sweep_results.v1",
+  "campaignId": "motion-outlier-limit-20260825",
+  "status": "diagnostic-not-promoted",
+  "configuration": {
+    "scene": "sintel_cave",
+    "input": "426x240",
+    "output": "1920x1080",
+    "warmupFrames": 8,
+    "scoredFrames": 12,
+    "TFORGE_DISABLE_HW_DECODE": "1",
+    "TFORGE_ENABLE_COLOR_HISTORY": "1",
+    "TFORGE_FSR4_LEARNED_STRENGTH": "0.15"
+  },
+  "baseline": {
+    "ssim": 0.950612,
+    "temporalAbsError": 0.488107
+  },
+  "limit4": {
+    "TFORGE_FSR4_EXPERIMENTAL_MOTION_MAX_BLOCKS": "4",
+    "ssim": 0.950612,
+    "temporalAbsError": 0.488108
+  },
+  "decision": "Do not promote. The outlier filter is useful as a diagnostic control, but this isolated cave result is neutral and does not establish a quality gain."
+}

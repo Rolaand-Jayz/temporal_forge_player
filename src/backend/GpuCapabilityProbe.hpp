@@ -58,6 +58,13 @@ struct GpuCapability {
     // RDNA3 INT8 path: SINT8xSINT8->SINT32 symmetric quantized matrix math.
     bool hasUint8Input = false;
     bool hasInt32Accum = false;
+    // M-05 capability handoff: FSR4-class device facts the VulkanContext
+    // planner gates on. The probe verifies the physical device exposes them
+    // so PlaybackEngine can decline the FSR4-RE backend before the harness
+    // is created (in addition to the existing proof gates).
+    bool hasSubgroupSizeControl = false; // VK_EXT_subgroup_size_control + features
+    uint32_t subgroupMinSize = 0;        // valid when hasSubgroupSizeControl
+    uint32_t subgroupMaxSize = 0;
     // FP16 fallback path: FLOAT16×FLOAT16→FLOAT32.
     bool hasFp16Fallback = false;
     CoopMatrixMode int8Mode;     // resolved when profile == Int8Dot4

@@ -1,0 +1,2 @@
+candidateId,scene,configId,startFrame,endFrame,class,frames,width,height,static_flicker,edge_variance,motion_compensated_error,ghost_duration_frames,reset_recovery_frames
+base_only_bilinear,sintel_cave,benchmarks/quality_sweeps/stage_a/base_only_bilinear.json,48,65,low-light-shadow-detail,18,1920,1080,0.002951184,0.000002151,0.013812030,0,1

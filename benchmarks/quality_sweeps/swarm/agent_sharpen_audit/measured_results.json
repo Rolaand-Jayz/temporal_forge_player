@@ -1,0 +1,22 @@
+{
+  "schema": "temporal_forge.quality_sweep_results.v1",
+  "campaignId": "agent-sharpen-audit-legacy-rcas-20260824",
+  "status": "captured-not-promoted",
+  "captureCount": 40,
+  "baseline": "rcas_008",
+  "aggregate": {
+    "rcas_000": {"meanSsim": 0.909595125, "meanTemporalError": 0.585892750, "badPairs": 0, "improvedPairs": 2},
+    "rcas_004": {"meanSsim": 0.909592625, "meanTemporalError": 0.585796125, "badPairs": 0, "improvedPairs": 2},
+    "rcas_008": {"meanSsim": 0.909590000, "meanTemporalError": 0.585701000, "badPairs": 0, "improvedPairs": 0},
+    "rcas_012": {"meanSsim": 0.909587250, "meanTemporalError": 0.585606625, "badPairs": 1, "improvedPairs": 1},
+    "rcas_016": {"meanSsim": 0.909584375, "meanTemporalError": 0.585516000, "badPairs": 2, "improvedPairs": 1}
+  },
+  "decision": {
+    "promoted": null,
+    "reason": "No level passed every paired gate. Lower strength slightly raises SSIM but also raises temporal error and improves only two of eight pairs; higher strength fails the paired SSIM floor and/or safety gate.",
+    "sourceChanged": false,
+    "benchmarkImagesChanged": false
+  },
+  "captureRoot": "captures/",
+  "metrics": "fsr_ssim_mean and fsr_temporal_delta_abs_error from each CSV; all 40 captures had expected dimensions and finite metrics."
+}

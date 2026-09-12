@@ -1,0 +1,11 @@
+{
+  "qualityLab": {
+    "enabled": true,
+    "composition": { "mode": "detail_residual", "learnedStrength": 0.0, "residualStrength": 0.25 },
+    "baseFilter": { "mode": "bilinear", "b": 0.33333334, "c": 0.33333334 },
+    "residual": { "lowpassMode": "box3x3", "radius": 1.0, "sigma": 0.85 },
+    "sharpen": { "mode": "adaptive", "strength": 0.03, "limit": 0.125, "threshold": 0.05 },
+    "tone": { "exposureEV": 0.0, "contrast": 0.0, "contrastPivot": 0.5, "gamma": 1.0 },
+    "presentation": { "filter": "bicubic" }
+  }
+}

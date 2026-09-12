@@ -1,0 +1,4 @@
+motion sidecar written: /home/rolaandjayz/ZCodeProject/temporal_forge_player/benchmarks/quality_sweeps/m6_temporal_data_only_20260831/rows/base_only_catmull_rom__tos_daylight__faces-hair-skin/codec_motion.json
+event trace written: /home/rolaandjayz/ZCodeProject/temporal_forge_player/benchmarks/quality_sweeps/m6_temporal_data_only_20260831/rows/base_only_catmull_rom__tos_daylight__faces-hair-skin/events.json
+temporal metrics written: /home/rolaandjayz/ZCodeProject/temporal_forge_player/benchmarks/quality_sweeps/m6_temporal_data_only_20260831/rows/base_only_catmull_rom__tos_daylight__faces-hair-skin/temporal_metrics.csv
+temporal quality results: /home/rolaandjayz/ZCodeProject/temporal_forge_player/benchmarks/quality_sweeps/m6_temporal_data_only_20260831/rows/base_only_catmull_rom__tos_daylight__faces-hair-skin/quality.csv

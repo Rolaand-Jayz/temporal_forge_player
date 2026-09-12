@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1920 1080" role="img" aria-labelledby="title desc">
+  <title id="title">NO IMAGE</title><desc id="desc">The selected Temporal Forge experiment has not been rendered yet.</desc>
+  <rect width="1920" height="1080" fill="#090b0e"/>
+  <path d="M0 540h1920M960 0v1080" stroke="#1e2931" stroke-width="2"/>
+  <circle cx="960" cy="470" r="116" fill="none" stroke="#58d5e4" stroke-width="4" opacity=".85"/>
+  <path d="M914 470h92M960 424v92" stroke="#e85b61" stroke-width="4"/>
+  <text x="960" y="670" fill="#eef2f5" font-family="monospace" font-size="48" text-anchor="middle" letter-spacing="12">NO IMAGE</text>
+  <text x="960" y="730" fill="#8d99a6" font-family="monospace" font-size="24" text-anchor="middle">RESULT NOT PRESENT IN REVIEW_HARNESS/IMAGES</text>
+</svg>

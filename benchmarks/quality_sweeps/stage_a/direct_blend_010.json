@@ -1,0 +1,10 @@
+{
+  "qualityLab": {
+    "enabled": true,
+    "composition": { "mode": "direct_blend", "learnedStrength": 0.10, "residualStrength": 0.0 },
+    "baseFilter": { "mode": "catmull_rom", "b": 0.0, "c": 0.5 },
+    "sharpen": { "mode": "none", "strength": 0.0, "limit": 0.25, "threshold": 0.05 },
+    "tone": { "exposureEV": 0.0, "contrast": 0.0, "contrastPivot": 0.5, "gamma": 1.0 },
+    "presentation": { "filter": "bicubic" }
+  }
+}

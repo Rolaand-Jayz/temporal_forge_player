@@ -1,0 +1,24 @@
+{
+  "schema": "temporal_forge.quality_sweep_matrix.v1",
+  "description": "Explicit capture matrix for the swarm orchestrator.",
+  "defaults": {
+    "binary": "build/temporal_forge_player",
+    "corpusManifest": "benchmarks/video_corpus/manifest.csv",
+    "sourceDimensions": "426x240",
+    "outputDimensions": "1280x720",
+    "frame": 48,
+    "quality": "high",
+    "preset": "Quality",
+    "clipRegex": "^(tos_daylight|tos_debris|sintel_rooftop|sintel_cave)$",
+    "jitter": {"mode": "current", "controlledStrength": 1.0},
+    "minFreeBytes": 1073741824
+  },
+  "axes": {
+    "configuration": [
+      {"id": "agent-a-direct-001-residual-000", "path": "benchmarks/quality_sweeps/swarm/agent_a/direct_001_residual_000.json"},
+      {"id": "agent-a-direct-002-residual-010", "path": "benchmarks/quality_sweeps/swarm/agent_a/direct_002_residual_010.json"},
+      {"id": "agent-b-tone-000-sharpen-003", "path": "benchmarks/quality_sweeps/swarm/agent_b/base_only_current_exposure_000_sharpen_s003.json"},
+      {"id": "agent-e-detail-025-sharpen-003", "path": "benchmarks/quality_sweeps/swarm/agent_e/detail_residual_025_sharpen_003.json"}
+    ]
+  }
+}

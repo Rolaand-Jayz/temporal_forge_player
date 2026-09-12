@@ -1,0 +1,24 @@
+script,flag,required_or_default,meaning,evidence
+benchmarks/quality_sweeps/run_quality_sweep.py,--manifest,required,candidate manifest path,run_quality_sweep.py:80
+benchmarks/quality_sweeps/run_quality_sweep.py,--binary,required,player executable,run_quality_sweep.py:81
+benchmarks/quality_sweeps/run_quality_sweep.py,--output-root,required,capture output root,run_quality_sweep.py:82
+benchmarks/quality_sweeps/run_quality_sweep.py,--tag-prefix,optional,stable artifact prefix plus UTC run id,run_quality_sweep.py:83-87
+benchmarks/quality_sweeps/run_quality_sweep.py,--continue-on-error,optional boolean,continue after failed candidate,run_quality_sweep.py:88-92
+benchmarks/quality_sweeps/run_quality_sweep.py,--workers,optional,default TFORGE_CAPTURE_WORKERS or 2,parallel isolated captures,run_quality_sweep.py:93-98
+benchmarks/quality_sweeps/run_quality_sweep.py,--retries,optional,default 1,retry failed candidate captures,run_quality_sweep.py:99-103
+benchmarks/quality_sweeps/run_quality_campaign.py,--campaign,required,campaign JSON,run_quality_campaign.py:160
+benchmarks/quality_sweeps/run_quality_campaign.py,--binary,required,player executable,run_quality_campaign.py:161
+benchmarks/quality_sweeps/run_quality_campaign.py,--output-root,required,campaign output root,run_quality_campaign.py:162
+benchmarks/quality_sweeps/run_quality_campaign.py,--continue-on-error,optional boolean,continue after candidate failure,run_quality_campaign.py:163
+benchmarks/quality_sweeps/run_quality_campaign.py,--workers,optional,default TFORGE_CAPTURE_WORKERS or 2,parallel candidate campaigns,run_quality_campaign.py:164-168
+benchmarks/quality_sweeps/run_quality_campaign.py,--retries,optional,default 1,retries passed to candidate sweep,run_quality_campaign.py:169-173
+benchmarks/quality_sweeps/spatial_capture.py,--input,required,input PPM/image path,spatial_capture.py:223
+benchmarks/quality_sweeps/spatial_capture.py,--output,required,spatial-map output path,spatial_capture.py:224
+benchmarks/video_corpus/run_quality.sh,PLAYER positional 1,optional,player default repo/build/temporal_forge_player,run_quality.sh:5
+benchmarks/video_corpus/run_quality.sh,SELECTOR positional 2,optional,default 1280x720,run_quality.sh:6
+benchmarks/video_corpus/run_quality.sh,OUTPUT_CSV positional 3,optional,quality CSV destination,run_quality.sh:7
+benchmarks/video_corpus/run_quality_matrix.sh,PLAYER SELECTOR OUTPUT_DIRECTORY,required,run every user-facing preset,run_quality_matrix.sh:8-12
+benchmarks/video_corpus/run_temporal_quality.sh,PLAYER INPUT REFERENCE OUTPUT_CSV [FRAMES],required plus default frames=8,capture temporal sequence,run_temporal_quality.sh:12-16
+benchmarks/video_corpus/run_temporal_quality_matrix.sh,PLAYER INPUT REFERENCE OUTPUT_DIR [FRAMES],required plus default frames=8,temporal preset matrix,run_temporal_quality_matrix.sh:8-11
+benchmarks/video_corpus/run_temporal_quality_matrix.sh,--retries N,optional,default 1 retries,run_temporal_quality_matrix.sh:30-37
+benchmarks/video_corpus/run_temporal_quality_matrix.sh,--dry-run,optional boolean,print planned matrix without capture,run_temporal_quality_matrix.sh:38-41

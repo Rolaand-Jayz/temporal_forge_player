@@ -1,0 +1,15 @@
+{
+  "name": "stage-e1-exposure-refine",
+  "preset": "Quality",
+  "dimensions": "426x240",
+  "frame": 48,
+  "quality": "high",
+  "clipRegex": "^(tos_daylight|sintel_rooftop|synthetic_edges_text)$",
+  "experiments": [
+    {"id": "exposure_m010", "baseConfig": "stage_e/tone_template.json", "overrides": {"qualityLab": {"tone": {"exposureEV": -0.10}}}},
+    {"id": "exposure_m005", "baseConfig": "stage_e/tone_template.json", "overrides": {"qualityLab": {"tone": {"exposureEV": -0.05}}}},
+    {"id": "exposure_000_refine", "baseConfig": "stage_e/tone_template.json", "overrides": {"qualityLab": {"tone": {"exposureEV": 0.00}}}},
+    {"id": "exposure_p005", "baseConfig": "stage_e/tone_template.json", "overrides": {"qualityLab": {"tone": {"exposureEV": 0.05}}}},
+    {"id": "exposure_p010", "baseConfig": "stage_e/tone_template.json", "overrides": {"qualityLab": {"tone": {"exposureEV": 0.10}}}}
+  ]
+}

@@ -1,0 +1,20 @@
+{
+  "name": "stage-d-adaptive-sharpen-screen",
+  "preset": "Quality",
+  "dimensions": "426x240",
+  "frame": 48,
+  "quality": "high",
+  "clipRegex": "^(tos_daylight|sintel_rooftop|synthetic_edges_text)$",
+  "experiments": [
+    {"id": "adaptive_s000", "baseConfig": "stage_d/sharpen_template.json", "overrides": {"qualityLab": {"sharpen": {"mode": "none", "strength": 0.0}}}},
+    {"id": "adaptive_s010", "baseConfig": "stage_d/sharpen_template.json", "overrides": {"qualityLab": {"sharpen": {"mode": "adaptive", "strength": 0.10, "limit": 0.125, "threshold": 0.05}}}},
+    {"id": "adaptive_s020", "baseConfig": "stage_d/sharpen_template.json", "overrides": {"qualityLab": {"sharpen": {"mode": "adaptive", "strength": 0.20, "limit": 0.125, "threshold": 0.05}}}},
+    {"id": "adaptive_s030", "baseConfig": "stage_d/sharpen_template.json", "overrides": {"qualityLab": {"sharpen": {"mode": "adaptive", "strength": 0.30, "limit": 0.125, "threshold": 0.05}}}},
+    {"id": "adaptive_s040", "baseConfig": "stage_d/sharpen_template.json", "overrides": {"qualityLab": {"sharpen": {"mode": "adaptive", "strength": 0.40, "limit": 0.125, "threshold": 0.05}}}},
+    {"id": "adaptive_s050", "baseConfig": "stage_d/sharpen_template.json", "overrides": {"qualityLab": {"sharpen": {"mode": "adaptive", "strength": 0.50, "limit": 0.125, "threshold": 0.05}}}},
+    {"id": "adaptive_s020_limit0625", "baseConfig": "stage_d/sharpen_template.json", "overrides": {"qualityLab": {"sharpen": {"mode": "adaptive", "strength": 0.20, "limit": 0.0625, "threshold": 0.05}}}},
+    {"id": "adaptive_s020_limit250", "baseConfig": "stage_d/sharpen_template.json", "overrides": {"qualityLab": {"sharpen": {"mode": "adaptive", "strength": 0.20, "limit": 0.25, "threshold": 0.05}}}},
+    {"id": "adaptive_s020_threshold025", "baseConfig": "stage_d/sharpen_template.json", "overrides": {"qualityLab": {"sharpen": {"mode": "adaptive", "strength": 0.20, "limit": 0.125, "threshold": 0.025}}}},
+    {"id": "adaptive_s020_threshold100", "baseConfig": "stage_d/sharpen_template.json", "overrides": {"qualityLab": {"sharpen": {"mode": "adaptive", "strength": 0.20, "limit": 0.125, "threshold": 0.10}}}}
+  ]
+}

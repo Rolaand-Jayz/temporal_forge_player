@@ -1,0 +1,22 @@
+{
+  "status": "diagnostic_not_promoted",
+  "candidate": "TFORGE_FSR4_EXPERIMENTAL_LEGACY_ROUND=1",
+  "hypothesis": "The recovered 3x3 postpass source anchor should use round(sourcePos), matching the public FSR 4.0.2 postpass shader, instead of the current default floor(sourcePos).",
+  "conditions": {
+    "player": "build-fast/temporal_forge_player",
+    "path": "generic reconstructed",
+    "input": "426x240",
+    "output": "1920x1080",
+    "decode": "software",
+    "warmupFrames": 2,
+    "scoredFrames": 4,
+    "scenes": ["tos_daylight", "tos_debris", "sintel_rooftop", "sintel_cave"]
+  },
+  "results": [
+    {"scene":"tos_daylight", "control":{"ssim":0.851682,"temporalError":1.452960}, "round":{"ssim":0.851637,"temporalError":1.454247}},
+    {"scene":"tos_debris", "control":{"ssim":0.934970,"temporalError":0.022214}, "round":{"ssim":0.934938,"temporalError":0.021574}},
+    {"scene":"sintel_rooftop", "control":{"ssim":0.799397,"temporalError":0.617534}, "round":{"ssim":0.799369,"temporalError":0.617434}},
+    {"scene":"sintel_cave", "control":{"ssim":0.988760,"temporalError":0.011548}, "round":{"ssim":0.988758,"temporalError":0.011623}}
+  ],
+  "decision": "Reject. Round lowered SSIM on every scene and did not produce a consistent temporal improvement. The default floor path is unchanged."
+}

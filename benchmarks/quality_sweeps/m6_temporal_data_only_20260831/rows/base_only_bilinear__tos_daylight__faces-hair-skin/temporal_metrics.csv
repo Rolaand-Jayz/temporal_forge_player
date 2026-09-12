@@ -1,0 +1,2 @@
+candidateId,scene,configId,startFrame,endFrame,class,frames,width,height,static_flicker,edge_variance,motion_compensated_error,ghost_duration_frames,reset_recovery_frames
+base_only_bilinear,tos_daylight,benchmarks/quality_sweeps/stage_a/base_only_bilinear.json,48,65,faces-hair-skin,18,1920,1080,0.009499438,0.000048496,0.012994694,0,1

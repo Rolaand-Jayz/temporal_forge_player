@@ -1,0 +1,2 @@
+candidateId,scene,configId,startFrame,endFrame,class,frames,width,height,static_flicker,edge_variance,motion_compensated_error,ghost_duration_frames,reset_recovery_frames
+current,tos_daylight,benchmarks/quality_sweeps/stage_a/current.json,48,65,fine-fabric-texture,18,1920,1080,0.019000511,0.000113343,0.013314498,0,1

@@ -1,0 +1,22 @@
+{
+  "schema": 1,
+  "status": "diagnostic_not_promoted",
+  "candidate": "generic_postpass_tail_mapping_normal",
+  "control": "generic_postpass_tail_mapping_swap",
+  "settings": {
+    "input": "426x240 high crf12",
+    "output": "1920x1080",
+    "genericPath": true,
+    "softwareDecode": true,
+    "warmupFrames": 2,
+    "scoredFrames": 2,
+    "qualityLabConfig": "benchmarks/quality_sweeps/swarm/agent_recheck_current/config.json"
+  },
+  "pairs": [
+    {"scene":"tos_daylight", "swap":{"ssim":0.853093,"temporalError":1.913810}, "normal":{"ssim":0.853090,"temporalError":1.914020}},
+    {"scene":"tos_debris", "swap":{"ssim":0.934579,"temporalError":4.086520}, "normal":{"ssim":0.934575,"temporalError":4.086540}},
+    {"scene":"sintel_rooftop", "swap":{"ssim":0.801814,"temporalError":17.280900}, "normal":{"ssim":0.801811,"temporalError":17.280800}},
+    {"scene":"sintel_cave", "swap":{"ssim":0.988782,"temporalError":0.129823}, "normal":{"ssim":0.988781,"temporalError":0.129932}}
+  ],
+  "decision": "Keep swap as the existing generic default. The normal mapping is now available only through TFORGE_FSR4_POSTPASS_TAIL_MAPPING=normal; the observed differences are too small for promotion and require a longer scored run plus visual review."
+}

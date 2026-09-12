@@ -1,0 +1,196 @@
+{
+  "status": "AUTOMATED QUALIFICATION: PASS",
+  "human_review": "PENDING",
+  "full_campaign": "NOT STARTED",
+  "git_head": "f5f3dff3c722f2c3404bc8133a972079c40e867c",
+  "binary_sha256": "ef71cb10c9bd29c85e7658931f029a4ef1eadc33870fdc0384d583ec856ead8e",
+  "config_sha256": "576ad1c1d6a02a95a4ef0ce732aea5440fed88d4e0277ea6c9552725d0880346",
+  "cases": [
+    [
+      360,
+      720
+    ],
+    [
+      360,
+      1080
+    ],
+    [
+      720,
+      1080
+    ]
+  ],
+  "scenes": [
+    "sintel_cave",
+    "tos_daylight"
+  ],
+  "assets": [
+    {
+      "scene": "sintel_cave",
+      "input": 360,
+      "output": 720,
+      "cas": "no_cas",
+      "csv": "/home/rolaandjayz/ZCodeProject/temporal_forge_player/benchmarks/quality_sweeps/precampaign_20260903T154405Z/sintel_cave_360to720_no_cas/results.csv",
+      "image": "/home/rolaandjayz/ZCodeProject/temporal_forge_player/benchmarks/quality_sweeps/precampaign_20260903T154405Z/harness/sintel_cave_360to720_no_cas.png",
+      "width": 1280,
+      "height": 720,
+      "sha256": "4fcd32a15c82f7932b6f41419da2c56dfe40eb34c7dbe8939df572f666aeebdc",
+      "stage_b_checker_score": 0.11621464788913727,
+      "binary_sha256": "ef71cb10c9bd29c85e7658931f029a4ef1eadc33870fdc0384d583ec856ead8e",
+      "config_sha256": "576ad1c1d6a02a95a4ef0ce732aea5440fed88d4e0277ea6c9552725d0880346"
+    },
+    {
+      "scene": "sintel_cave",
+      "input": 360,
+      "output": 720,
+      "cas": "cas20",
+      "csv": "/home/rolaandjayz/ZCodeProject/temporal_forge_player/benchmarks/quality_sweeps/precampaign_20260903T154405Z/sintel_cave_360to720_cas20/results.csv",
+      "image": "/home/rolaandjayz/ZCodeProject/temporal_forge_player/benchmarks/quality_sweeps/precampaign_20260903T154405Z/harness/sintel_cave_360to720_cas20.png",
+      "width": 1280,
+      "height": 720,
+      "sha256": "0ef6e073a219f17bd67846b702ff2f8fad39a659dbc64a91318545348adaa215",
+      "stage_b_checker_score": 0.11621464788913727,
+      "binary_sha256": "ef71cb10c9bd29c85e7658931f029a4ef1eadc33870fdc0384d583ec856ead8e",
+      "config_sha256": "576ad1c1d6a02a95a4ef0ce732aea5440fed88d4e0277ea6c9552725d0880346"
+    },
+    {
+      "scene": "tos_daylight",
+      "input": 360,
+      "output": 720,
+      "cas": "no_cas",
+      "csv": "/home/rolaandjayz/ZCodeProject/temporal_forge_player/benchmarks/quality_sweeps/precampaign_20260903T154405Z/tos_daylight_360to720_no_cas/results.csv",
+      "image": "/home/rolaandjayz/ZCodeProject/temporal_forge_player/benchmarks/quality_sweeps/precampaign_20260903T154405Z/harness/tos_daylight_360to720_no_cas.png",
+      "width": 1280,
+      "height": 720,
+      "sha256": "1abb3025812191385c02a2b87a5a8b49394bb5b0b1e8f50d01f8a7e57d2689f2",
+      "stage_b_checker_score": 0.06815355271100998,
+      "binary_sha256": "ef71cb10c9bd29c85e7658931f029a4ef1eadc33870fdc0384d583ec856ead8e",
+      "config_sha256": "576ad1c1d6a02a95a4ef0ce732aea5440fed88d4e0277ea6c9552725d0880346"
+    },
+    {
+      "scene": "tos_daylight",
+      "input": 360,
+      "output": 720,
+      "cas": "cas20",
+      "csv": "/home/rolaandjayz/ZCodeProject/temporal_forge_player/benchmarks/quality_sweeps/precampaign_20260903T154405Z/tos_daylight_360to720_cas20/results.csv",
+      "image": "/home/rolaandjayz/ZCodeProject/temporal_forge_player/benchmarks/quality_sweeps/precampaign_20260903T154405Z/harness/tos_daylight_360to720_cas20.png",
+      "width": 1280,
+      "height": 720,
+      "sha256": "803e0b398df0ed10ca0b8f9d937b6a19cac81962beef4a187b0697f81d339d9d",
+      "stage_b_checker_score": 0.06815355271100998,
+      "binary_sha256": "ef71cb10c9bd29c85e7658931f029a4ef1eadc33870fdc0384d583ec856ead8e",
+      "config_sha256": "576ad1c1d6a02a95a4ef0ce732aea5440fed88d4e0277ea6c9552725d0880346"
+    },
+    {
+      "scene": "sintel_cave",
+      "input": 360,
+      "output": 1080,
+      "cas": "no_cas",
+      "csv": "/home/rolaandjayz/ZCodeProject/temporal_forge_player/benchmarks/quality_sweeps/precampaign_20260903T154405Z/sintel_cave_360to1080_no_cas/results.csv",
+      "image": "/home/rolaandjayz/ZCodeProject/temporal_forge_player/benchmarks/quality_sweeps/precampaign_20260903T154405Z/harness/sintel_cave_360to1080_no_cas.png",
+      "width": 1920,
+      "height": 1080,
+      "sha256": "1f09523a32d251d38ee3868d9661ed8ff8e769e2c1c9c7ff8d2469553cea75ca",
+      "stage_b_checker_score": 0.05092556029558182,
+      "binary_sha256": "ef71cb10c9bd29c85e7658931f029a4ef1eadc33870fdc0384d583ec856ead8e",
+      "config_sha256": "576ad1c1d6a02a95a4ef0ce732aea5440fed88d4e0277ea6c9552725d0880346"
+    },
+    {
+      "scene": "sintel_cave",
+      "input": 360,
+      "output": 1080,
+      "cas": "cas20",
+      "csv": "/home/rolaandjayz/ZCodeProject/temporal_forge_player/benchmarks/quality_sweeps/precampaign_20260903T154405Z/sintel_cave_360to1080_cas20/results.csv",
+      "image": "/home/rolaandjayz/ZCodeProject/temporal_forge_player/benchmarks/quality_sweeps/precampaign_20260903T154405Z/harness/sintel_cave_360to1080_cas20.png",
+      "width": 1920,
+      "height": 1080,
+      "sha256": "88978f9252b23f1ccec5c75106c675468d3b213e107ef811ce8fa7e7e9c0eee5",
+      "stage_b_checker_score": 0.05092556029558182,
+      "binary_sha256": "ef71cb10c9bd29c85e7658931f029a4ef1eadc33870fdc0384d583ec856ead8e",
+      "config_sha256": "576ad1c1d6a02a95a4ef0ce732aea5440fed88d4e0277ea6c9552725d0880346"
+    },
+    {
+      "scene": "tos_daylight",
+      "input": 360,
+      "output": 1080,
+      "cas": "no_cas",
+      "csv": "/home/rolaandjayz/ZCodeProject/temporal_forge_player/benchmarks/quality_sweeps/precampaign_20260903T154405Z/tos_daylight_360to1080_no_cas/results.csv",
+      "image": "/home/rolaandjayz/ZCodeProject/temporal_forge_player/benchmarks/quality_sweeps/precampaign_20260903T154405Z/harness/tos_daylight_360to1080_no_cas.png",
+      "width": 1920,
+      "height": 1080,
+      "sha256": "0864bbaa9788a5fb8b9b82b1d7ad4fd182b6b0035dfb80b87a056015fc5fdefa",
+      "stage_b_checker_score": 0.030670348554849625,
+      "binary_sha256": "ef71cb10c9bd29c85e7658931f029a4ef1eadc33870fdc0384d583ec856ead8e",
+      "config_sha256": "576ad1c1d6a02a95a4ef0ce732aea5440fed88d4e0277ea6c9552725d0880346"
+    },
+    {
+      "scene": "tos_daylight",
+      "input": 360,
+      "output": 1080,
+      "cas": "cas20",
+      "csv": "/home/rolaandjayz/ZCodeProject/temporal_forge_player/benchmarks/quality_sweeps/precampaign_20260903T154405Z/tos_daylight_360to1080_cas20/results.csv",
+      "image": "/home/rolaandjayz/ZCodeProject/temporal_forge_player/benchmarks/quality_sweeps/precampaign_20260903T154405Z/harness/tos_daylight_360to1080_cas20.png",
+      "width": 1920,
+      "height": 1080,
+      "sha256": "262248a1a22e0ecfcf76697fe5dd8ce75f770f89bd9b5cee6f721e8947c3c769",
+      "stage_b_checker_score": 0.030670348554849625,
+      "binary_sha256": "ef71cb10c9bd29c85e7658931f029a4ef1eadc33870fdc0384d583ec856ead8e",
+      "config_sha256": "576ad1c1d6a02a95a4ef0ce732aea5440fed88d4e0277ea6c9552725d0880346"
+    },
+    {
+      "scene": "sintel_cave",
+      "input": 720,
+      "output": 1080,
+      "cas": "no_cas",
+      "csv": "/home/rolaandjayz/ZCodeProject/temporal_forge_player/benchmarks/quality_sweeps/precampaign_20260903T154405Z/sintel_cave_720to1080_no_cas/results.csv",
+      "image": "/home/rolaandjayz/ZCodeProject/temporal_forge_player/benchmarks/quality_sweeps/precampaign_20260903T154405Z/harness/sintel_cave_720to1080_no_cas.png",
+      "width": 1920,
+      "height": 1080,
+      "sha256": "729f42c013e00da1a4ff58bd0c99ad937014af851def79bbb745c17c220faddd",
+      "stage_b_checker_score": 0.08015985786914825,
+      "binary_sha256": "ef71cb10c9bd29c85e7658931f029a4ef1eadc33870fdc0384d583ec856ead8e",
+      "config_sha256": "576ad1c1d6a02a95a4ef0ce732aea5440fed88d4e0277ea6c9552725d0880346"
+    },
+    {
+      "scene": "sintel_cave",
+      "input": 720,
+      "output": 1080,
+      "cas": "cas20",
+      "csv": "/home/rolaandjayz/ZCodeProject/temporal_forge_player/benchmarks/quality_sweeps/precampaign_20260903T154405Z/sintel_cave_720to1080_cas20/results.csv",
+      "image": "/home/rolaandjayz/ZCodeProject/temporal_forge_player/benchmarks/quality_sweeps/precampaign_20260903T154405Z/harness/sintel_cave_720to1080_cas20.png",
+      "width": 1920,
+      "height": 1080,
+      "sha256": "37e1302ec4dc5ac04c3f171e8ce8788be5e8ddbacc55ea62e2143a8975b1f233",
+      "stage_b_checker_score": 0.08015985786914825,
+      "binary_sha256": "ef71cb10c9bd29c85e7658931f029a4ef1eadc33870fdc0384d583ec856ead8e",
+      "config_sha256": "576ad1c1d6a02a95a4ef0ce732aea5440fed88d4e0277ea6c9552725d0880346"
+    },
+    {
+      "scene": "tos_daylight",
+      "input": 720,
+      "output": 1080,
+      "cas": "no_cas",
+      "csv": "/home/rolaandjayz/ZCodeProject/temporal_forge_player/benchmarks/quality_sweeps/precampaign_20260903T154405Z/tos_daylight_720to1080_no_cas/results.csv",
+      "image": "/home/rolaandjayz/ZCodeProject/temporal_forge_player/benchmarks/quality_sweeps/precampaign_20260903T154405Z/harness/tos_daylight_720to1080_no_cas.png",
+      "width": 1920,
+      "height": 1080,
+      "sha256": "13013b1083faa9e4813aa56cb40a6948d33c74a29e09ad96251d0f8abefd34ca",
+      "stage_b_checker_score": 0.04697468876838684,
+      "binary_sha256": "ef71cb10c9bd29c85e7658931f029a4ef1eadc33870fdc0384d583ec856ead8e",
+      "config_sha256": "576ad1c1d6a02a95a4ef0ce732aea5440fed88d4e0277ea6c9552725d0880346"
+    },
+    {
+      "scene": "tos_daylight",
+      "input": 720,
+      "output": 1080,
+      "cas": "cas20",
+      "csv": "/home/rolaandjayz/ZCodeProject/temporal_forge_player/benchmarks/quality_sweeps/precampaign_20260903T154405Z/tos_daylight_720to1080_cas20/results.csv",
+      "image": "/home/rolaandjayz/ZCodeProject/temporal_forge_player/benchmarks/quality_sweeps/precampaign_20260903T154405Z/harness/tos_daylight_720to1080_cas20.png",
+      "width": 1920,
+      "height": 1080,
+      "sha256": "a0fcac8d57b331792295cf0ae6386a9a813bd110be64218917b2c01ab254b57a",
+      "stage_b_checker_score": 0.04697468876838684,
+      "binary_sha256": "ef71cb10c9bd29c85e7658931f029a4ef1eadc33870fdc0384d583ec856ead8e",
+      "config_sha256": "576ad1c1d6a02a95a4ef0ce732aea5440fed88d4e0277ea6c9552725d0880346"
+    }
+  ]
+}

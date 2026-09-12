@@ -1,0 +1,14 @@
+{
+  "name": "stage-b-spatial-base",
+  "preset": "Quality",
+  "dimensions": "426x240",
+  "frame": 48,
+  "quality": "high",
+  "clipRegex": "^(tos_daylight|tos_debris|sintel_rooftop|sintel_cave|synthetic_edges_text|synthetic_motion|synthetic_dark)$",
+  "experiments": [
+    {"id": "base_only_bilinear", "config": "stage_a/base_only_bilinear.json"},
+    {"id": "base_only_mitchell", "config": "stage_b/base_only_mitchell.json"},
+    {"id": "base_only_catmull_rom", "config": "stage_b/base_only_catmull_rom.json"},
+    {"id": "base_only_lanczos2", "config": "stage_b/base_only_lanczos2.json"}
+  ]
+}

@@ -70,7 +70,7 @@ def main() -> int:
     ap.add_argument("--run", action="store_true", help="execute captures (default is dry-run)")
     ap.add_argument("--resume", action="store_true", help="skip keys already marked complete in the manifest")
     ap.add_argument("--output-root", type=Path, default=ROOT / "benchmarks" / "quality_sweeps" / "motion_campaign")
-    ap.add_argument("--player", type=Path, default=ROOT / "build-fast" / "temporal_forge_player")
+    ap.add_argument("--player", type=Path, default=ROOT / "build" / "temporal_forge_player")
     ap.add_argument("--config", type=Path, default=ROOT / "benchmarks" / "quality_sweeps" / "swarm" / "agent_recheck_current" / "config.json")
     ap.add_argument("--frames", type=int, default=8)
     ap.add_argument("--warmup", type=int, default=8)
