@@ -99,6 +99,7 @@ class TemporalMatrixTests(unittest.TestCase):
         matrix = json.loads(matrix_path.read_text(encoding="utf-8"))
         self.assertEqual(len(matrix["temporal"]), temporal["rowCount"])
         self.assertTrue(temporal["rowCount"] > 0)
+        self.assertEqual(temporal["rowCount"], 20)
         self.assertIn("event-backed", temporal.get("note", ""))
 
     def test_assembly_preserves_blank_event_metrics_as_pending_evidence(self) -> None:
