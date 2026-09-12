@@ -122,3 +122,12 @@ Failed experiments are valid results. Record them and move on.
 Continue working through the active plan until its completion criteria are satisfied or a genuine blocker is reached that cannot be resolved from repository evidence, available tooling, or controlled experimentation.
 
 Do not declare completion merely because the planned infrastructure or experiment code exists.
+
+
+## Mandatory worker completion wait protocol
+
+An agent that spawns workers may continue independent work while they run. It must not poll, check in with, query, or otherwise contact workers to ask whether they have finished. When no independent work remains and required work is blocked on workers, it must begin a 10,000-second blocking hold/wait. Every required worker must be explicitly instructed to interrupt or wake that hold when it reaches a terminal state.
+
+When the hold is interrupted, immediately evaluate all workers in the group. If any required worker remains active, begin another 10,000-second hold and continue this cycle until every required worker has reached a terminal state, outputs or explicit failures have been collected, and no worker spawned for that group remains active. Do not shorten the hold, impose an arbitrary number of cycles, infer failure from elapsed time, or produce the final result while required workers remain active. Once no workers remain, resume the original task. If the runtime cannot represent 10,000 seconds literally, use its longest supported blocking mechanism and renew it continuously under the same conditions.
+
+This rule applies to all agents and workers operating in this repository and is authoritative at repository scope.
